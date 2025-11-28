@@ -1,0 +1,40 @@
+{
+  "locations": [
+   ],
+  "areas": [
+   
+    {
+      "name": "England and Wales",
+      "locations": [
+          "London, England",
+          "Brighton, England",
+          "Southampton, England",
+          "Exeter, England",
+          "Plymouth, England",
+          "Bristol, England",
+          "Cardiff, Wales",
+          "Swansea, Wales",
+          "Aberystwyth, Wales",
+          "Shrewsbury, England",
+          "Birmingham, England",
+          "Norwich, England",
+          "Cambridge, England",
+          "Liverpool, England",
+          "Manchester, England",
+          "Leeds, England",
+          "York, England",
+          "Newcastle upon Tyne, England",
+          "Carlisle, England",
+          "Durham, England"
+      ],
+      "units": {
+        "windspeed_unit": "mph"
+      }
+    }
+  ],
+  "llm": "",
+  "location_forecast_days": "7",
+  "area_forecast_days": "2",
+  "web_root": "/Volumes/web/weather/forecasts",
+  "api_url": "https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast"
+}

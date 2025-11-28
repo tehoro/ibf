@@ -1,0 +1,16 @@
+{
+    "locations": [
+
+        "Paraparaumu, NZ"
+
+    ],
+    "areas": [
+       
+    ],
+    "llm": "or:nvidia/llama-3.1-nemotron-ultra-253b-v1:free",
+    "location_forecast_days": "7",
+    "location_wordiness" : "detailed",
+    "area_forecast_days": "3",
+    "web_root": "/Volumes/web/weather/forecaststest",
+    "api_url": "https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast"
+}

@@ -1,0 +1,37 @@
+{
+    "locations": [
+
+        {
+            "name": "South Dunedin, NZ"
+        },
+        {
+            "name": "Exeter, UK",
+            "units": {
+                "windspeed_unit": "mph"
+            }
+        },
+        {
+            "name": "Halifax, NS"
+        },
+        {
+            "name": "Boulder, CO, USA",
+            "units": {
+                "temperature_unit": "fahrenheit",
+                "windspeed_unit": "mph",
+                "precipitation_unit": "inch"
+            }
+        }
+    ],
+    "areas": [
+ 
+    ],
+    "orllm": "or:openrouter/optimus-alpha",
+    "llm": "gemini-2.5-pro-exp-03-25",
+    "defllm:" : "",
+    "location_forecast_days": "7",
+    "location_wordiness" : "brief",
+    "area_forecast_days": "2",
+    "area_wordiness" : "brief",
+    "web_root": "/Volumes/web/weather/forecaststest",
+    "api_url": "https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast"
+}

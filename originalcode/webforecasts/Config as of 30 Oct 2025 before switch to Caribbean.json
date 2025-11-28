@@ -1,0 +1,177 @@
+{
+    "locations": [
+        {
+            "name": "Kerikeri, NZ"
+        },
+        {
+            "name": "Auckland, NZ"
+        },
+        {
+            "name": "Otaki, NZ"
+        },
+        {
+            "name": "Wellington, NZ"
+        },
+        {
+            "name": "Christchurch, NZ"
+        },
+ 
+        {
+            "name": "South Dunedin, NZ"
+        },
+        {
+            "name": "Exeter, UK",
+            "units": {
+                "windspeed_unit": "mph"
+            }
+        },
+               {
+            "name": "Geneva, Switzerland"
+        	},
+        {
+            "name": "Halifax, NS"
+        },
+        {
+            "name": "Montreal, Quebec",
+            "lang" : "Fr-CA"
+        },
+     
+        {
+            "name": "Boulder, CO, USA",
+            "units": {
+                "temperature_unit": "fahrenheit",
+                "windspeed_unit": "mph",
+                "precipitation_unit": "inch"
+            }
+        }
+    ],
+    "areas": [
+        {
+            "name": "Southern North Island, NZ",
+            "locations": [
+                "Wellington, NZ",
+                "Porirua, NZ",
+                "Lower Hutt, NZ",
+                "Upper Hutt, NZ",
+                "Paraparaumu, NZ",
+                "Otaki, NZ",
+                "Levin, NZ",
+                "Palmerston North, NZ",
+                "Pahiatua, NZ",
+                "Masterton, NZ",
+                "Featherston, NZ",
+                "Martinborough, NZ"
+            ]
+        },
+        {
+            "name": "regions:Southern North Island, NZ",
+            "locations": [
+                "Wellington, NZ",
+                "Porirua, NZ",
+                "Lower Hutt, NZ",
+                "Upper Hutt, NZ",
+                "Paraparaumu, NZ",
+                "Otaki, NZ",
+                "Levin, NZ",
+                "Palmerston North, NZ",
+                "Pahiatua, NZ",
+                "Masterton, NZ",
+                "Featherston, NZ",
+                "Martinborough, NZ"
+            ]
+        },
+        {
+          "name": "The South Island, NZ",
+          "locations": [
+            "Nelson, NZ",
+            "Picton, NZ",
+            "Kaikōura, NZ",
+            "Christchurch, NZ",
+            "Timaru, NZ",
+            "Dunedin, NZ",
+            "Invercargill, NZ",
+            "Westport, NZ",
+            "Greymouth, NZ",
+            "Hokitika, NZ",
+            "Hanmer Springs, NZ",
+            "Lake Tekapo, NZ",
+            "Twizel, NZ",
+            "Alexandra, NZ",
+            "Queenstown, NZ",
+            "Te Anau, NZ",
+            "Arthur's Pass, NZ",
+            "Lewis Pass, NZ",
+            "Haast Pass, NZ",
+            "Milford Sound, NZ"
+          ]
+        },
+        {
+            "name": "England and Wales",
+            "locations": [
+                "London, UK",
+                "Brighton, UK",
+                "Southampton, UK",
+                "Exeter, UK",
+                "Plymouth, UK",
+                "Bristol, UK",
+                "Cardiff, Wales",
+                "Swansea, Wales",
+                "Aberystwyth, Wales",
+                "Shrewsbury, UK",
+                "Birmingham, UK",
+                "Norwich, UK",
+                "Cambridge, UK",
+                "Manchester, UK",
+                "Leeds, UK",
+                "York, UK",
+                "Newcastle upon Tyne, UK",
+                "Carlisle, UK",
+                "Durham, UK"
+            ],
+            "units": {
+                "windspeed_unit": "mph"
+            }
+        },
+        {
+            "name": "Nova Scotia",
+            "locations": [
+                "Halifax, Nova Scotia",
+                "Dartmouth, Nova Scotia",
+                "Lunenberg, Nova Scotia",
+                "Yarmouth, Nova Scotia",
+                "Liverpool, Nova Scotia",
+                "Digby, Nova Scotia",
+                "Wolfville, Nova Scotia",
+                "Truro, Nova Scotia",
+                "Antigonish, Nova Scotia",
+                "Sydney, Nova Scotia",
+                "Cheticamp, Nova Scotia",
+                "Baddeck, Nova Scotia"
+            ]
+        }
+    ],
+    "llm 4.1 nano" : "or:openai/gpt-4.1-nano",
+    "llm or gone": "or:google/gemini-2.5-pro-exp-03-25:free",
+    "llm gem" : "gemini-2.5-pro-exp-03-25-exp-03-25",
+    "llm" : "gemini-2.5-flash-preview-09-2025",
+    "llm pro" : "gemini-2.5-pro",
+    "llm grok" : "or:x-ai/grok-4-fast:free",
+    "llm flash modest" : "gemini-2.5-flash-latest",
+    "llm or flash" : "or:google/gemini-2.5-flash",
+    "llm 2.5" : "or:google/gemini-2.5-pro",
+    "llm r1" : "or:deepseek/deepseek-r1-0528",
+    "llm flash lite" : "or:google/gemini-2.5-flash-lite-preview-06-17",
+    "location_forecast_days": "7",
+    "location_wordiness" : "brief",
+    "location_reasoning" : "high ",
+    "area_forecast_days": "2",
+    "area_wordiness" : "brief",
+    "area_reasoning" : "high",
+    "enable_reasoning" : true,
+    "web_root": "/Volumes/web/weather/forecasts",
+    "api_url": "https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast",
+    
+    
+     "api_url deployed": "https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast",
+    "api_url_dev": "https://7fbec3ab-b169-4b7c-84d3-8d1330bded5d-00-1v1hz74nm0xxs.worf.replit.dev/forecast"
+}
