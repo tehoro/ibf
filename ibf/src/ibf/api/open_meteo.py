@@ -1,0 +1,157 @@
+"""
+Client for the Open-Meteo ECMWF ensemble endpoint with file-based caching.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, Optional
+
+import requests
+
+from ..util import ensure_directory, is_file_stale
+
+logger = logging.getLogger(__name__)
+
+BASE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
+HOURLY_FIELDS = ",".join(
+    [
+        "temperature_2m",
+        "dewpoint_2m",
+        "precipitation",
+        "snowfall",
+        "weather_code",
+        "cloud_cover",
+        "wind_speed_10m",
+        "wind_direction_10m",
+        "wind_gusts_10m",
+        "freezing_level_height",
+    ]
+)
+
+WINDSPEED_CONVERSIONS = {"kph": "kmh", "kt": "kn", "mps": "ms"}
+
+
+@dataclass(frozen=True)
+class ForecastRequest:
+    latitude: float
+    longitude: float
+    timezone: str
+    forecast_days: int = 4
+    temperature_unit: str = "celsius"
+    windspeed_unit: str = "kph"
+    precipitation_unit: str = "mm"
+    models: str = "ecmwf_ifs025"
+    cache_ttl_minutes: int = 60
+    cache_dir: Path = field(default_factory=lambda: Path("ibf_cache/forecasts"))
+
+
+@dataclass
+class ForecastResponse:
+    raw: Dict[str, object]
+    from_cache: bool
+    cache_path: Optional[Path] = None
+
+
+def fetch_forecast(request: ForecastRequest) -> ForecastResponse:
+    """
+    Fetch ensemble data with caching and simple retries.
+    """
+    cache_path = _cache_path(request)
+    if request.cache_ttl_minutes > 0:
+        cached_data = _load_cache(cache_path, request.cache_ttl_minutes)
+        if cached_data is not None:
+            logger.debug("Loaded forecast cache for %s", cache_path.name)
+            return ForecastResponse(raw=cached_data, from_cache=True, cache_path=cache_path)
+
+    data = _download_forecast(request)
+    if request.cache_ttl_minutes > 0:
+        _write_cache(cache_path, data)
+
+    return ForecastResponse(raw=data, from_cache=False, cache_path=cache_path)
+
+
+def _cache_key(request: ForecastRequest) -> str:
+    lat_suffix = "N" if request.latitude >= 0 else "S"
+    lon_suffix = "E" if request.longitude >= 0 else "W"
+    return (
+        f"{abs(round(request.latitude, 2))}{lat_suffix}_"
+        f"{abs(round(request.longitude, 2))}{lon_suffix}_"
+        f"{request.forecast_days}_{request.temperature_unit}_"
+        f"{request.precipitation_unit}_{request.windspeed_unit}"
+    )
+
+
+def _cache_path(request: ForecastRequest) -> Path:
+    cache_dir = ensure_directory(request.cache_dir)
+    return cache_dir / f"{_cache_key(request)}.json"
+
+
+def _load_cache(path: Path, ttl_minutes: int) -> Optional[Dict[str, object]]:
+    if not path.exists():
+        return None
+    if is_file_stale(path, max_age_minutes=ttl_minutes):
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Failed to read cache %s (%s). Ignoring.", path, exc)
+        return None
+
+
+def _write_cache(path: Path, data: Dict[str, object]) -> None:
+    try:
+        path.write_text(json.dumps(data), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("Failed to write cache %s (%s).", path, exc)
+
+
+def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
+    params = {
+        "latitude": request.latitude,
+        "longitude": request.longitude,
+        "hourly": HOURLY_FIELDS,
+        "timezone": request.timezone,
+        "forecast_days": request.forecast_days,
+        "temperature_unit": request.temperature_unit,
+        "windspeed_unit": WINDSPEED_CONVERSIONS.get(request.windspeed_unit, request.windspeed_unit),
+        "precipitation_unit": request.precipitation_unit,
+        "models": request.models,
+    }
+
+    last_error: Optional[str] = None
+    for attempt in range(1, 4):
+        try:
+            response = requests.get(BASE_URL, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            _validate_response(data)
+            logger.info("Fetched Open-Meteo forecast (%s)", response.url)
+            return data
+        except requests.RequestException as exc:
+            last_error = f"HTTP error calling Open-Meteo: {exc}"
+            logger.warning("%s (attempt %s/3)", last_error, attempt)
+        except json.JSONDecodeError as exc:
+            last_error = f"Invalid JSON from Open-Meteo: {exc}"
+            logger.warning("%s (attempt %s/3)", last_error, attempt)
+        except ValueError as exc:
+            last_error = str(exc)
+            logger.warning("%s (attempt %s/3)", last_error, attempt)
+
+        if attempt < 3:
+            time.sleep(2 ** (attempt - 1))
+
+    raise RuntimeError(last_error or "Failed to fetch Open-Meteo forecast.")
+
+
+def _validate_response(data: Dict[str, object]) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("Open-Meteo response must be a JSON object.")
+    hourly = data.get("hourly")
+    if not isinstance(hourly, dict) or "time" not in hourly:
+        raise ValueError("Open-Meteo response missing 'hourly.time' data.")
+

@@ -1,0 +1,95 @@
+"""
+Helpers to determine which LLM/provider to use based on config.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from typing import Optional
+
+from ..config import ForecastConfig
+
+
+@dataclass
+class LLMSettings:
+    model: str
+    api_key: str
+    provider: str
+    base_url: Optional[str] = None
+    is_google: bool = False
+    temperature: float = 0.2
+    max_tokens: int = 8000
+
+
+def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] = None) -> LLMSettings:
+    """
+    Inspect the forecast config and environment variables to determine which LLM to use.
+    """
+    base_choice = override_choice or config.llm or os.environ.get("IBF_DEFAULT_LLM") or "or:google/gemini-2.5-pro-exp-03-25:free"
+    choice = base_choice.strip()
+    choice_lower = choice.lower()
+
+    if choice_lower.startswith("gemini-"):
+        api_key = _require_env("GEMINI_API_KEY")
+        return LLMSettings(
+            model=choice,
+            api_key=api_key,
+            provider="gemini",
+            is_google=True,
+            max_tokens=6000,
+        )
+
+    if choice_lower == "deepinfrar1":
+        api_key = _require_env("DEEP_INFRA_API_KEY")
+        return LLMSettings(
+            model="deepseek-ai/DeepSeek-R1",
+            api_key=api_key,
+            provider="deepinfra",
+            base_url="https://api.deepinfra.com/v1/openai",
+            max_tokens=6000,
+        )
+
+    if choice_lower == "gpt-4o-mini":
+        api_key = _require_env("OPENAI_API_KEY")
+        return LLMSettings(
+            model="gpt-4o-mini",
+            api_key=api_key,
+            provider="openai",
+            max_tokens=6000,
+        )
+
+    if choice_lower.startswith("or:"):
+        api_key = _require_env("OPENROUTER_API_KEY")
+        model_name = choice[3:]
+        return LLMSettings(
+            model=model_name,
+            api_key=api_key,
+            provider="openrouter",
+            base_url="https://openrouter.ai/api/v1",
+        )
+
+    if choice_lower == "gpt-4o-latest":
+        api_key = _require_env("OPENAI_API_KEY")
+        return LLMSettings(
+            model="gpt-4o-latest",
+            api_key=api_key,
+            provider="openai",
+        )
+
+    # Fallback to OpenRouter default if unknown
+    api_key = _require_env("OPENROUTER_API_KEY")
+    return LLMSettings(
+        model="google/gemini-2.5-pro-exp-03-25",
+        api_key=api_key,
+        provider="openrouter",
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+
+def _require_env(name: str) -> str:
+    value = os.getenv(name)
+    if not value:
+        raise RuntimeError(f"Environment variable {name} is required for the selected LLM.")
+    return value
+
