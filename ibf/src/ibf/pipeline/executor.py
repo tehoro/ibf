@@ -242,6 +242,8 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
 
     destination = _build_destination_path(config, area.name)
     logger.info("Writing area forecast page for '%s' → %s", area.name, destination)
+    map_link = _map_link_for(config, area.name)
+
     render_forecast_page(
         ForecastPage(
             destination=destination,
@@ -251,6 +253,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
             translated_text=translated_text,
             translation_language=translation_target,
             ibf_context=ibf_context,
+            map_link=map_link,
         )
     )
     logger.info("Rendered area forecast page for '%s' → %s", area.name, destination)
@@ -329,6 +332,8 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
 
     destination = _build_destination_path(config, area.name)
     logger.info("Writing regional forecast page for '%s' → %s", area.name, destination)
+    map_link = _map_link_for(config, area.name)
+
     render_forecast_page(
         ForecastPage(
             destination=destination,
@@ -338,6 +343,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
             translated_text=translated_text,
             translation_language=translation_target,
             ibf_context=ibf_context,
+            map_link=map_link,
         )
     )
     logger.info("Rendered regional forecast page for '%s' → %s", area.name, destination)
@@ -590,6 +596,21 @@ def _build_destination_path(config: ForecastConfig, name: str) -> Path:
     root = resolve_web_root(config)
     folder = root / slugify(name)
     return folder / "index.html"
+
+
+def _map_link_for(config: ForecastConfig, name: str) -> Optional[str]:
+    from ..web.scaffold import resolve_web_root
+
+    root = resolve_web_root(config)
+    maps_dir = root / "maps"
+    slug = slugify(name)
+    png = maps_dir / f"{slug}.png"
+    if png.exists():
+        return f"../maps/{png.name}"
+    html = maps_dir / f"{slug}.html"
+    if html.exists():
+        return f"../maps/{html.name}"
+    return None
 
 
 def _location_translation_language(location: LocationConfig, config: ForecastConfig) -> Optional[str]:

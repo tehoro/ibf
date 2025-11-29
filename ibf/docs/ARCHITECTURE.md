@@ -37,8 +37,8 @@ ibf/
   - Menu + per-location HTML templates (Jinja/Markdown to HTML conversion).
   - Auto scaffold (replacement for `setup.py`) run before each pipeline.
   - Optional detection of config hash changes to trigger rebuilds.
-- `ibf.maps` moves `mapAreas.py` logic into reusable services (geocoding,
-  folium map rendering, Selenium screenshots).
+- `ibf.maps` contains the map generator invoked via `ibf maps`, reusing the
+  shared geocoder plus folium + Selenium to render PNGs for each configured area.
 
 ### Command Line Surface
 

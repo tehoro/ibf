@@ -1,0 +1,17 @@
+# Environment & secrets
+.env
+
+# Virtual environments / UV state
+.venv/
+.python-version
+
+# Caches & compiled artifacts
+__pycache__/
+*.pyc
+ibf_cache/
+outputs/
+.pytest_cache/
+
+# OS files
+.DS_Store
+

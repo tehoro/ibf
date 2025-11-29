@@ -20,6 +20,7 @@ class ForecastPage:
     translated_text: Optional[str] = None
     translation_language: Optional[str] = None
     ibf_context: Optional[str] = None
+    map_link: Optional[str] = None
 
 
 def render_forecast_page(page: ForecastPage) -> Path:
@@ -38,8 +39,14 @@ def render_forecast_page(page: ForecastPage) -> Path:
     body_parts = [
         f"<h1>Forecast for {page.display_name}</h1>",
         f"<h3>Issued: {page.issue_time}</h3>",
-        f'<div id="forecast-content">{forecast_html}</div>',
     ]
+
+    if page.map_link:
+        body_parts.append(
+            f'<p class="map-link"><a href="{page.map_link}" target="_blank" rel="noopener">Open map for {page.display_name}</a></p>'
+        )
+
+    body_parts.append(f'<div id="forecast-content">{forecast_html}</div>')
 
     if translation_header and translated_html:
         body_parts.append(translation_header)
@@ -146,6 +153,8 @@ h3 { color: #495057; font-size: 1.1em; font-weight: normal; margin-top: -0.5em; 
 #forecast-content strong, #translated-forecast-content strong { color: #0d6efd; font-weight: bold; }
 #forecast-content em, #translated-forecast-content em { color: #6f42c1; font-style: italic; }
 #translated-forecast-content { margin-top: 1em; border-top: 3px solid #6c757d; padding-top: 1.5em; }
+.map-link { margin: 0.2em 0 1.2em; }
+.map-link a { color: #198754; }
 #ibf-context-wrapper { margin-bottom: 2em; }
 #ibf-context-header { background: #ffffff; padding: 1em 1.5em; border: 1px solid #dee2e6; border-radius: 6px 6px 0 0; cursor: pointer; user-select: none; display: flex; align-items: center; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
 #ibf-context-header:hover { background: #f8f9fa; }

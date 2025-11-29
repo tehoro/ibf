@@ -53,8 +53,7 @@ into the new modular package so we can eliminate HTTP hop + shell scripts.
    - Wire `generate_site_structure` (already implemented) to know when to rebuild placeholders vs final HTML.
 
 6. **Maps Subcommand**
-   - Port `mapAreas.py` logic into `ibf.maps.generator`.
-   - Provide CLI `ibf maps --config ... [--areas ...]`.
+   - ✅ `ibf maps` now mirrors `mapAreas.py`: it geocodes each area using the shared client, renders folium maps, and (optionally) screenshots them via Selenium/ChromeDriver.
 
 7. **Server Mode (optional)**
    - Rebuild Flask app as optional `ibf server` command that imports the same pipeline modules so the HTTP API is just another interface.

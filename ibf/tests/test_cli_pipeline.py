@@ -1,4 +1,6 @@
+import hashlib
 import json
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Dict
 
@@ -91,6 +93,26 @@ def test_cli_run_generates_forecasts(
         lambda name, **_: SimpleNamespace(content=f"Impact context for {name}"),
     )
 
+    def fake_generate_maps(config, **kwargs):
+        root = Path(kwargs.get("output_dir") or config.web_root)
+        maps_dir = root / "maps"
+        maps_dir.mkdir(parents=True, exist_ok=True)
+        filters = kwargs.get("area_filters")
+        filter_names = {name.lower() for name in filters} if filters else None
+        for area in config.areas:
+            if filter_names and area.name.lower() not in filter_names:
+                continue
+            slug = slugify(area.name)
+            (maps_dir / f"{slug}.png").write_bytes(b"fake")
+        return SimpleNamespace(
+            root=maps_dir,
+            generated={area.name: maps_dir / f"{slugify(area.name)}.png" for area in config.areas},
+            failures={},
+            summary_lines=lambda: ["Output directory: fake", "Maps created: 2"],
+        )
+
+    monkeypatch.setattr(cli, "generate_area_maps", fake_generate_maps)
+
     result = runner.invoke(cli.app, ["run", "--config", str(sample_config["path"])])
     assert result.exit_code == 0, result.output
 
@@ -104,4 +126,25 @@ def test_cli_run_generates_forecasts(
     for slug in slugs:
         page = web_root / slug / "index.html"
         assert page.exists(), f"Expected HTML output at {page}"
+
+    area_page = web_root / slugify("Sample Area") / "index.html"
+    html = area_page.read_text(encoding="utf-8")
+    assert "Open map for Sample Area" in html
+    assert "../maps/samplearea.png" in html
+
+    hash_file = web_root / ".ibf_maps_hash"
+    assert hash_file.exists()
+    state = json.loads(hash_file.read_text(encoding="utf-8"))
+    expected_slugs = {slugify("Sample Area"), slugify("Sample Regional")}
+    assert set(state["areas"].keys()) == expected_slugs
+
+    def expected_area_hash(name: str, locations: list[str]) -> str:
+        payload = {"name": name, "locations": locations}
+        blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        return hashlib.sha256(blob).hexdigest()
+
+    assert state["areas"][slugify("Sample Area")] == expected_area_hash("Sample Area", ["Test City", "Second City"])
+    assert state["areas"][slugify("Sample Regional")] == expected_area_hash(
+        "Sample Regional", ["Test City", "Second City"]
+    )
 

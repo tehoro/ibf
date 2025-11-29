@@ -40,13 +40,18 @@ for API/LLM responses live under `ibf_cache/`.
 ### Commands
 
 - `ibf run --config path/to/config.json` – validates config, scaffolds the web
-  folders if needed, then executes the pipeline (geocoding, Open-Meteo fetch,
+  folders if needed, automatically rebuilds area maps when the per-area point
+  hashes change (override with `--no-maps`, `--force-maps`, `--map-tiles`, or
+  `--map-engine`), then executes the pipeline (geocoding, Open-Meteo fetch,
   alert retrieval, LLM text generation, HTML rendering). Use `--dry-run` to
   inspect without touching the filesystem.
 - `ibf scaffold --config path/to/config.json` – only regenerate the menu +
   placeholder pages. Pass `--force` to overwrite existing placeholders.
 - `ibf config-hash --config path/to/config.json` – print the deterministic hash
   so cron jobs can skip runs when nothing changed.
+- `ibf maps --config path/to/config.json [--output dir] [--area "Belize"] [--tiles osm|terrain|satellite]` –
+  geocode every configured area and render a static map (PNG via Selenium +
+  ChromeDriver, falling back to HTML if a headless browser is unavailable).
 
 Try the example config in `examples/sample-config.json` for a local test; it
 writes to `ibf/outputs/example-site`.
@@ -65,6 +70,7 @@ PYTHONUNBUFFERED=1 uv run ibf run --log-level debug --config path/to/config.json
 - `areas`: supply a `name` plus a list of representative `locations` (strings). The pipeline geocodes/fetches each spot, formats their datasets, and runs the dedicated area prompt to synthesize a single forecast + HTML page. Set `"mode": "regional"` on any area to request the regional-breakdown prompt (multiple sub-region paragraphs per day); otherwise the standard single-area summary is used.
 - Tuning knobs: `location_wordiness`, `area_wordiness`, `location_thin_select`, `area_thin_select`, `location_forecast_days`, `area_forecast_days`, and the impact flags (`location_impact_based`, `area_impact_based`).
 - Web scaffolding re-runs automatically before each `ibf run`, so adding/removing locations or areas only requires editing the config file.
+- Area forecast pages include an "Open map" link whenever a matching map is present in `<web_root>/maps/<area-slug>.{png,html}`. The `ibf run` command creates/refreshes these files automatically when your config changes.
 - Translation: set `lang` or `translation_language` on any location/area to request an automatic translated copy of the forecast for that entry. The optional `translation_llm` setting (global) lets you choose a single model for all translations; otherwise the primary `llm` is reused.
 - `examples/sample-config.json` shows two locations plus both a standard area and a regional-breakdown area so you can see the difference.
 
@@ -74,10 +80,11 @@ PYTHONUNBUFFERED=1 uv run ibf run --log-level debug --config path/to/config.json
 - Provide matching API keys in `.env`:
   - `OPENROUTER_API_KEY` for OpenRouter (`or:…`) models
   - `OPENAI_API_KEY` for native OpenAI models (e.g., `gpt-4o-mini`)
-  - `GEMINI_API_KEY` for `gemini-*`
-  - `DEEP_INFRA_API_KEY` for the `deepinfrar1` shortcut
+- `GEMINI_API_KEY` for `gemini-*`
+- `DEEP_INFRA_API_KEY` for the `deepinfrar1` shortcut
 - `GOOGLE_API_KEY` enables high-quality fallback geocoding/elevation via Google Maps when Open-Meteo cannot resolve a location.
 - Impact context: when an impact-based forecast is enabled and no same-day cache entry exists, the CLI automatically generates fresh context via OpenAI (`OPENAI_API_KEY`) and stores it under `ibf_cache/impact/`. Cache files older than three days are cleaned up automatically.
+- Map generation: install ChromeDriver (for example, `brew install chromedriver` on macOS) so the `ibf maps` command can capture PNG screenshots in headless Chrome.
 - If a key is missing, the CLI falls back to a deterministic dataset preview instead of LLM text.
 - Optional: set `"lang"` or `"translation_language"` per location/area (or globally) to request a second pass that translates the generated forecast into that language.
 - Optional: set a global `"translation_llm": "gpt-4o-mini"` (or another supported model) if you want translations to use a cheaper/different model than the main forecast generation. If omitted, translation falls back to the main `llm`.
@@ -94,10 +101,14 @@ uv run pytest
 
 The high-level tests exercise the Typer CLI end to end (with the external APIs mocked) and unit tests cover translation-language precedence logic. Feel free to extend the suite as you add features.
 
+### Maps
+
+`ibf maps --config ...` writes maps to `<web_root>/maps/` by default (override with `--output`). Use `--area "Belize"` multiple times to generate only a subset. Choose the base tiles with `--tiles osm|terrain|satellite` (default: `osm`) and swap rendering engines with `--engine static|folium` (static is Selenium-free and produces PNGs directly; folium falls back to the old HTML+Chrome workflow). During `ibf run` the tool stores `<web_root>/.ibf_maps_hash`, which tracks a per-area hash of the configured location list; only areas with missing outputs or changed point lists regenerate automatically. Delete that file or pass `--force-maps` if you change rendering settings and want every map rebuilt.
+
 ### Roadmap
 
 - [x] Establish uv project scaffolding with CLI entry point.
 - [ ] Port forecast generation logic into modular packages (`ibf.api`, `ibf.web`, etc.).
-- [ ] Replace shell scripts with Typer subcommands for `setup`, `maps`, and `run`.
+- [x] Replace shell scripts with Typer subcommands for `setup`, `maps`, and `run`.
 - [ ] Add documentation and tests to cover configuration validation and pipeline execution.
 
