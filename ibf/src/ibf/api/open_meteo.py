@@ -38,6 +38,21 @@ WINDSPEED_CONVERSIONS = {"kph": "kmh", "kt": "kn", "mps": "ms"}
 
 @dataclass(frozen=True)
 class ForecastRequest:
+    """
+    Parameters for an ECMWF ensemble forecast request.
+
+    Attributes:
+        latitude: Target latitude.
+        longitude: Target longitude.
+        timezone: Timezone string (e.g., "America/New_York").
+        forecast_days: Number of days to fetch (default 4).
+        temperature_unit: "celsius" or "fahrenheit".
+        windspeed_unit: "kph", "mph", "ms", or "kn".
+        precipitation_unit: "mm" or "inch".
+        models: Comma-separated list of models (default "ecmwf_ifs025").
+        cache_ttl_minutes: How long to keep the cache valid (default 60).
+        cache_dir: Directory to store cache files.
+    """
     latitude: float
     longitude: float
     timezone: str
@@ -52,6 +67,14 @@ class ForecastRequest:
 
 @dataclass
 class ForecastResponse:
+    """
+    Wrapper for the raw forecast data.
+
+    Attributes:
+        raw: The raw JSON dictionary from Open-Meteo.
+        from_cache: True if served from local cache.
+        cache_path: Path to the cache file used (if any).
+    """
     raw: Dict[str, object]
     from_cache: bool
     cache_path: Optional[Path] = None
@@ -60,6 +83,18 @@ class ForecastResponse:
 def fetch_forecast(request: ForecastRequest) -> ForecastResponse:
     """
     Fetch ensemble data with caching and simple retries.
+
+    If a valid cache file exists, it is returned immediately. Otherwise, the data
+    is downloaded from Open-Meteo, validated, and cached.
+
+    Args:
+        request: A ForecastRequest object containing all parameters.
+
+    Returns:
+        A ForecastResponse object with the data.
+
+    Raises:
+        RuntimeError: If the download fails after retries.
     """
     cache_path = _cache_path(request)
     if request.cache_ttl_minutes > 0:
@@ -76,6 +111,7 @@ def fetch_forecast(request: ForecastRequest) -> ForecastResponse:
 
 
 def _cache_key(request: ForecastRequest) -> str:
+    """Create a stable filename fragment for a forecast request."""
     lat_suffix = "N" if request.latitude >= 0 else "S"
     lon_suffix = "E" if request.longitude >= 0 else "W"
     return (
@@ -87,11 +123,13 @@ def _cache_key(request: ForecastRequest) -> str:
 
 
 def _cache_path(request: ForecastRequest) -> Path:
+    """Return the full cache path for a request, ensuring the directory exists."""
     cache_dir = ensure_directory(request.cache_dir)
     return cache_dir / f"{_cache_key(request)}.json"
 
 
 def _load_cache(path: Path, ttl_minutes: int) -> Optional[Dict[str, object]]:
+    """Read cached forecast data if the file exists and is fresh enough."""
     if not path.exists():
         return None
     if is_file_stale(path, max_age_minutes=ttl_minutes):
@@ -104,6 +142,7 @@ def _load_cache(path: Path, ttl_minutes: int) -> Optional[Dict[str, object]]:
 
 
 def _write_cache(path: Path, data: Dict[str, object]) -> None:
+    """Persist JSON forecast data to the cache file."""
     try:
         path.write_text(json.dumps(data), encoding="utf-8")
     except OSError as exc:
@@ -111,6 +150,7 @@ def _write_cache(path: Path, data: Dict[str, object]) -> None:
 
 
 def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
+    """Call Open-Meteo with basic retries and validation."""
     params = {
         "latitude": request.latitude,
         "longitude": request.longitude,
@@ -149,6 +189,7 @@ def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
 
 
 def _validate_response(data: Dict[str, object]) -> None:
+    """Ensure the Open-Meteo payload contains the expected structure."""
     if not isinstance(data, dict):
         raise ValueError("Open-Meteo response must be a JSON object.")
     hourly = data.get("hourly")

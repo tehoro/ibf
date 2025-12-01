@@ -10,6 +10,19 @@ from typing import List, Optional
 
 @dataclass
 class UnitInstructions:
+    """
+    Holds the specific unit strings to be used in system prompts.
+
+    Attributes:
+        temperature_primary: e.g. "Degrees Celsius (°C)"
+        temperature_secondary: Optional secondary unit.
+        precipitation_primary: e.g. "Millimeters (mm)"
+        precipitation_secondary: Optional secondary unit.
+        snowfall_primary: e.g. "Centimeters (cm)"
+        snowfall_secondary: Optional secondary unit.
+        windspeed_primary: e.g. "km/h"
+        windspeed_secondary: Optional secondary unit.
+    """
     temperature_primary: str
     temperature_secondary: Optional[str]
     precipitation_primary: str
@@ -52,6 +65,8 @@ Describe the most likely conditions and also mention important alternative outco
 - For partial days (e.g., "Rest of Today"), describe only the remaining part of the day and keep it very brief if only 1–2 hours remain.
 
 #ALERTS
+- If any alerts are provided, explicitly work each one into the relevant day's paragraph. State the official source exactly as provided (e.g., MetService) along with the alert title and hazard.
+- Highlight the alert impact (timing, area, severity, upgrade potential) so it is prominent rather than a passing mention.
 - Only include alerts if they are present in the input data; never mention that there are no alerts.
 
 #UNITS
@@ -80,6 +95,7 @@ You will receive forecast datasets for several locations inside the target area.
 - Always describe at least one wind direction and speed range using the required unit.
 - Always mention both the low and high temperatures using the required unit, never the plural words "highs" or "lows".
 - Discuss uncertainty or alternative outcomes using natural phrasing like "risk of" or "could".
+- When alerts are provided, include each one prominently in the relevant day's text, citing the official source name and alert title while summarizing timing and hazard details.
 - Only include alerts if provided; never state that no alerts exist.
 
 #UNITS
@@ -102,6 +118,7 @@ You are an expert regional meteorologist. Use the supplied representative locati
 - Describe weather, wind (with speed range), precipitation timing/amounts, and temperature low/high for each region using the required units. Use natural language to discuss uncertainty ("risk of", "could", "may").
 - Do not list the raw input locations; infer region names from geography (coastal, inland, north, etc.) or well-known meteorological districts.
 - Keep the tone authoritative and concise. No bullet points, greetings, or closing remarks.
+- When alerts are available, weave them into the appropriate region/day paragraphs, calling out the official source name and alert title with clear timing and hazard detail so the alert stands out.
 
 #UNITS
 Temperature: {temperature_unit_instruction}
@@ -127,6 +144,15 @@ Rules:
 
 
 def build_spot_system_prompt(units: UnitInstructions) -> str:
+    """
+    Construct the system prompt for a single location forecast.
+
+    Args:
+        units: UnitInstructions object containing the required unit labels.
+
+    Returns:
+        The formatted system prompt string.
+    """
     conversion_lines = []
     if units.temperature_secondary:
         conversion_lines.append(
@@ -156,6 +182,7 @@ def build_spot_system_prompt(units: UnitInstructions) -> str:
 
 
 def build_area_system_prompt(units: UnitInstructions) -> str:
+    """Construct the system prompt for aggregated area forecasts."""
     conversion_lines = []
     if units.temperature_secondary:
         conversion_lines.append("If provided, include the secondary temperature unit in brackets.")
@@ -176,6 +203,7 @@ def build_area_system_prompt(units: UnitInstructions) -> str:
 
 
 def build_regional_system_prompt(units: UnitInstructions) -> str:
+    """Construct the system prompt for regional (multi-sub-region) forecasts."""
     conversion_lines = []
     if units.temperature_secondary:
         conversion_lines.append("If provided, include the secondary temperature unit in brackets.")
@@ -196,6 +224,7 @@ def build_regional_system_prompt(units: UnitInstructions) -> str:
 
 
 def _format_unit_label(unit: str, unit_type: str) -> str:
+    """Translate internal unit keywords into human-readable labels."""
     if unit_type == "temperature":
         return "Degrees Celsius (°C)" if unit == "celsius" else "Degrees Fahrenheit (°F)"
     if unit_type == "precipitation":
@@ -224,6 +253,7 @@ def build_spot_user_prompt(
     impact_instruction: Optional[str] = "",
     impact_context: Optional[str] = "",
 ) -> str:
+    """Build the user prompt sent alongside the dataset for a single location."""
     detail_map = {
         "detailed": "Write a very detailed forecast for every day provided.",
         "brief": "Write an extremely brief forecast with just the essential details.",
@@ -257,6 +287,7 @@ def build_area_user_prompt(
     impact_instruction: Optional[str] = "",
     impact_context: Optional[str] = "",
 ) -> str:
+    """Compose the user prompt that instructs the LLM to write an area forecast."""
     detail_map = {
         "detailed": "Write an extremely detailed area forecast summarizing all representative locations.",
         "brief": "Write a very concise area forecast focusing on the essentials.",
@@ -291,6 +322,7 @@ def build_regional_user_prompt(
     impact_instruction: Optional[str] = "",
     impact_context: Optional[str] = "",
 ) -> str:
+    """Compose the user prompt for regional forecasts with sub-regional breakdowns."""
     detail_map = {
         "detailed": "Write an extremely detailed regional breakdown referencing every representative sub-region.",
         "brief": "Write a concise regional breakdown highlighting only the key impacts.",
@@ -317,9 +349,11 @@ Important: Identify sensible sub-regions (e.g., north vs south, inland vs coasta
 
 
 def build_translation_system_prompt(target_language: str) -> str:
+    """Return the translation system prompt for the requested language."""
     return SYSTEM_PROMPT_TRANSLATE.format(target_language=target_language)
 
 
 def build_translation_user_prompt(forecast_text: str) -> str:
+    """Wrap the raw forecast in a simple translation instruction."""
     return f"Translate the following forecast:\n\n{forecast_text}"
 

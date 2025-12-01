@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Optional
+from typing import Any, Optional
 
 import google.generativeai as genai
 from openai import OpenAI
@@ -23,6 +23,17 @@ def generate_forecast_text(
 ) -> str:
     """
     Execute the LLM request and return the cleaned forecast text.
+
+    Dispatches to either the Google Gemini client or the generic OpenAI-compatible
+    client based on the settings.
+
+    Args:
+        prompt: The user prompt containing the data.
+        system_prompt: The system prompt defining the persona and rules.
+        settings: Configuration for the LLM provider.
+
+    Returns:
+        The generated forecast text, cleaned of any "thinking" artifacts.
     """
     if settings.is_google:
         return _call_gemini(prompt, system_prompt, settings)
@@ -30,6 +41,7 @@ def generate_forecast_text(
 
 
 def _call_openai_compatible(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
+    """Call an OpenAI-compatible Chat Completions endpoint and clean the result."""
     client = OpenAI(api_key=settings.api_key, base_url=settings.base_url)
     response = client.chat.completions.create(
         model=settings.model,
@@ -41,8 +53,30 @@ def _call_openai_compatible(prompt: str, system_prompt: str, settings: LLMSettin
         max_tokens=settings.max_tokens,
         stream=False,
     )
-    content = response.choices[0].message.content if response.choices else ""
-    cleaned = _clean_llm_output(content or "")
+    message = response.choices[0].message if response.choices else None
+    raw_text = _coerce_message_content(getattr(message, "content", None))
+    cleaned = _clean_llm_output(raw_text)
+    if not cleaned and raw_text:
+        logger.warning(
+            "Cleaned LLM output was empty for model %s; returning raw text.",
+            settings.model,
+        )
+        cleaned = raw_text.strip()
+    if not cleaned and message is not None:
+        reasoning = getattr(message, "reasoning", None)
+        reasoning_text = _coerce_message_content(getattr(reasoning, "content", None))
+        if reasoning_text:
+            logger.warning(
+                "Using reasoning content as fallback output for model %s.", settings.model
+            )
+            cleaned = reasoning_text.strip()
+    if not cleaned:
+        choice = response.choices[0] if response.choices else None
+        logger.warning(
+            "LLM response for model %s contained no usable text (finish_reason=%s).",
+            settings.model,
+            getattr(choice, "finish_reason", None),
+        )
     logger.info(
         "LLM usage – model=%s prompt_tokens=%s completion_tokens=%s",
         settings.model,
@@ -53,6 +87,7 @@ def _call_openai_compatible(prompt: str, system_prompt: str, settings: LLMSettin
 
 
 def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
+    """Invoke the Google Gemini SDK and return cleaned text."""
     genai.configure(api_key=settings.api_key)
     model = genai.GenerativeModel(
         model_name=settings.model,
@@ -73,6 +108,15 @@ def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
 def _clean_llm_output(text: str) -> str:
     """
     Strip common "thinking" wrappers (<think> blocks or explicit reasoning lists).
+
+    Some models (like DeepSeek R1) output their chain-of-thought before the final answer.
+    This function removes that content to leave only the forecast.
+
+    Args:
+        text: Raw output from the LLM.
+
+    Returns:
+        Cleaned text ready for publishing.
     """
     if not text:
         return ""
@@ -90,4 +134,35 @@ def _clean_llm_output(text: str) -> str:
     text = re.sub(r"The instruction says[^\n]+\n", "", text)
 
     return text.strip()
+
+
+def _coerce_message_content(content: Any) -> str:
+    """
+    Normalize the various content payloads returned by OpenAI-compatible endpoints.
+
+    Handles plain strings, structured content-part lists, and objects that expose a
+    `.text` attribute (as seen in recent OpenAI/OpenRouter SDKs).
+    """
+    if not content:
+        return ""
+    if isinstance(content, str):
+        return content
+    parts: list[str] = []
+    if isinstance(content, (list, tuple)):
+        for item in content:
+            if not item:
+                continue
+            if isinstance(item, str):
+                parts.append(item)
+                continue
+            text_value = getattr(item, "text", None)
+            if not text_value and isinstance(item, dict):
+                text_value = item.get("text")
+            if text_value:
+                parts.append(str(text_value))
+        return "\n".join(parts).strip()
+    text_attr = getattr(content, "text", None)
+    if text_attr:
+        return str(text_attr)
+    return str(content)
 

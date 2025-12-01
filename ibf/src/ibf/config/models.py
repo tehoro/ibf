@@ -17,6 +17,15 @@ class ConfigError(RuntimeError):
 
 
 class LocationConfig(BaseModel):
+    """
+    Configuration for a single forecast location.
+
+    Attributes:
+        name: Display name (e.g., "London, UK").
+        lang: Language code for geocoding (default "en").
+        translation_language: Optional target language for translation.
+        units: Dictionary of unit preferences (e.g., {"temperature_unit": "celsius"}).
+    """
     name: str
     lang: Optional[str] = None
     translation_language: Optional[str] = None
@@ -24,6 +33,17 @@ class LocationConfig(BaseModel):
 
 
 class AreaConfig(BaseModel):
+    """
+    Configuration for an aggregated area forecast.
+
+    Attributes:
+        name: Display name for the area.
+        locations: List of location names that comprise the area.
+        lang: Language code.
+        translation_language: Optional target language.
+        mode: "area" (summary) or "regional" (breakdown).
+        units: Dictionary of unit preferences.
+    """
     name: str
     locations: List[str]
     lang: Optional[str] = None
@@ -33,6 +53,29 @@ class AreaConfig(BaseModel):
 
 
 class ForecastConfig(BaseModel):
+    """
+    Top-level configuration for the IBF toolkit.
+
+    Attributes:
+        locations: List of individual locations to forecast.
+        areas: List of areas to forecast.
+        web_root: Directory where HTML output will be written.
+        location_forecast_days: Number of days for location forecasts.
+        area_forecast_days: Number of days for area forecasts.
+        location_wordiness: "normal", "brief", or "detailed".
+        area_wordiness: "normal", "brief", or "detailed".
+        enable_reasoning: Whether to allow LLM reasoning steps (if supported).
+        location_reasoning: Specific reasoning setting for locations.
+        area_reasoning: Specific reasoning setting for areas.
+        location_impact_based: Enable impact-based context for locations.
+        area_impact_based: Enable impact-based context for areas.
+        location_thin_select: Number of ensemble members to select for locations.
+        area_thin_select: Number of ensemble members to select for areas.
+        llm: LLM model identifier (e.g., "gpt-4o-mini").
+        translation_language: Global default translation language.
+        translation_llm: Specific LLM to use for translation.
+        recent_overwrite_minutes: Prevent overwriting fresh forecasts if < N minutes old.
+    """
     locations: List[LocationConfig] = Field(default_factory=list)
     areas: List[AreaConfig] = Field(default_factory=list)
     web_root: Optional[Path] = None
@@ -70,6 +113,15 @@ class ForecastConfig(BaseModel):
 def load_config(path: Path | str) -> ForecastConfig:
     """
     Load and validate a config file into a ForecastConfig instance.
+
+    Args:
+        path: Path to the JSON configuration file.
+
+    Returns:
+        A validated ForecastConfig object.
+
+    Raises:
+        ConfigError: If the file is missing, unreadable, or invalid.
     """
     config_path = Path(path).expanduser().resolve()
     if not config_path.exists():

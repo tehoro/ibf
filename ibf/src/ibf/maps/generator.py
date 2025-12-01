@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+"""
+Generate static or interactive maps that visualize configured forecast areas.
+"""
+
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +21,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AreaMapReport:
+    """
+    Summary of the map generation process.
+
+    Attributes:
+        root: The directory where maps were saved.
+        generated: Dictionary mapping area names to their generated map file paths.
+        failures: Dictionary mapping area names to error messages for failed generations.
+    """
     root: Path
     generated: Dict[str, Path] = field(default_factory=dict)
     failures: Dict[str, str] = field(default_factory=dict)
@@ -38,6 +50,24 @@ def generate_area_maps(
     tile_set: str = "osm",
     engine: str = "static",
 ) -> AreaMapReport:
+    """
+    Generate visual maps for all configured areas.
+
+    Can use either a static map engine (using `staticmap`) or a dynamic one
+    (using `folium` + `selenium` for screenshots).
+
+    Args:
+        config: The forecast configuration.
+        output_dir: Optional override for the output directory.
+        area_filters: Optional list of area names to process (skips others).
+        map_width: Width of the generated image in pixels.
+        map_height: Height of the generated image in pixels.
+        tile_set: "osm", "satellite", or "terrain".
+        engine: "static" or "folium".
+
+    Returns:
+        An AreaMapReport summarizing the results.
+    """
     if not config.areas:
         raise ValueError("No areas are defined in the configuration.")
 
@@ -83,6 +113,24 @@ def _build_area_map(
     tile_set: str,
     engine: str,
 ) -> Optional[Path]:
+    """
+    Create a map for a single area.
+
+    Geocodes all locations in the area and plots them.
+
+    Args:
+        area_name: Name of the area.
+        locations: List of location names to plot.
+        language: Language for geocoding.
+        destination: Directory to save the map.
+        width: Image width.
+        height: Image height.
+        tile_set: Tile style.
+        engine: Rendering engine ("static" or "folium").
+
+    Returns:
+        Path to the generated PNG file, or None if generation failed.
+    """
     coordinates: Dict[str, tuple[float, float]] = {}
 
     for name in locations:
@@ -128,6 +176,19 @@ def _render_static_png(
     height: int,
     tile_set: str,
 ) -> bool:
+    """
+    Render a map using the `staticmap` library (no browser required).
+
+    Args:
+        png_path: Target file path.
+        coordinates: Dictionary of {name: (lat, lon)}.
+        width: Image width.
+        height: Image height.
+        tile_set: Tile style.
+
+    Returns:
+        True if successful, False otherwise.
+    """
     try:
         tile_url = _static_tile_template(tile_set)
         static_map = StaticMap(width, height, url_template=tile_url)
@@ -148,6 +209,17 @@ def _render_folium_map(
     *,
     tile_set: str = "osm",
 ) -> Optional[folium.Map]:
+    """
+    Create a Folium (Leaflet) map object with markers.
+
+    Args:
+        area_name: Name of the area (used in title).
+        coordinates: Dictionary of {name: (lat, lon)}.
+        tile_set: Tile style.
+
+    Returns:
+        A folium.Map object, or None if no coordinates provided.
+    """
     if not coordinates:
         return None
     lats = [lat for lat, _ in coordinates.values()]
@@ -185,6 +257,18 @@ def _render_folium_map(
 
 
 def _html_to_png(html_path: Path, png_path: Path, *, width: int, height: int) -> bool:
+    """
+    Convert an HTML map file to a PNG image using Selenium (headless Chrome).
+
+    Args:
+        html_path: Path to the source HTML file.
+        png_path: Path to the destination PNG file.
+        width: Browser window width.
+        height: Browser window height.
+
+    Returns:
+        True if successful, False if Selenium is missing or fails.
+    """
     try:
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
@@ -213,6 +297,7 @@ def _html_to_png(html_path: Path, png_path: Path, *, width: int, height: int) ->
 
 
 def _resolve_tile_layers(tile_set: str) -> list[dict]:
+    """Return the ordered list of tile layer definitions for folium maps."""
     tile_set = tile_set.lower()
     if tile_set == "satellite":
         return [
@@ -251,6 +336,7 @@ def _resolve_tile_layers(tile_set: str) -> list[dict]:
 
 
 def _static_tile_template(tile_set: str) -> str:
+    """Map friendly tile set names to the `staticmap` URL templates."""
     tile_set = tile_set.lower()
     if tile_set == "terrain":
         return "https://tile.opentopomap.org/{z}/{x}/{y}.png"

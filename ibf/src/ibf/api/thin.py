@@ -11,6 +11,13 @@ import math
 
 @dataclass
 class MemberSeries:
+    """
+    Time series data for a single ensemble member.
+
+    Attributes:
+        temperature: List of temperature values.
+        precipitation: List of precipitation values.
+    """
     temperature: List[float]
     precipitation: List[float]
 
@@ -19,10 +26,17 @@ def select_members(ensemble_days: List[dict], *, thin_select: int = 16, weight_t
     """
     Reduce the ensemble set by picking members with the largest average distance.
 
+    This algorithm greedily selects members that are most different from the already
+    selected set, ensuring a diverse representation of possible outcomes.
+
     Args:
         ensemble_days: List of day dictionaries (as produced by legacy code).
         thin_select: Target number of members to retain (including control).
-        weight_temp, weight_precip: Weights applied to temperature/precip differences.
+        weight_temp: Weight applied to temperature differences (default 1.0).
+        weight_precip: Weight applied to precipitation differences (default 1.0).
+
+    Returns:
+        A new list of day dictionaries with only the selected members retained.
     """
     member_series = _flatten_members(ensemble_days)
     if not member_series:
@@ -44,6 +58,7 @@ def select_members(ensemble_days: List[dict], *, thin_select: int = 16, weight_t
 
 
 def _flatten_members(ensemble_days: List[dict]) -> Dict[str, MemberSeries]:
+    """Collapse the day/hour structure into per-member series for comparison."""
     members: Dict[str, MemberSeries] = {}
     for day in ensemble_days:
         for hour in day.get("hours", []):
@@ -55,6 +70,7 @@ def _flatten_members(ensemble_days: List[dict]) -> Dict[str, MemberSeries]:
 
 
 def _run_selection(members: Dict[str, MemberSeries], thin_select: int, weight_temp: float, weight_precip: float) -> List[str]:
+    """Pick the most diverse ensemble members using RMS distance heuristics."""
     if len(members) <= thin_select:
         return list(members.keys())
 

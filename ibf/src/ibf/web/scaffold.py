@@ -74,9 +74,18 @@ MENU_TEMPLATE = """<!DOCTYPE html>
 
 
 @dataclass
+@dataclass
 class ScaffoldReport:
-    """Stores what changed when scaffolding ran."""
+    """
+    Stores what changed when scaffolding ran.
 
+    Attributes:
+        root: The root directory of the web output.
+        directories_created: List of newly created folders.
+        placeholders_written: List of newly created placeholder files.
+        placeholders_skipped: List of skipped files (already existed).
+        menu_written: True if the main index.html was updated.
+    """
     root: Path
     directories_created: List[Path] = field(default_factory=list)
     placeholders_written: List[Path] = field(default_factory=list)
@@ -92,17 +101,42 @@ class ScaffoldReport:
 
 
 def resolve_web_root(config: ForecastConfig) -> Path:
+    """
+    Determine the absolute path to the web root directory.
+
+    Args:
+        config: The forecast configuration.
+
+    Returns:
+        Absolute Path object for the web root.
+    """
     root = config.web_root or DEFAULT_WEB_ROOT
     return Path(root).expanduser().resolve()
 
 
 def ensure_directory(path: Path, report: ScaffoldReport) -> None:
+    """
+    Create a directory if it doesn't exist and record the action.
+
+    Args:
+        path: Directory path to create.
+        report: Report object to update.
+    """
     if not path.exists():
         path.mkdir(parents=True, exist_ok=True)
         report.directories_created.append(path)
 
 
 def write_placeholder(target: Path, title: str, force: bool, report: ScaffoldReport) -> None:
+    """
+    Write a placeholder HTML file if it doesn't exist or if forced.
+
+    Args:
+        target: Path to the HTML file.
+        title: Title for the placeholder page.
+        force: If True, overwrite existing files.
+        report: Report object to update.
+    """
     if target.exists() and not force:
         report.placeholders_skipped.append(target)
         return
@@ -111,6 +145,16 @@ def write_placeholder(target: Path, title: str, force: bool, report: ScaffoldRep
 
 
 def build_menu_section(title: str, entries: Iterable[tuple[str, str]]) -> str:
+    """
+    Generate an HTML list for a section of the menu.
+
+    Args:
+        title: Section header (e.g., "Locations").
+        entries: List of (slug, label) tuples.
+
+    Returns:
+        HTML string for the section.
+    """
     items = "\n".join(f'    <li><a href="{slug}/index.html">{label}</a></li>' for slug, label in entries)
     if not items:
         return ""
@@ -120,6 +164,16 @@ def build_menu_section(title: str, entries: Iterable[tuple[str, str]]) -> str:
 def generate_site_structure(config: ForecastConfig, *, force: bool = False) -> ScaffoldReport:
     """
     Ensure the menu + placeholder directories exist for every location and area.
+
+    Creates the root directory, subdirectories for each location/area, and a main
+    index.html menu linking to them.
+
+    Args:
+        config: The forecast configuration.
+        force: If True, overwrite existing placeholder files.
+
+    Returns:
+        A ScaffoldReport detailing the actions taken.
     """
     root = resolve_web_root(config)
     report = ScaffoldReport(root=root)

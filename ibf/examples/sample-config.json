@@ -9,8 +9,24 @@
       }
     },
     {
+      "name": "Otaki, New Zealand",
+      "units": {
+        "temperature_unit": "celsius",
+        "precipitation_unit": "mm",
+        "windspeed_unit": "kph"
+      }
+    },
+    {
+      "name": "Bedford, Massachusetts",
+      "units": {
+        "temperature_unit": "fahrenheit",
+        "precipitation_unit": "in",
+        "windspeed_unit": "mph"
+      }
+    },
+    {
       "name": "Kingston, Jamaica",
-      "lang": "Jamaican Patois (Jamaican Creole)",
+      "lang": "jam",
       "units": {
         "windspeed_unit": "mph",
         "precipitation_unit": "inch"
@@ -37,7 +53,7 @@
     }
   ],
   "location_forecast_days": "4",
-  "location_wordiness": "brief",
+  "location_wordiness": "normal",
   "location_reasoning": "high",
   "location_impact_based": "true",
   "location_thin_select": "10",
@@ -49,6 +65,7 @@
   "enable_reasoning": "true",
   "recent_overwrite_minutes": "0",
   "web_root": "./outputs/example-site",
-  "llm": "or:openai/gpt-5.1",
+  "llm 5.1": "or:openai/gpt-5.1",
+  "llm" : "or:deepseek/deepseek-v3.2",
   "translation_llm": "or:openai/gpt-5-mini"
 }

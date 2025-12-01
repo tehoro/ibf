@@ -29,6 +29,20 @@ def build_processed_days(
 ) -> List[dict]:
     """
     Convert raw Open-Meteo data into day/hour structure and thin ensemble members.
+
+    Organizes the flat hourly arrays into a nested structure of Days -> Hours -> Members.
+    Also calculates derived fields like snow level and wind direction.
+
+    Args:
+        forecast_raw: The JSON response from Open-Meteo.
+        timezone_name: Target timezone for day segmentation.
+        precipitation_unit: Unit for precipitation ("mm" or "inch").
+        windspeed_unit: Unit for wind speed ("kph", "mph", etc.).
+        thin_select: Number of ensemble members to retain.
+        location_altitude: Altitude of the location in meters (for snow level calc).
+
+    Returns:
+        A list of day dictionaries containing hourly forecasts.
     """
     members = _detect_members(forecast_raw.get("hourly_units", {}))
     hourly = forecast_raw.get("hourly", {})
@@ -107,6 +121,7 @@ def build_processed_days(
 
 
 def _detect_members(hourly_units: Dict[str, Any]) -> List[str]:
+    """Inspect the hourly_units payload to find available ensemble member suffixes."""
     members = ["member00"]
     for key in hourly_units.keys():
         if key.startswith("temperature_2m_member"):
@@ -116,10 +131,12 @@ def _detect_members(hourly_units: Dict[str, Any]) -> List[str]:
 
 
 def _build_indexed_hourly(hourly: Dict[str, Any], count: int) -> Dict[str, List[Any]]:
+    """Create aligned lists for all hourly arrays to support indexed lookups."""
     return {key: hourly.get(key, [None] * count) for key in hourly}
 
 
 def _parse_timestamp(value: str, tz: ZoneInfo) -> datetime | None:
+    """Parse ISO timestamps (with optional Z suffix) and convert to the target TZ."""
     try:
         if value.endswith("Z"):
             base = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -139,6 +156,7 @@ def _build_member_record(
     windspeed_unit: str,
     location_altitude: float,
 ) -> Dict[str, Any] | None:
+    """Assemble the dictionary of derived values for a single member/hour."""
     base = "" if member == "member00" else f"_{member}"
     temperature = _safe_get(indexed, f"temperature_2m{base}", index)
     dewpoint = _safe_get(indexed, f"dewpoint_2m{base}", index)
@@ -188,6 +206,7 @@ def _build_member_record(
 
 
 def _safe_get(indexed: Dict[str, List[Any]], key: str, idx: int) -> Any:
+    """Return indexed hourly data, guarding against missing arrays or bounds."""
     values = indexed.get(key)
     if values is None or idx >= len(values):
         return None
@@ -195,6 +214,7 @@ def _safe_get(indexed: Dict[str, List[Any]], key: str, idx: int) -> Any:
 
 
 def _round_value(value: Any, digits: int) -> float:
+    """Round numeric values safely, defaulting to 0.0 if conversion fails."""
     try:
         return round(float(value), digits)
     except (ValueError, TypeError):
@@ -209,6 +229,7 @@ def _estimate_snow_level(
     freezing_level: Any,
     location_altitude: float,
 ) -> int | None:
+    """Estimate snow level altitude based on freezing level and wet-bulb temperature."""
     try:
         fzl = float(freezing_level)
     except (TypeError, ValueError):
@@ -232,6 +253,7 @@ def _estimate_snow_level(
 
 
 def _classify_day(forecast_dt: datetime, current_dt: datetime) -> str:
+    """Return human-friendly labels (e.g., 'Tomorrow, Monday') for each forecast day."""
     forecast_date = forecast_dt.date()
     current_date = current_dt.date()
     day_name = forecast_dt.strftime("%A")
@@ -255,6 +277,7 @@ def _classify_day(forecast_dt: datetime, current_dt: datetime) -> str:
 
 
 def _resolve_timezone(name: str) -> ZoneInfo:
+    """Return a ZoneInfo instance, falling back to UTC if the name is invalid."""
     try:
         return ZoneInfo(name)
     except Exception:

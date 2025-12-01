@@ -92,14 +92,11 @@ Each location object looks like:
 ```json
 {
   "name": "Kingston, Jamaica",
-  "lang": "en-JM",
-  "translation_language": "jam",
+  "lang": "jam",
   "units": {
     "temperature_unit": "celsius",
     "precipitation_unit": "mm",
-    "snowfall_unit": "cm",
-    "windspeed_unit": "kph",
-    "altitude_m": 10
+    "windspeed_unit": "kph"
   }
 }
 ```
@@ -107,9 +104,9 @@ Each location object looks like:
 Field explanations:
 
 - `name` (required) – exactly how you want it shown on the website.
-- `lang` – translation language shortcut (optional).
-- `translation_language` – override for a specific location (e.g., `"es"` for Spanish).
-- `units` – override defaults. You can also specify dual units like `"temperature_unit": "celsius (fahrenheit)"`.
+- `lang` – optional translation language code (BCP‑47 or ISO, e.g., `"jam"`). Forecast prose is always written in English; this value is only used when you request a translated copy.
+- `translation_language` – per-location override that takes precedence over `lang` and any global `translation_language`.
+- `units` – override defaults for that location. Snowfall automatically mirrors the precipitation unit (mm or inches), so you usually only need to set `temperature_unit`, `precipitation_unit`, and `windspeed_unit`. Dual units such as `"temperature_unit": "celsius (fahrenheit)"` are also supported.
 
 #### 4.3 Areas and regional areas
 

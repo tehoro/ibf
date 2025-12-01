@@ -48,11 +48,26 @@ DATASET_CACHE_DIR = ensure_directory("ibf_cache/processed")
 
 
 class SupportsUnits(Protocol):
+    """Protocol for objects that have a 'units' dictionary attribute."""
     units: Dict[str, str]
 
 
 @dataclass
 class LocationUnits:
+    """
+    Resolved unit preferences for a location.
+
+    Attributes:
+        temperature_primary: Primary temp unit (e.g., "celsius").
+        temperature_secondary: Optional secondary temp unit.
+        precipitation_primary: Primary precip unit.
+        precipitation_secondary: Optional secondary precip unit.
+        snowfall_primary: Primary snowfall unit.
+        snowfall_secondary: Optional secondary snowfall unit.
+        windspeed_primary: Primary wind unit.
+        windspeed_secondary: Optional secondary wind unit.
+        altitude_m: Location altitude in meters.
+    """
     temperature_primary: str
     temperature_secondary: Optional[str]
     precipitation_primary: str
@@ -66,6 +81,18 @@ class LocationUnits:
 
 @dataclass
 class LocationForecastPayload:
+    """
+    Intermediate data container for a location's forecast.
+
+    Attributes:
+        name: Location name.
+        geocode: Resolved geocoding data.
+        alerts: List of active alerts.
+        dataset: Processed forecast data (days/hours).
+        dataset_cache: Path to the cached dataset file.
+        units: Resolved unit settings.
+        formatted_dataset: Text representation of the dataset for LLM consumption.
+    """
     name: str
     geocode: GeocodeResult
     alerts: List[AlertSummary]
@@ -76,6 +103,15 @@ class LocationForecastPayload:
 
 
 def execute_pipeline(config: ForecastConfig) -> None:
+    """
+    Run the full forecast generation pipeline based on the configuration.
+
+    Iterates through all configured locations and areas, fetching data, generating
+    forecasts via LLM (or fallback), translating if needed, and rendering HTML pages.
+
+    Args:
+        config: The loaded ForecastConfig object.
+    """
     if not config.locations and not config.areas:
         logger.info("No locations or areas configured; nothing to do.")
         return
@@ -90,6 +126,7 @@ def execute_pipeline(config: ForecastConfig) -> None:
 
 
 def _process_location(location: LocationConfig, config: ForecastConfig) -> Optional[LocationForecastPayload]:
+    """Drive the full fetch/LLM/render workflow for a single configured location."""
     name = location.name
     logger.info("Processing location '%s'", name)
     units = _resolve_units(location)
@@ -159,7 +196,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
         ForecastPage(
             destination=destination,
             display_name=name,
-            issue_time=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            issue_time=_format_issue_time(timezone_name),
             forecast_text=forecast_text,
             translated_text=translated_text,
             translation_language=translation_target,
@@ -171,6 +208,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
 
 
 def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
+    """Generate an area-level forecast (single text block) across representative spots."""
     logger.info("Processing area '%s'", area.name)
     base_units = _resolve_units(area)
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
@@ -248,7 +286,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
         ForecastPage(
             destination=destination,
             display_name=area.name,
-            issue_time=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            issue_time=_format_issue_time(area_timezone),
             forecast_text=forecast_text,
             translated_text=translated_text,
             translation_language=translation_target,
@@ -260,6 +298,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
 
 
 def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
+    """Produce a regional forecast that is broken down by sub-regions."""
     logger.info("Processing regional area '%s'", area.name)
     base_units = _resolve_units(area)
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
@@ -338,7 +377,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
         ForecastPage(
             destination=destination,
             display_name=area.name,
-            issue_time=datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            issue_time=_format_issue_time(area_timezone),
             forecast_text=forecast_text,
             translated_text=translated_text,
             translation_language=translation_target,
@@ -358,6 +397,7 @@ def _collect_location_payload(
     forecast_days: int,
     cache_label: Optional[str] = None,
 ) -> Optional[LocationForecastPayload]:
+    """Gather geocode, alerts, forecast, processed dataset, and formatted text."""
     logger.info("Geocoding '%s'", name)
     geocode = geocode_name(name)
     if not geocode:
@@ -379,6 +419,9 @@ def _collect_location_payload(
                 longitude=geocode.longitude,
                 timezone=geocode.timezone,
                 forecast_days=forecast_days,
+                temperature_unit=_temperature_unit_for_api(units.temperature_primary),
+                precipitation_unit=_precipitation_unit_for_api(units.precipitation_primary),
+                windspeed_unit=_windspeed_unit_for_api(units.windspeed_primary),
             )
         )
     except RuntimeError as exc:
@@ -427,6 +470,7 @@ def _collect_area_payloads(
     thin_select: int,
     forecast_days: int,
 ) -> List[LocationForecastPayload]:
+    """Fetch datasets for each representative location needed for an area."""
     payloads: List[LocationForecastPayload] = []
     for location_name in area.locations:
         logger.info("Collecting data for representative location '%s' in area '%s'", location_name, area.name)
@@ -450,6 +494,7 @@ def _collect_area_payloads(
 
 
 def _resolve_units(config_obj: SupportsUnits) -> LocationUnits:
+    """Normalize/merge explicit unit overrides with defaults for a config entry."""
     units = getattr(config_obj, "units", {}) or {}
 
     def _split(value: Optional[str], default: str) -> tuple[str, Optional[str]]:
@@ -468,23 +513,37 @@ def _resolve_units(config_obj: SupportsUnits) -> LocationUnits:
 
     temp_primary, temp_secondary = _split(units.get("temperature_unit"), "celsius")
     precip_primary, precip_secondary = _split(units.get("precipitation_unit"), "mm")
-    snow_primary, snow_secondary = _split(units.get("snowfall_unit"), "cm")
+    snowfall_raw = units.get("snowfall_unit")
+    snow_primary, snow_secondary = _split(snowfall_raw, "cm")
     wind_primary, wind_secondary = _split(units.get("windspeed_unit"), "kph")
 
+    temp_primary = temp_primary.lower()
+    temp_secondary = temp_secondary.lower() if temp_secondary else None
+    precip_primary = precip_primary.lower()
+    precip_secondary = precip_secondary.lower() if precip_secondary else None
+    snow_primary = snow_primary.lower()
+    snow_secondary = snow_secondary.lower() if snow_secondary else None
+    wind_primary = wind_primary.lower()
+    wind_secondary = wind_secondary.lower() if wind_secondary else None
+
+    if not snowfall_raw and precip_primary in {"inch", "in", "inches"}:
+        snow_primary = "inch"
+
     return LocationUnits(
-        temperature_primary=temp_primary.lower(),
-        temperature_secondary=temp_secondary.lower() if temp_secondary else None,
-        precipitation_primary=precip_primary.lower(),
-        precipitation_secondary=precip_secondary.lower() if precip_secondary else None,
-        snowfall_primary=snow_primary.lower(),
-        snowfall_secondary=snow_secondary.lower() if snow_secondary else None,
-        windspeed_primary=wind_primary.lower(),
-        windspeed_secondary=wind_secondary.lower() if wind_secondary else None,
+        temperature_primary=temp_primary,
+        temperature_secondary=temp_secondary,
+        precipitation_primary=precip_primary,
+        precipitation_secondary=precip_secondary,
+        snowfall_primary=snow_primary,
+        snowfall_secondary=snow_secondary,
+        windspeed_primary=wind_primary,
+        windspeed_secondary=wind_secondary,
         altitude_m=altitude_val,
     )
 
 
 def _find_location_units(config: ForecastConfig, name: str) -> Optional[LocationUnits]:
+    """Look up a location's specific unit overrides by name."""
     target = name.strip().lower()
     for entry in config.locations:
         if entry.name.strip().lower() == target:
@@ -493,6 +552,7 @@ def _find_location_units(config: ForecastConfig, name: str) -> Optional[Location
 
 
 def _unit_instructions(units: LocationUnits) -> UnitInstructions:
+    """Convert `LocationUnits` into `UnitInstructions` for the prompts module."""
     return UnitInstructions(
         temperature_primary=units.temperature_primary,
         temperature_secondary=units.temperature_secondary,
@@ -506,6 +566,7 @@ def _unit_instructions(units: LocationUnits) -> UnitInstructions:
 
 
 def _short_period_instruction(dataset: List[dict], tz_str: str) -> str:
+    """Optional reminder when the first period only covers the final moments of a day."""
     if not dataset:
         return ""
     label = dataset[0].get("dayofweek", "")
@@ -525,6 +586,7 @@ def _short_period_instruction(dataset: List[dict], tz_str: str) -> str:
 
 
 def _impact_instruction(enabled: bool) -> str:
+    """Return the impact-forecast instruction block when impact context is enabled."""
     if not enabled:
         return ""
     return (
@@ -535,6 +597,7 @@ def _impact_instruction(enabled: bool) -> str:
 
 
 def _as_bool(value: Optional[bool | str]) -> bool:
+    """Coerce truthy string/configuration representations into a boolean."""
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -543,6 +606,7 @@ def _as_bool(value: Optional[bool | str]) -> bool:
 
 
 def _write_dataset_cache(name: str, dataset: List[dict]) -> Path:
+    """Persist the processed dataset into the cache directory and return the path."""
     slug = slugify(name)
     path = DATASET_CACHE_DIR / f"{slug}.json"
     write_text_file(path, json.dumps(dataset, indent=2))
@@ -550,6 +614,7 @@ def _write_dataset_cache(name: str, dataset: List[dict]) -> Path:
 
 
 def _dataset_summary(dataset: List[dict], alerts, dataset_path: Path) -> str:
+    """Provide a terse textual fallback when the LLM output is unavailable."""
     temps = []
     precip = []
     time_labels = []
@@ -584,6 +649,7 @@ def _dataset_summary(dataset: List[dict], alerts, dataset_path: Path) -> str:
 
 
 def _area_dataset_summary(area_name: str, payloads: List[LocationForecastPayload]) -> str:
+    """Fallback text listing dataset caches for each area location."""
     lines = [f"**Area dataset preview for {area_name}**"]
     for payload in payloads:
         lines.append(f"- {payload.name}: {payload.dataset_cache}")
@@ -591,6 +657,7 @@ def _area_dataset_summary(area_name: str, payloads: List[LocationForecastPayload
 
 
 def _build_destination_path(config: ForecastConfig, name: str) -> Path:
+    """Resolve the filesystem path for the rendered HTML for a given name."""
     from ..web.scaffold import resolve_web_root
 
     root = resolve_web_root(config)
@@ -599,6 +666,7 @@ def _build_destination_path(config: ForecastConfig, name: str) -> Path:
 
 
 def _map_link_for(config: ForecastConfig, name: str) -> Optional[str]:
+    """Return a relative link to a generated map (PNG/HTML) if one exists."""
     from ..web.scaffold import resolve_web_root
 
     root = resolve_web_root(config)
@@ -614,6 +682,7 @@ def _map_link_for(config: ForecastConfig, name: str) -> Optional[str]:
 
 
 def _location_translation_language(location: LocationConfig, config: ForecastConfig) -> Optional[str]:
+    """Determine which language (if any) a location forecast should be translated into."""
     return (
         location.translation_language
         or location.lang
@@ -622,6 +691,7 @@ def _location_translation_language(location: LocationConfig, config: ForecastCon
 
 
 def _area_translation_language(area: AreaConfig, config: ForecastConfig) -> Optional[str]:
+    """Determine the translation language for an area-level forecast."""
     return (
         area.translation_language
         or area.lang
@@ -635,6 +705,7 @@ def _maybe_translate(
     config: ForecastConfig,
     llm_settings: Optional[LLMSettings],
 ) -> Optional[str]:
+    """Translate finished forecast text when a non-English target language is requested."""
     if not language:
         return None
     if language.lower().startswith("en"):
@@ -656,3 +727,38 @@ def _maybe_translate(
     except Exception as exc:
         logger.error("Translation failed (%s): %s", language, exc, exc_info=True)
         return None
+
+
+def _format_issue_time(tz_name: Optional[str]) -> str:
+    """Format the issue timestamp in the provided timezone."""
+    try:
+        zone = ZoneInfo(tz_name) if tz_name else ZoneInfo("UTC")
+    except Exception:
+        zone = ZoneInfo("UTC")
+    return datetime.now(zone).strftime("%Y-%m-%d %H:%M %Z")
+
+
+def _temperature_unit_for_api(value: str) -> str:
+    """Map configuration temperature units to Open-Meteo API values."""
+    normalized = (value or "celsius").strip().lower()
+    return "fahrenheit" if normalized in {"f", "fahrenheit"} else "celsius"
+
+
+def _precipitation_unit_for_api(value: str) -> str:
+    """Map configuration precipitation units to Open-Meteo API values."""
+    normalized = (value or "mm").strip().lower()
+    return "inch" if normalized in {"in", "inch", "inches"} else "mm"
+
+
+def _windspeed_unit_for_api(value: str) -> str:
+    """Map configuration wind units to Open-Meteo API values."""
+    normalized = (value or "kph").strip().lower()
+    if normalized in {"kmh", "km/h", "kph"}:
+        return "kph"
+    if normalized in {"mph"}:
+        return "mph"
+    if normalized in {"mps", "ms"}:
+        return "mps"
+    if normalized in {"kt", "knots", "kts", "kn"}:
+        return "kt"
+    return "kph"

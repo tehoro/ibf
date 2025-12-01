@@ -26,6 +26,24 @@ def format_location_dataset(
     snowfall_unit: str,
     windspeed_unit: str,
 ) -> str:
+    """
+    Convert the structured dataset and alerts into a human-readable text block for the LLM.
+
+    This function iterates through each day and hour, formatting the ensemble member data
+    into a consistent text format that the LLM can interpret to write the forecast.
+
+    Args:
+        dataset: The processed forecast data.
+        alerts: List of active alerts.
+        tz_str: Timezone string for date formatting.
+        temperature_unit: Unit for temperature display.
+        precipitation_unit: Unit for precipitation display.
+        snowfall_unit: Unit for snowfall display.
+        windspeed_unit: Unit for wind speed display.
+
+    Returns:
+        A string containing the formatted dataset and alerts.
+    """
     if not dataset:
         return "Error: No valid forecast data received for formatting."
 
@@ -138,7 +156,16 @@ def format_location_dataset(
 def format_area_dataset(area_name: str, locations: List[dict[str, Any]]) -> str:
     """
     Combine multiple location datasets into a single area-level text block.
+
     Each entry in `locations` must provide: name, latitude, longitude, timezone, text.
+    This aggregates the individual location prompts into one large context for the area forecast.
+
+    Args:
+        area_name: Name of the area.
+        locations: List of dictionaries representing representative locations.
+
+    Returns:
+        The combined text block.
     """
     if not locations:
         return ""
@@ -167,6 +194,7 @@ def format_area_dataset(area_name: str, locations: List[dict[str, Any]]) -> str:
 
 
 def _format_alerts(alerts: List[AlertSummary], dataset: List[dict], tz_str: str) -> str:
+    """Render alert metadata into human-readable text that precedes the dataset."""
     if not alerts:
         return ""
     first_date = dataset[0].get("date")
@@ -198,6 +226,7 @@ def _format_alerts(alerts: List[AlertSummary], dataset: List[dict], tz_str: str)
 
 
 def _hour_from_string(value: str) -> int:
+    """Return the integer hour from strings like '06:00'."""
     try:
         return int(value.split(":")[0])
     except Exception:
@@ -205,11 +234,13 @@ def _hour_from_string(value: str) -> int:
 
 
 def _format_temp(value: float, unit: str) -> str:
+    """Format a numeric temperature using the configured unit symbol."""
     symbol = "°C" if unit == "celsius" else "°F"
     return f"{round(value)}{symbol}"
 
 
 def _format_wind(direction: str, speed: float, gust: float, unit: str) -> str:
+    """Summarize wind direction, sustained speed, and gust in plain language."""
     unit_display = "km/h" if unit == "kph" else unit
     if not isinstance(speed, (int, float)) or speed <= 0:
         return "wind calm"
@@ -228,6 +259,7 @@ def _member_summary(
     precipitation_unit: str,
     snowfall_unit: str,
 ) -> str:
+    """Produce a per-member summary of highs, lows, and precipitation totals."""
     if not (math.isfinite(high_temp) and math.isfinite(low_temp)):
         return " No valid temperature data found for summary.\n"
     lines = [
@@ -242,6 +274,7 @@ def _member_summary(
 
 
 def _should_use_only_low(hours: List[dict]) -> bool:
+    """Determine if the range summary should report only low temperatures."""
     if not hours:
         return False
     hour_int = _hour_from_string(hours[0].get("hour", "0:00"))
@@ -249,6 +282,7 @@ def _should_use_only_low(hours: List[dict]) -> bool:
 
 
 def _should_reverse_high_low(hours: List[dict]) -> bool:
+    """Return True if the schedule warrants reporting highs before lows."""
     if not hours:
         return False
     hour_int = _hour_from_string(hours[0].get("hour", "0:00"))
@@ -266,6 +300,23 @@ def calculate_range_summary(
     use_only_low: bool,
     reverse_high_and_low: bool,
 ) -> str:
+    """
+    Generate a summary string describing the range of conditions for a day.
+
+    Args:
+        daily_lows: Collection of low temperatures from members.
+        daily_highs: Collection of high temperatures from members.
+        daily_precip: Collection of precipitation totals.
+        daily_snow: Collection of snowfall totals.
+        temp_unit_short: Short unit string for temp (e.g., "C").
+        precip_unit: Unit string for precip.
+        snow_unit: Unit string for snow.
+        use_only_low: If true, only report low temperatures (e.g., for evening forecasts).
+        reverse_high_and_low: If true, report high then low (e.g., for afternoon forecasts).
+
+    Returns:
+        A formatted summary string.
+    """
     daily_lows = list(daily_lows)
     daily_highs = list(daily_highs)
     daily_precip = list(daily_precip)
@@ -293,6 +344,7 @@ def calculate_range_summary(
 
 
 def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str) -> str:
+    """Describe the probability and likely range for precipitation or snowfall."""
     if not values:
         return ""
     positive = [v for v in values if v > 0]
@@ -309,6 +361,17 @@ def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str)
 
 
 def estimate_percentiles(values: Iterable[float], lower_fraction: float) -> tuple[float, float]:
+    """
+    Estimate the lower and upper bounds of a distribution using percentiles.
+
+    Args:
+        values: A list of numerical values.
+        lower_fraction: The percentile fraction for the lower bound (e.g., 0.20 for 20th percentile).
+                        The upper bound will be 1 - lower_fraction (e.g., 80th percentile).
+
+    Returns:
+        A tuple containing (lower_bound, upper_bound).
+    """
     numeric = [x for x in values if isinstance(x, (int, float))]
     if len(numeric) < 2:
         return (math.nan, math.nan)
@@ -322,6 +385,7 @@ def estimate_percentiles(values: Iterable[float], lower_fraction: float) -> tupl
 
 
 def _jeffreys_probability(occurrences: int, total: int) -> int:
+    """Return a rounded probability percentage using the Jeffreys prior."""
     if total <= 0:
         return 0
     prob = (occurrences + 0.5) / (total + 1)
@@ -329,6 +393,7 @@ def _jeffreys_probability(occurrences: int, total: int) -> int:
 
 
 def convert_date_string(date_str: str) -> str:
+    """Convert YYYY-MM-DD plus descriptor into uppercase friendly text."""
     try:
         cleaned = date_str.strip()
         date_part, _, descriptor = cleaned.partition(" ")
@@ -342,6 +407,7 @@ def convert_date_string(date_str: str) -> str:
 
 
 def determine_current_season(latitude: float) -> str:
+    """Roughly infer the current season based on month and hemisphere."""
     month = datetime.now().month
     if month in (3, 4, 5):
         return "Spring" if latitude >= 0 else "Autumn"

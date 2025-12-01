@@ -24,6 +24,17 @@ COUNTRY_CACHE_LOCK = Lock()
 
 @dataclass
 class AlertSummary:
+    """
+    Represents a normalized weather alert.
+
+    Attributes:
+        title: The headline or title of the alert.
+        description: Detailed description of the alert.
+        severity: Severity level (e.g., "Severe", "Moderate").
+        source: The agency or provider issuing the alert.
+        onset: ISO 8601 timestamp for when the alert begins.
+        expires: ISO 8601 timestamp for when the alert ends.
+    """
     title: str
     description: str
     severity: Optional[str] = None
@@ -33,6 +44,24 @@ class AlertSummary:
 
 
 def fetch_alerts(latitude: float, longitude: float, *, country_code: Optional[str] = None, secrets: Optional[Secrets] = None) -> List[AlertSummary]:
+    """
+    Retrieve active weather alerts for a specific coordinate.
+
+    Automatically selects the best provider based on the country code:
+    - US: National Weather Service (NWS)
+    - Canada: OpenWeatherMap (fallback)
+    - New Zealand: OpenWeatherMap (fallback, MetService planned)
+    - Others: OpenWeatherMap
+
+    Args:
+        latitude: Latitude of the location.
+        longitude: Longitude of the location.
+        country_code: Optional ISO 3166-1 alpha-2 country code. If omitted, it will be resolved via reverse geocoding.
+        secrets: Optional Secrets instance containing API keys.
+
+    Returns:
+        A list of AlertSummary objects.
+    """
     secrets = secrets or get_secrets()
     country = (country_code or _resolve_country_code(latitude, longitude, secrets)) or ""
     country = country.upper()
@@ -48,6 +77,7 @@ def fetch_alerts(latitude: float, longitude: float, *, country_code: Optional[st
 
 
 def _fetch_us_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
+    """Fetch alerts from the National Weather Service for the given point."""
     url = f"https://api.weather.gov/alerts/active?point={latitude},{longitude}"
     try:
         resp = requests.get(url, headers={"User-Agent": "ibf-refactor/0.1"}, timeout=20)
@@ -74,6 +104,7 @@ def _fetch_us_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
 
 
 def _fetch_openweather_alerts(latitude: float, longitude: float, secrets: Secrets) -> List[AlertSummary]:
+    """Fetch alert data from OpenWeatherMap's One Call API."""
     if not secrets.openweathermap_api_key:
         logger.debug("OPENWEATHERMAP_API_KEY not configured; skipping alerts.")
         return []
@@ -115,6 +146,7 @@ def _fetch_openweather_alerts(latitude: float, longitude: float, secrets: Secret
 
 
 def _resolve_country_code(latitude: float, longitude: float, secrets: Secrets) -> Optional[str]:
+    """Reverse geocode the coordinate to an ISO country code with caching."""
     if not secrets.google_api_key:
         return None
 
@@ -143,6 +175,7 @@ def _resolve_country_code(latitude: float, longitude: float, secrets: Secrets) -
 
 
 def _read_country_cache() -> dict:
+    """Load the cached country lookup table from disk."""
     with COUNTRY_CACHE_LOCK:
         if not COUNTRY_CACHE_PATH.exists():
             return {}
@@ -153,6 +186,7 @@ def _read_country_cache() -> dict:
 
 
 def _write_country_cache(key: str, code: str) -> None:
+    """Persist a country code lookup keyed by coordinate."""
     with COUNTRY_CACHE_LOCK:
         data = _read_country_cache()
         data[key] = code
@@ -163,6 +197,7 @@ def _write_country_cache(key: str, code: str) -> None:
 
 
 def _unix_to_iso(value: float) -> str:
+    """Convert a Unix timestamp in seconds to an ISO 8601 string."""
     from datetime import datetime, timezone
 
     return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()

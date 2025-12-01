@@ -24,6 +24,15 @@ CACHE_DIR = ensure_directory("ibf_cache/impact")
 
 @dataclass
 class ImpactContext:
+    """
+    Container for impact-based context data.
+
+    Attributes:
+        name: Name of the location or area.
+        content: The generated context text.
+        from_cache: True if the content was loaded from disk cache.
+        cache_path: Path to the cache file (if applicable).
+    """
     name: str
     content: str
     from_cache: bool
@@ -39,7 +48,20 @@ def fetch_impact_context(
     timezone_name: str = "UTC",
 ) -> ImpactContext:
     """
-    Return cached impact context if present; LLM integration is a future enhancement.
+    Retrieve or generate impact context for a location or area.
+
+    Checks the filesystem cache first. If missing or stale, queries an LLM to generate
+    context based on vulnerabilities, events, and thresholds.
+
+    Args:
+        name: Name of the location or area.
+        context_type: "location", "area", or "regional".
+        forecast_days: Number of days to cover in the context.
+        secrets: Optional Secrets instance.
+        timezone_name: Local timezone for date calculations.
+
+    Returns:
+        An ImpactContext object containing the text.
     """
     secrets = secrets or get_secrets()
     cleanup_impact_cache()
@@ -74,7 +96,14 @@ def store_impact_context(
     timezone_name: str = "UTC",
 ) -> None:
     """
-    Persist newly generated context for reuse.
+    Save generated impact context to the filesystem cache.
+
+    Args:
+        name: Name of the location or area.
+        content: The context text to save.
+        context_type: "location", "area", or "regional".
+        forecast_days: Number of days covered.
+        timezone_name: Local timezone.
     """
     cache_path = _cache_path(context_type, name, forecast_days, timezone_name)
     payload = {
@@ -92,7 +121,10 @@ def store_impact_context(
 
 def cleanup_impact_cache(max_age_days: int = 3) -> None:
     """
-    Delete cache files older than the configured age.
+    Remove old impact context files from the cache.
+
+    Args:
+        max_age_days: Files older than this will be deleted.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
     for path in CACHE_DIR.glob("*.json"):
@@ -104,6 +136,7 @@ def cleanup_impact_cache(max_age_days: int = 3) -> None:
 
 
 def _cache_path(context_type: str, name: str, forecast_days: int, timezone_name: str) -> Path:
+    """Return the cache file path for the given context parameters."""
     safe_name = _slugify(name)
     local_now = get_local_now(timezone_name)
     date_str = local_now.strftime("%Y%m%d")
@@ -112,6 +145,7 @@ def _cache_path(context_type: str, name: str, forecast_days: int, timezone_name:
 
 
 def _load_cache(path: Path, timezone_name: str) -> Optional[str]:
+    """Read cached context text if it exists and matches today's date."""
     if not path.exists():
         return None
     try:
@@ -128,6 +162,7 @@ def _load_cache(path: Path, timezone_name: str) -> Optional[str]:
 
 
 def _slugify(value: str) -> str:
+    """Normalize a name into a lowercase, filesystem-safe slug."""
     return re.sub(r"[-\s]+", "_", re.sub(r"[^\w\s-]", "", value.strip())).lower()
 
 
@@ -138,6 +173,7 @@ def _generate_context(
     timezone_name: str,
     secrets: Secrets,
 ) -> str:
+    """Call the configured LLM to generate fresh impact context text."""
     api_key = secrets.openai_api_key
     if not api_key:
         logger.warning("OPENAI_API_KEY is required to generate impact context.")
@@ -199,6 +235,7 @@ For each bullet, write one to two sentences explaining why the item matters for 
 
 
 def _extract_response_text(response) -> str:
+    """Coerce OpenAI Responses API output into a simple text string."""
     text = getattr(response, "output_text", "") or ""
     if text:
         return text.strip()
@@ -218,6 +255,7 @@ def _extract_response_text(response) -> str:
 
 
 def _clean_context_text(text: str) -> str:
+    """Strip links, chatter, and formatting glitches from LLM output."""
     if not text:
         return ""
     cleaned = re.sub(r"\[([^\]]+)\]\([^\)]+\)", r"\1", text)

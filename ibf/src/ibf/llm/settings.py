@@ -13,6 +13,18 @@ from ..config import ForecastConfig
 
 @dataclass
 class LLMSettings:
+    """
+    Configuration for an LLM provider.
+
+    Attributes:
+        model: Model identifier (e.g., "gpt-4o-mini").
+        api_key: API key for authentication.
+        provider: "openai", "openrouter", "gemini", or "deepinfra".
+        base_url: Optional custom API base URL.
+        is_google: True if using the Google Generative AI SDK.
+        temperature: Sampling temperature.
+        max_tokens: Maximum output tokens.
+    """
     model: str
     api_key: str
     provider: str
@@ -25,6 +37,19 @@ class LLMSettings:
 def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] = None) -> LLMSettings:
     """
     Inspect the forecast config and environment variables to determine which LLM to use.
+
+    Prioritizes `override_choice`, then `config.llm`, then `IBF_DEFAULT_LLM` env var,
+    and finally defaults to a specific OpenRouter model.
+
+    Args:
+        config: The forecast configuration.
+        override_choice: Optional model string to force (e.g., for translation).
+
+    Returns:
+        An LLMSettings object.
+
+    Raises:
+        RuntimeError: If a required API key is missing.
     """
     base_choice = override_choice or config.llm or os.environ.get("IBF_DEFAULT_LLM") or "or:google/gemini-2.5-pro-exp-03-25:free"
     choice = base_choice.strip()
@@ -88,6 +113,7 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
 
 
 def _require_env(name: str) -> str:
+    """Fetch an environment variable or raise a descriptive error."""
     value = os.getenv(name)
     if not value:
         raise RuntimeError(f"Environment variable {name} is required for the selected LLM.")

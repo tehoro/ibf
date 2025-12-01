@@ -24,6 +24,17 @@ _tz_finder = TimezoneFinder()
 
 @dataclass
 class GeocodeResult:
+    """
+    Resolved location data.
+
+    Attributes:
+        name: The formatted name of the location.
+        latitude: Latitude coordinate.
+        longitude: Longitude coordinate.
+        timezone: Timezone identifier (e.g., "Europe/London").
+        country_code: ISO 3166-1 alpha-2 country code.
+        altitude: Elevation in meters (optional).
+    """
     name: str
     latitude: float
     longitude: float
@@ -35,6 +46,16 @@ class GeocodeResult:
 def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
     """
     Resolve a place name into coordinates.
+
+    First attempts to use the Open-Meteo Geocoding API. If that fails or returns no results,
+    it falls back to the Google Geocoding API (if configured). Results are cached.
+
+    Args:
+        name: The place name to search for (e.g., "London, UK").
+        language: Preferred language for the results (default "en").
+
+    Returns:
+        A GeocodeResult object if found, otherwise None.
     """
     normalized = name.strip().lower()
     cache = _read_cache()
@@ -84,6 +105,7 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
 
 
 def _read_cache() -> dict:
+    """Load the geocode search cache from disk."""
     if not CACHE_PATH.exists():
         return {}
     try:
@@ -93,6 +115,7 @@ def _read_cache() -> dict:
 
 
 def _write_cache(data: dict) -> None:
+    """Persist the geocode search cache to disk."""
     try:
         CACHE_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
     except OSError:
@@ -100,6 +123,7 @@ def _write_cache(data: dict) -> None:
 
 
 def _google_geocode(address: str) -> Optional[GeocodeResult]:
+    """Fallback to Google Geocoding (and Elevation) when Open-Meteo has no result."""
     secrets = get_secrets()
     api_key = secrets.google_api_key
     if not api_key:
@@ -149,6 +173,7 @@ def _google_geocode(address: str) -> Optional[GeocodeResult]:
 
 
 def _extract_country_code(result_entry: dict) -> Optional[str]:
+    """Extract the ISO country code from a Google geocode result."""
     for component in result_entry.get("address_components", []):
         if "country" in component.get("types", []):
             return component.get("short_name")
