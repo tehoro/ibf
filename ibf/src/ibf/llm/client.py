@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import re
+import json
 from typing import Any, Optional
 
 import google.generativeai as genai
@@ -55,6 +56,17 @@ def _call_openai_compatible(prompt: str, system_prompt: str, settings: LLMSettin
     )
     message = response.choices[0].message if response.choices else None
     raw_text = _coerce_message_content(getattr(message, "content", None))
+    if not raw_text and message is not None:
+        try:
+            payload = message.model_dump()
+        except Exception:
+            payload = repr(message)
+        snippet = json.dumps(payload, default=str) if isinstance(payload, dict) else str(payload)
+        logger.warning(
+            "LLM empty content payload for model %s (truncated): %s",
+            settings.model,
+            snippet[:2000],
+        )
     cleaned = _clean_llm_output(raw_text)
     if not cleaned and raw_text:
         logger.warning(
