@@ -11,7 +11,10 @@ from pathlib import Path
 from threading import Lock
 from typing import List, Optional
 
+import feedparser
 import requests
+from bs4 import BeautifulSoup, FeatureNotFound
+from shapely.geometry import Point, Polygon
 
 from ..config import Secrets, get_secrets
 from ..util import ensure_directory
@@ -50,7 +53,7 @@ def fetch_alerts(latitude: float, longitude: float, *, country_code: Optional[st
     Automatically selects the best provider based on the country code:
     - US: National Weather Service (NWS)
     - Canada: OpenWeatherMap (fallback)
-    - New Zealand: OpenWeatherMap (fallback, MetService planned)
+    - New Zealand: MetService CAP feed
     - Others: OpenWeatherMap
 
     Args:
@@ -68,10 +71,14 @@ def fetch_alerts(latitude: float, longitude: float, *, country_code: Optional[st
 
     if country == "US":
         return _fetch_us_alerts(latitude, longitude)
+    if country == "NZ":
+        nz_alerts = _fetch_nz_alerts(latitude, longitude)
+        if nz_alerts:
+            return nz_alerts
+        logger.info("MetService feed returned no alerts; falling back to OpenWeatherMap.")
+        return _fetch_openweather_alerts(latitude, longitude, secrets)
     if country == "CA":
         logger.info("Canadian alerts falling back to OpenWeatherMap.")
-    if country == "NZ":
-        logger.info("NZ alerts not yet implemented; returning OpenWeatherMap results.")
 
     return _fetch_openweather_alerts(latitude, longitude, secrets)
 
@@ -143,6 +150,92 @@ def _fetch_openweather_alerts(latitude: float, longitude: float, secrets: Secret
             )
         )
     return summaries
+
+
+def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
+    """Fetch alerts from MetService CAP RSS feed for New Zealand."""
+    rss_url = "https://alerts.metservice.com/cap/rss"
+    try:
+        feed = feedparser.parse(rss_url)
+    except Exception as exc:  # feedparser can raise generic exceptions
+        logger.warning("MetService RSS parse failed: %s", exc)
+        return []
+
+    point = Point(longitude, latitude)
+    summaries: List[AlertSummary] = []
+
+    for entry in getattr(feed, "entries", []):
+        link = getattr(entry, "link", None)
+        if not link:
+            continue
+
+        try:
+            resp = requests.get(link, timeout=20)
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            logger.debug("MetService CAP fetch failed for %s: %s", link, exc)
+            continue
+
+        try:
+            soup = BeautifulSoup(resp.content, "xml")
+        except FeatureNotFound as exc:
+            logger.error("BeautifulSoup XML parser not available: %s", exc)
+            return []
+        polygon_tags = soup.find_all("polygon")
+        polygons = [_cap_polygon_to_shape(tag.text) for tag in polygon_tags]
+        polygons = [poly for poly in polygons if poly is not None]
+        if not polygons:
+            continue
+
+        if any(poly.contains(point) or poly.touches(point) for poly in polygons):
+            summaries.append(
+                AlertSummary(
+                    title=getattr(entry, "title", None) or "MetService Alert",
+                    description=getattr(entry, "summary", None)
+                    or getattr(entry, "description", None)
+                    or "",
+                    severity=_get_xml_text(soup, "severity"),
+                    source="MetService",
+                    onset=_get_xml_text(soup, "onset"),
+                    expires=_get_xml_text(soup, "expires"),
+                )
+            )
+
+    return summaries
+
+
+def _cap_polygon_to_shape(polygon_text: Optional[str]) -> Optional[Polygon]:
+    """Convert a CAP polygon string into a Shapely Polygon."""
+    if not polygon_text:
+        return None
+
+    coords = []
+    for pair in polygon_text.strip().split():
+        parts = pair.split(",")
+        if len(parts) != 2:
+            continue
+        try:
+            lat = float(parts[0])
+            lon = float(parts[1])
+        except ValueError:
+            continue
+        coords.append((lon, lat))
+
+    if len(coords) < 3:
+        return None
+
+    polygon = Polygon(coords)
+    if not polygon.is_valid:
+        polygon = polygon.buffer(0)
+    return polygon if polygon.is_valid else None
+
+
+def _get_xml_text(soup: BeautifulSoup, tag_name: str) -> Optional[str]:
+    """Return stripped text for the first matching tag in the CAP XML."""
+    tag = soup.find(tag_name)
+    if tag and tag.text:
+        return tag.text.strip()
+    return None
 
 
 def _resolve_country_code(latitude: float, longitude: float, secrets: Secrets) -> Optional[str]:
