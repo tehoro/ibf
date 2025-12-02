@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol
 from zoneinfo import ZoneInfo
+import re
 
 from ..config import ForecastConfig, LocationConfig, AreaConfig
 from ..api import (
@@ -174,7 +175,20 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
                 impact_context=ibf_context or "",
             )
             logger.info("Requesting LLM forecast for '%s' using model %s", name, llm_settings.model)
-            forecast_text = generate_forecast_text(prompt, system_prompt, llm_settings)
+            reasoning_payload = (
+                _reasoning_payload(
+                    _as_bool(config.enable_reasoning),
+                    getattr(config, "location_reasoning", None),
+                )
+                if _supports_reasoning(llm_settings)
+                else None
+            )
+            forecast_text = generate_forecast_text(
+                prompt,
+                system_prompt,
+                llm_settings,
+                reasoning=reasoning_payload,
+            )
         except Exception as exc:
             logger.error("LLM generation failed for %s: %s", name, exc, exc_info=True)
 
@@ -261,7 +275,20 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
                 impact_instruction=impact_instr if ibf_context else "",
                 impact_context=ibf_context or "",
             )
-            forecast_text = generate_forecast_text(prompt, system_prompt, llm_settings)
+            reasoning_payload = (
+                _reasoning_payload(
+                    _as_bool(config.enable_reasoning),
+                    getattr(config, "area_reasoning", None),
+                )
+                if _supports_reasoning(llm_settings)
+                else None
+            )
+            forecast_text = generate_forecast_text(
+                prompt,
+                system_prompt,
+                llm_settings,
+                reasoning=reasoning_payload,
+            )
             logger.info("Requesting area LLM forecast for '%s' using model %s", area.name, llm_settings.model)
         except Exception as exc:
             logger.error("LLM generation failed for area %s: %s", area.name, exc, exc_info=True)
@@ -350,7 +377,20 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
                 impact_instruction=impact_instr if ibf_context else "",
                 impact_context=ibf_context or "",
             )
-            forecast_text = generate_forecast_text(prompt, system_prompt, llm_settings)
+            reasoning_payload = (
+                _reasoning_payload(
+                    _as_bool(config.enable_reasoning),
+                    getattr(config, "area_reasoning", None),
+                )
+                if _supports_reasoning(llm_settings)
+                else None
+            )
+            forecast_text = generate_forecast_text(
+                prompt,
+                system_prompt,
+                llm_settings,
+                reasoning=reasoning_payload,
+            )
             logger.info("Requesting regional LLM forecast for '%s' using model %s", area.name, llm_settings.model)
         except Exception as exc:
             logger.error(
@@ -762,3 +802,56 @@ def _windspeed_unit_for_api(value: str) -> str:
     if normalized in {"kt", "knots", "kts", "kn"}:
         return "kt"
     return "kph"
+
+
+_REASONING_DISABLE = {"off", "disable", "disabled", "none", "false"}
+_REASONING_LEVELS = {"low", "medium", "high", "auto"}
+_REASONING_MODEL_KEYWORDS = ("o1", "o3", "o4", "gpt-4.1", "gpt-5")
+
+
+def _reasoning_payload(enabled: bool, level: Optional[str]) -> Optional[dict]:
+    """
+    Build the extra_body payload that toggles reasoning for OpenAI-compatible providers.
+    """
+    if not enabled:
+        return None
+    effort, max_tokens, disable_override = _parse_reasoning_setting(level)
+    if disable_override:
+        return None
+    resolved_effort = effort or "medium"
+    payload: dict[str, object] = {"reasoning": {"effort": resolved_effort}}
+    if max_tokens:
+        payload["max_output_tokens"] = max_tokens
+    return payload
+
+
+def _parse_reasoning_setting(value: Optional[str]) -> tuple[Optional[str], Optional[int], bool]:
+    """
+    Interpret a free-form reasoning string like "high", "low:2048", or "off".
+
+    Returns (effort, max_tokens, disable_override).
+    """
+    if not value:
+        return None, None, False
+    raw = str(value).strip()
+    if not raw:
+        return None, None, False
+    lowered = raw.lower()
+    if lowered in _REASONING_DISABLE:
+        return None, None, True
+
+    effort = next((lvl for lvl in _REASONING_LEVELS if lvl in lowered), None)
+    token_match = re.search(r"(\d{2,})", raw)
+    max_tokens = int(token_match.group(1)) if token_match else None
+
+    return effort, max_tokens, False
+
+
+def _supports_reasoning(settings: Optional[LLMSettings]) -> bool:
+    """Return True if the active LLM can accept OpenAI-style reasoning arguments."""
+    if not settings or settings.is_google:
+        return False
+    if settings.provider != "openai":
+        return False
+    model_name = (settings.model or "").lower()
+    return any(keyword in model_name for keyword in _REASONING_MODEL_KEYWORDS)

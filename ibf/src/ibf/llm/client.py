@@ -21,6 +21,8 @@ def generate_forecast_text(
     prompt: str,
     system_prompt: str,
     settings: LLMSettings,
+    *,
+    reasoning: Optional[dict] = None,
 ) -> str:
     """
     Execute the LLM request and return the cleaned forecast text.
@@ -38,22 +40,31 @@ def generate_forecast_text(
     """
     if settings.is_google:
         return _call_gemini(prompt, system_prompt, settings)
-    return _call_openai_compatible(prompt, system_prompt, settings)
+    return _call_openai_compatible(prompt, system_prompt, settings, reasoning=reasoning)
 
 
-def _call_openai_compatible(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
+def _call_openai_compatible(
+    prompt: str,
+    system_prompt: str,
+    settings: LLMSettings,
+    *,
+    reasoning: Optional[dict],
+) -> str:
     """Call an OpenAI-compatible Chat Completions endpoint and clean the result."""
     client = OpenAI(api_key=settings.api_key, base_url=settings.base_url)
-    response = client.chat.completions.create(
-        model=settings.model,
-        messages=[
+    request_kwargs = {
+        "model": settings.model,
+        "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
-        temperature=settings.temperature,
-        max_tokens=settings.max_tokens,
-        stream=False,
-    )
+        "temperature": settings.temperature,
+        "max_tokens": settings.max_tokens,
+        "stream": False,
+    }
+    if reasoning:
+        request_kwargs["extra_body"] = reasoning
+    response = client.chat.completions.create(**request_kwargs)
     message = response.choices[0].message if response.choices else None
     raw_text = _coerce_message_content(getattr(message, "content", None))
     if not raw_text and message is not None:
