@@ -132,7 +132,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
     name = location.name
     logger.info("Processing location '%s'", name)
     units = _resolve_units(location)
-    forecast_days = config.location_forecast_days or 4
+    forecast_days = _resolve_forecast_days(config.location_forecast_days, 4)
     payload = _collect_location_payload(
         name,
         config=config,
@@ -228,7 +228,9 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     logger.info("Processing area '%s'", area.name)
     base_units = _resolve_units(area)
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
-    forecast_days = config.area_forecast_days or config.location_forecast_days or 4
+    forecast_days = _resolve_forecast_days(
+        config.area_forecast_days or config.location_forecast_days, 4
+    )
 
     payloads = _collect_area_payloads(area, config, base_units, thin_select, forecast_days)
 
@@ -332,7 +334,9 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     logger.info("Processing regional area '%s'", area.name)
     base_units = _resolve_units(area)
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
-    forecast_days = config.area_forecast_days or config.location_forecast_days or 4
+    forecast_days = _resolve_forecast_days(
+        config.area_forecast_days or config.location_forecast_days, 4
+    )
 
     payloads = _collect_area_payloads(area, config, base_units, thin_select, forecast_days)
     if not payloads:
@@ -461,14 +465,17 @@ def _collect_location_payload(
         country_code=geocode.country_code,
     )
 
+    request_days = max(forecast_days, 0) + 1
     try:
-        logger.info("Fetching forecast data for '%s' (%s days)", name, forecast_days)
+        logger.info(
+            "Fetching forecast data for '%s' (%s days + buffer)", name, forecast_days
+        )
         forecast = fetch_forecast(
             ForecastRequest(
                 latitude=geocode.latitude,
                 longitude=geocode.longitude,
                 timezone=geocode.timezone,
-                forecast_days=forecast_days,
+                forecast_days=request_days,
                 temperature_unit=_temperature_unit_for_api(units.temperature_primary),
                 precipitation_unit=_precipitation_unit_for_api(units.precipitation_primary),
                 windspeed_unit=_windspeed_unit_for_api(units.windspeed_primary),
@@ -486,6 +493,7 @@ def _collect_location_payload(
         thin_select=thin_select,
         location_altitude=units.altitude_m,
     )
+    dataset = _limit_days(dataset, forecast_days)
     if not dataset:
         logger.warning("No processed data produced for '%s'; skipping.", name)
         return None
@@ -739,6 +747,25 @@ def _snapshot_prompt(
         path.write_text(body + "\n", encoding="utf-8")
     except Exception as exc:
         logger.debug("Failed to snapshot prompt for %s/%s: %s", kind, name, exc)
+
+
+def _limit_days(days: List[dict], max_days: int) -> List[dict]:
+    """Restrict the dataset to the requested number of days."""
+    if max_days <= 0:
+        return days
+    if len(days) <= max_days:
+        return days
+    return days[:max_days]
+
+
+def _resolve_forecast_days(raw_value, fallback: int) -> int:
+    """Normalize configured forecast day counts into integers."""
+    if raw_value in (None, ""):
+        return fallback
+    try:
+        return max(0, int(raw_value))
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _build_destination_path(config: ForecastConfig, name: str) -> Path:
