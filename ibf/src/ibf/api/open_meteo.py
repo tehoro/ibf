@@ -96,6 +96,9 @@ def fetch_forecast(request: ForecastRequest) -> ForecastResponse:
     Raises:
         RuntimeError: If the download fails after retries.
     """
+    if request.cache_ttl_minutes > 0:
+        cleanup_forecast_cache(request.cache_dir)
+
     cache_path = _cache_path(request)
     if request.cache_ttl_minutes > 0:
         cached_data = _load_cache(cache_path, request.cache_ttl_minutes)
@@ -147,6 +150,20 @@ def _write_cache(path: Path, data: Dict[str, object]) -> None:
         path.write_text(json.dumps(data), encoding="utf-8")
     except OSError as exc:
         logger.warning("Failed to write cache %s (%s).", path, exc)
+
+
+def cleanup_forecast_cache(cache_dir: Path, max_age_hours: int = 48) -> None:
+    """Delete forecast cache files older than the supplied age threshold."""
+    if max_age_hours <= 0:
+        return
+    directory = ensure_directory(cache_dir)
+    cutoff = time.time() - (max_age_hours * 3600)
+    for path in directory.glob("*.json"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            continue
 
 
 def _download_forecast(request: ForecastRequest) -> Dict[str, object]:

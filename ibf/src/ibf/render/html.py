@@ -113,6 +113,9 @@ def _markdown_to_html(text: str) -> str:
     html = re.sub(r"\*(.+?)\*", r"<em>\1</em>", html)
     html = html.replace("\n", "<br>")
     html = re.sub(r"<br>(\s*<ul>)", r"\1", html)
+    html = re.sub(r"(<ul>)<br>", r"\1", html)
+    html = re.sub(r"</li><br><li>", r"</li><li>", html)
+    html = re.sub(r"</li><br>(\s*</ul>)", r"</li>\1", html)
     html = re.sub(r"(</ul>)<br>", r"\1", html)
     return html.strip()
 
@@ -161,7 +164,10 @@ h3 { color: #495057; font-size: 1.1em; font-weight: normal; margin-top: -0.5em; 
 #ibf-context-toggle { font-size: 0.8em; margin-right: 0.8em; transition: transform 0.2s; color: #495057; }
 #ibf-context-toggle.expanded { transform: rotate(90deg); }
 #ibf-context-header-text { color: #343a40; font-weight: 500; }
-#ibf-context-content { display: none; margin-top: 0; background: #ffffff; border-top: 1px solid #dee2e6; border-radius: 0 0 6px 6px; padding: 1.5em 2em; white-space: pre-wrap; word-wrap: break-word; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+#ibf-context-content { display: none; margin-top: 0; background: #ffffff; border-top: 1px solid #dee2e6; border-radius: 0 0 6px 6px; padding: 1.5em 2em; white-space: normal; word-wrap: break-word; box-shadow: 0 2px 4px rgba(0,0,0,0.05); line-height: 1.5; }
+#ibf-context-content ul { margin: 0 0 1em 1.2em; padding: 0; }
+#ibf-context-content li { margin-bottom: 0.5em; }
+#ibf-context-content li:last-child { margin-bottom: 0; }
 #ibf-context-content.expanded { display: block; }
 h2 { color: #343a40; margin-top: 1.5em; margin-bottom: 0.8em; font-size: 1.4em; }
 a { color: #0d6efd; text-decoration: none; font-weight: 500; }

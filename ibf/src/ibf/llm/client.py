@@ -7,12 +7,13 @@ from __future__ import annotations
 import logging
 import re
 import json
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 import google.generativeai as genai
 from openai import OpenAI
 
 from .settings import LLMSettings
+from .costs import get_model_cost
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ def _call_openai_compatible(
     if reasoning:
         request_kwargs["extra_body"] = reasoning
     response = client.chat.completions.create(**request_kwargs)
+    _log_usage_and_cost(settings.model, getattr(response, "usage", None))
     message = response.choices[0].message if response.choices else None
     raw_text = _coerce_message_content(getattr(message, "content", None))
     if not raw_text and message is not None:
@@ -100,12 +102,6 @@ def _call_openai_compatible(
             settings.model,
             getattr(choice, "finish_reason", None),
         )
-    logger.info(
-        "LLM usage – model=%s prompt_tokens=%s completion_tokens=%s",
-        settings.model,
-        getattr(response.usage, "prompt_tokens", None),
-        getattr(response.usage, "completion_tokens", None),
-    )
     return cleaned
 
 
@@ -188,4 +184,81 @@ def _coerce_message_content(content: Any) -> str:
     if text_attr:
         return str(text_attr)
     return str(content)
+
+
+def _log_usage_and_cost(model_name: str, usage: Any) -> None:
+    """Log prompt/completion/cached tokens and estimated USD cents for a chat call."""
+    if not usage:
+        logger.info(
+            "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
+            model_name,
+            "n/a",
+            "n/a",
+            "n/a",
+            "n/a",
+            "n/a",
+        )
+        return
+
+    try:
+        prompt_tokens, cached_prompt_tokens, completion_tokens, total_tokens = _normalize_chat_usage(usage)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Unable to normalize LLM usage data (%s): %s", type(usage), exc)
+        logger.info(
+            "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
+            model_name,
+            getattr(usage, "prompt_tokens", getattr(usage, "input_tokens", "n/a")),
+            "n/a",
+            getattr(usage, "completion_tokens", getattr(usage, "output_tokens", "n/a")),
+            getattr(usage, "total_tokens", "n/a"),
+            "n/a",
+        )
+        return
+
+    cost_entry = get_model_cost(model_name)
+    cost_display = "n/a"
+    if cost_entry:
+        usd = cost_entry.cost_for_usage(
+            input_tokens=prompt_tokens,
+            output_tokens=completion_tokens,
+            cached_input_tokens=cached_prompt_tokens,
+        )
+        cost_display = f"{usd * 100:.2f}"
+
+    logger.info(
+        "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
+        model_name,
+        prompt_tokens,
+        cached_prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        cost_display,
+    )
+
+
+def _normalize_chat_usage(usage: Any) -> Tuple[int, int, int, int]:
+    """Return (prompt_tokens, cached_prompt_tokens, completion_tokens, total_tokens)."""
+
+    def _get_attr(obj: Any, attr: str) -> Any:
+        if hasattr(obj, attr):
+            return getattr(obj, attr)
+        if isinstance(obj, dict):
+            return obj.get(attr)
+        return None
+
+    input_tokens = _get_attr(usage, "input_tokens")
+    if input_tokens is not None:
+        cached = _get_attr(_get_attr(usage, "input_tokens_details") or {}, "cached_tokens") or 0
+        output_tokens = _get_attr(usage, "output_tokens") or 0
+        total_tokens = _get_attr(usage, "total_tokens") or (int(input_tokens) + int(output_tokens))
+        return int(input_tokens), int(cached), int(output_tokens), int(total_tokens)
+
+    prompt_tokens = _get_attr(usage, "prompt_tokens")
+    if prompt_tokens is not None:
+        cached = _get_attr(_get_attr(usage, "prompt_tokens_details") or {}, "cached_tokens") or 0
+        completion_tokens = _get_attr(usage, "completion_tokens") or 0
+        total_tokens = _get_attr(usage, "total_tokens") or (int(prompt_tokens) + int(completion_tokens))
+        return int(prompt_tokens), int(cached), int(completion_tokens), int(total_tokens)
+
+    raise ValueError("Unsupported usage payload structure")
 

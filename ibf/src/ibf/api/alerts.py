@@ -240,29 +240,22 @@ def _get_xml_text(soup: BeautifulSoup, tag_name: str) -> Optional[str]:
 
 def _resolve_country_code(latitude: float, longitude: float, secrets: Secrets) -> Optional[str]:
     """Reverse geocode the coordinate to an ISO country code with caching."""
-    if not secrets.google_api_key:
-        return None
-
     cache_key = f"{latitude:.4f},{longitude:.4f}"
     cached = _read_country_cache().get(cache_key)
     if cached:
         return cached
 
-    params = {"latlng": f"{latitude},{longitude}", "key": secrets.google_api_key}
-    try:
-        resp = requests.get("https://maps.googleapis.com/maps/api/geocode/json", params=params, timeout=20)
-        resp.raise_for_status()
-        results = resp.json().get("results", [])
-        for component in results[0].get("address_components", []):
-            if "country" in component.get("types", []):
-                code = component.get("short_name")
-                if code:
-                    _write_country_cache(cache_key, code)
-                    return code
-    except requests.RequestException as exc:
-        logger.debug("Google reverse geocode failed: %s", exc)
-    except (IndexError, KeyError, json.JSONDecodeError):
-        logger.debug("Unexpected Google geocode response structure.")
+    if secrets.google_api_key:
+        code = _reverse_country_google(latitude, longitude, secrets.google_api_key)
+        if code:
+            _write_country_cache(cache_key, code)
+            return code
+
+    if secrets.openweathermap_api_key:
+        code = _reverse_country_openweather(latitude, longitude, secrets.openweathermap_api_key)
+        if code:
+            _write_country_cache(cache_key, code)
+            return code
 
     return None
 
@@ -294,4 +287,41 @@ def _unix_to_iso(value: float) -> str:
     from datetime import datetime, timezone
 
     return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
+
+
+def _reverse_country_google(latitude: float, longitude: float, api_key: str) -> Optional[str]:
+    """Look up a country code using Google reverse geocoding."""
+    params = {"latlng": f"{latitude},{longitude}", "key": api_key}
+    try:
+        resp = requests.get("https://maps.googleapis.com/maps/api/geocode/json", params=params, timeout=20)
+        resp.raise_for_status()
+        results = resp.json().get("results", [])
+        if not results:
+            return None
+        for component in results[0].get("address_components", []):
+            if "country" in component.get("types", []):
+                return component.get("short_name")
+    except requests.RequestException as exc:
+        logger.debug("Google reverse geocode failed: %s", exc)
+    except (IndexError, KeyError, json.JSONDecodeError):
+        logger.debug("Unexpected Google geocode response structure.")
+    return None
+
+
+def _reverse_country_openweather(latitude: float, longitude: float, api_key: str) -> Optional[str]:
+    """Look up a country code using OpenWeatherMap reverse geocoding."""
+    params = {"lat": latitude, "lon": longitude, "limit": 1, "appid": api_key}
+    try:
+        resp = requests.get("https://api.openweathermap.org/geo/1.0/reverse", params=params, timeout=20)
+        resp.raise_for_status()
+        payload = resp.json()
+        if not payload:
+            return None
+        entry = payload[0]
+        return entry.get("country")
+    except requests.RequestException as exc:
+        logger.debug("OpenWeatherMap reverse geocode failed: %s", exc)
+    except (IndexError, KeyError, json.JSONDecodeError):
+        logger.debug("Unexpected OpenWeatherMap geocode response structure.")
+    return None
 
