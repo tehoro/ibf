@@ -46,6 +46,7 @@ from ..llm.prompts import UnitInstructions
 
 logger = logging.getLogger(__name__)
 DATASET_CACHE_DIR = ensure_directory("ibf_cache/processed")
+PROMPT_SNAPSHOT_DIR = ensure_directory("ibf_cache/prompts")
 
 
 class SupportsUnits(Protocol):
@@ -183,6 +184,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
                 if _supports_reasoning(llm_settings)
                 else None
             )
+            _snapshot_prompt("location", name, llm_settings.model, system_prompt, prompt)
             forecast_text = generate_forecast_text(
                 prompt,
                 system_prompt,
@@ -283,6 +285,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
                 if _supports_reasoning(llm_settings)
                 else None
             )
+            _snapshot_prompt("area", area.name, llm_settings.model, system_prompt, prompt)
             forecast_text = generate_forecast_text(
                 prompt,
                 system_prompt,
@@ -384,6 +387,13 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
                 )
                 if _supports_reasoning(llm_settings)
                 else None
+            )
+            _snapshot_prompt(
+                "regional-area",
+                area.name,
+                llm_settings.model,
+                system_prompt,
+                prompt,
             )
             forecast_text = generate_forecast_text(
                 prompt,
@@ -696,6 +706,41 @@ def _area_dataset_summary(area_name: str, payloads: List[LocationForecastPayload
     return "\n".join(lines)
 
 
+def _snapshot_prompt(
+    kind: str,
+    name: str,
+    model: Optional[str],
+    system_prompt: str,
+    user_prompt: str,
+) -> None:
+    """Persist the full LLM prompt payload for later inspection."""
+    try:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        slug_base = slugify(f"{kind}-{name}") or kind or "prompt"
+        filename = f"{timestamp}_{slug_base}.txt"
+        path = PROMPT_SNAPSHOT_DIR / filename
+        header = "\n".join(
+            [
+                f"kind: {kind}",
+                f"name: {name}",
+                f"model: {model or 'unknown'}",
+                f"timestamp_utc: {timestamp}",
+            ]
+        )
+        body = "\n\n".join(
+            [
+                header,
+                "=== SYSTEM PROMPT ===",
+                system_prompt.strip(),
+                "=== USER PROMPT ===",
+                user_prompt.strip(),
+            ]
+        )
+        path.write_text(body + "\n", encoding="utf-8")
+    except Exception as exc:
+        logger.debug("Failed to snapshot prompt for %s/%s: %s", kind, name, exc)
+
+
 def _build_destination_path(config: ForecastConfig, name: str) -> Path:
     """Resolve the filesystem path for the rendered HTML for a given name."""
     from ..web.scaffold import resolve_web_root
@@ -763,6 +808,7 @@ def _maybe_translate(
         logger.info("Translating forecast into %s using %s", language, model_name)
         system_prompt = build_translation_system_prompt(language)
         user_prompt = build_translation_user_prompt(text)
+        _snapshot_prompt("translation", language, settings.model, system_prompt, user_prompt)
         return generate_forecast_text(user_prompt, system_prompt, settings)
     except Exception as exc:
         logger.error("Translation failed (%s): %s", language, exc, exc_info=True)

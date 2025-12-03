@@ -105,16 +105,23 @@ def format_location_dataset(
 
                 precip_text = ""
                 if isinstance(precip_val, (int, float)) and precip_val > 0:
-                    precip_text = f", {precip_val:.1f} {precipitation_unit}/h"
+                    precip_text = f"{precip_val:.1f} {precipitation_unit}/h"
 
                 snow_text = ""
                 if isinstance(snow_level, int) and snow_level > 0:
-                    snow_text = f", snow down to about {snow_level} m"
+                    snow_text = f"snow down to about {snow_level} m"
 
-                wind_text = _format_wind(wind_direction, wind_speed, wind_gust, windspeed_unit)
+                wind_text = _format_wind(wind_direction, wind_speed, wind_gust)
 
-                temp_text = f"{_format_temp(temp, temperature_unit)}" if isinstance(temp, (int, float)) else "N/A"
-                block_lines.append(f" {hour_label}: {temp_text}, {weather_desc}{precip_text}{snow_text}, {wind_text}")
+                temp_text = f"{_format_temp(temp)}" if isinstance(temp, (int, float)) else "N/A"
+                details = [temp_text, weather_desc]
+                if precip_text:
+                    details.append(precip_text)
+                if snow_text:
+                    details.append(snow_text)
+                details.append(wind_text)
+                detail_str = " ".join(part.strip() for part in details if part)
+                block_lines.append(f"{hour_label} {detail_str}")
 
             if has_data:
                 summary = _member_summary(
@@ -147,7 +154,8 @@ def format_location_dataset(
                 _should_use_only_low(hours),
                 _should_reverse_high_low(hours),
             )
-            output_parts.append(f"{date_heading}" + "\n".join(members_output) + "\nRANGE SUMMARY:\n" + range_summary + "\n")
+            scenarios_text = "\n\n".join(members_output)
+            output_parts.append(f"{date_heading}\n{scenarios_text}\nRANGE SUMMARY:\n" + range_summary + "\n")
 
     final_text = "\n".join(part for part in output_parts if part.strip())
     return (alert_text + "\n" + final_text).strip() if alert_text else final_text.strip()
@@ -233,21 +241,20 @@ def _hour_from_string(value: str) -> int:
         return 0
 
 
-def _format_temp(value: float, unit: str) -> str:
-    """Format a numeric temperature using the configured unit symbol."""
-    symbol = "°C" if unit == "celsius" else "°F"
-    return f"{round(value)}{symbol}"
+def _format_temp(value: float) -> str:
+    """Format temperature for hourly lines without repeating units."""
+    return f"{round(value)}°"
 
 
-def _format_wind(direction: str, speed: float, gust: float, unit: str) -> str:
-    """Summarize wind direction, sustained speed, and gust in plain language."""
-    unit_display = "km/h" if unit == "kph" else unit
+def _format_wind(direction: str, speed: float, gust: float) -> str:
+    """Summarize wind direction and gusts without repeating units."""
     if not isinstance(speed, (int, float)) or speed <= 0:
-        return "wind calm"
+        return "calm"
+    base = f"{direction or 'VAR'} {int(speed)}"
     gust_part = ""
-    if isinstance(gust, (int, float)) and gust - speed >= 10:
-        gust_part = f" gust {int(gust)} {unit_display}"
-    return f"{direction or 'variable'} {int(speed)} {unit_display}{gust_part}"
+    if isinstance(gust, (int, float)) and gust - speed >= 5:
+        gust_part = f" gust {int(gust)}"
+    return f"{base}{gust_part}"
 
 
 def _member_summary(

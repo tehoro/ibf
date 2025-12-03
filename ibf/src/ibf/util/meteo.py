@@ -52,14 +52,14 @@ def wmo_weather(code: int | float | None) -> str:
 
 
 _DIRECTIONS = [
-    "northerly",
-    "northeasterly",
-    "easterly",
-    "southeasterly",
-    "southerly",
-    "southwesterly",
-    "westerly",
-    "northwesterly",
+    "N",
+    "NE",
+    "E",
+    "SE",
+    "S",
+    "SW",
+    "W",
+    "NW",
 ]
 
 
