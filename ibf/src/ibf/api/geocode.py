@@ -48,7 +48,7 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
     Resolve a place name into coordinates.
 
     First attempts to use the Open-Meteo Geocoding API. If that fails or returns no results,
-    it falls back to the Google Geocoding API (if configured). Results are cached.
+    it falls back to the Google Geocoding API (required). Results are cached.
 
     Args:
         name: The place name to search for (e.g., "London, UK").
@@ -57,10 +57,22 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
     Returns:
         A GeocodeResult object if found, otherwise None.
     """
+    secrets = get_secrets()
+    if not secrets.google_api_key:
+        raise RuntimeError(
+            "GOOGLE_API_KEY is required for geocoding. Set it in your environment or .env file."
+        )
+
     normalized = name.strip().lower()
     cache = _read_cache()
     if normalized in cache:
         data = cache[normalized]
+        logger.info(
+            "Geocode cache hit for '%s' (lat=%.4f, lon=%.4f)",
+            name,
+            data["latitude"],
+            data["longitude"],
+        )
         return GeocodeResult(**data)
 
     params = {"name": name, "count": 1, "language": language, "format": "json"}
@@ -86,9 +98,15 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
                 timezone=entry.get("timezone", "UTC"),
                 country_code=entry.get("country_code"),
             )
+            logger.info(
+                "Geocode resolved via Open-Meteo for '%s' (lat=%.4f, lon=%.4f)",
+                name,
+                result.latitude,
+                result.longitude,
+            )
 
     if result is None:
-        result = _google_geocode(name)
+        result = _google_geocode(name, secrets.google_api_key)
         if result is None:
             return None
 
@@ -122,14 +140,8 @@ def _write_cache(data: dict) -> None:
         logger.debug("Failed to update geocode cache")
 
 
-def _google_geocode(address: str) -> Optional[GeocodeResult]:
+def _google_geocode(address: str, api_key: str) -> Optional[GeocodeResult]:
     """Fallback to Google Geocoding (and Elevation) when Open-Meteo has no result."""
-    secrets = get_secrets()
-    api_key = secrets.google_api_key
-    if not api_key:
-        logger.debug("GOOGLE_API_KEY not set; skipping Google fallback for %s", address)
-        return None
-
     try:
         logger.info("Fallback geocoding '%s' via Google", address)
         encoded_address = requests.utils.quote(address)
@@ -156,6 +168,12 @@ def _google_geocode(address: str) -> Optional[GeocodeResult]:
         else:
             logger.debug("Google Elevation returned %s for '%s'", elevation_payload.get("status"), address)
 
+        logger.info(
+            "Geocode resolved via Google for '%s' (lat=%.4f, lon=%.4f)",
+            address,
+            lat,
+            lon,
+        )
         return GeocodeResult(
             name=formatted,
             latitude=lat,

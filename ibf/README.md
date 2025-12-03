@@ -52,13 +52,41 @@ All instructions below assume you are inside that `ibf` directory.
 | `OPENROUTER_API_KEY` | Forecast LLMs via OpenRouter (for `or:provider/model` names) | <https://openrouter.ai/> → Account → API Keys |
 | `GEMINI_API_KEY` | Google Gemini models (optional) | <https://aistudio.google.com/app/apikey> |
 | `DEEP_INFRA_API_KEY` | DeepInfra models (optional) | <https://deepinfra.com/dashboard> |
-| `OPENWEATHERMAP_API_KEY` | Weather alerts outside the US | <https://openweathermap.org/api> – create free account, enable “One Call” |
-| `GOOGLE_API_KEY` | High-quality geocoding/elevation when Open-Meteo can’t resolve a location | In Google Cloud Console: create a project → enable **Geocoding API** and **Elevation API** → create an API key (restrict to those services if desired) |
+| `OPENWEATHERMAP_API_KEY` | Severe weather alerts outside the US/NZ | <https://openweathermap.org/api> – create free account, enable **One Call** |
+| `GOOGLE_API_KEY` *(required)* | All geocoding + optional elevation lookup | See [How to get a Google Maps Geocoding API key](#how-to-get-a-google-maps-geocoding-api-key) |
 
 Tips:
 
 - If you only plan to use one LLM provider, you can leave the others blank.
 - API keys stay private: `.env` is already excluded from Git.
+
+#### How to get a Google Maps Geocoding API key
+
+1. **Go to the Google Cloud Console**  
+   - Visit <https://console.cloud.google.com/> and sign in with your Google account.
+
+2. **Create (or select) a project**  
+   - Use the top project selector → **New Project**. Name it something like “IBF Geocoding” and click **Create**, then switch into that project once it’s ready.
+
+3. **Enable the Geocoding API**  
+   - In the left menu choose **APIs & Services → Library**.  
+   - Search for “Geocoding API”, open it, and click **Enable**. (Enable “Elevation API” as well if you want the optional elevation data we request.)
+
+4. **Set up billing** *(required even for free tier)*  
+   - Go to **Billing** in the left menu, click **Set up billing**, and add a payment method. Google provides generous free credits and you can configure usage alerts afterwards.
+
+5. **Create an API key**  
+   - Navigate to **APIs & Services → Credentials**.  
+   - Click **+ Create credentials → API key**. Copy the generated key.
+
+6. **Restrict the key to geocoding only (recommended)**  
+   - On the Credentials list, click the pencil icon next to the new key.  
+   - Under **API restrictions**, choose **Restrict key** and tick **Geocoding API** (plus **Elevation API** if enabled). Save.
+
+7. **Add it to IBF**  
+   - Paste the key into your `.env` as `GOOGLE_API_KEY=...`. Runs will fail fast with a clear error if the key is missing.
+
+That’s it—after this setup, IBF can geocode any location globally without additional provider keys.
 
 ---
 
@@ -188,6 +216,22 @@ IBF logs every major step (“Reading config…”, “Fetching forecast…”, 
 
 ---
 
+### Technical reference – cache behavior
+
+IBF writes several lightweight caches under `ibf_cache/` so it does not keep hitting slow or rate-limited APIs. Removing this directory at any time is safe; it will be recreated on the next run.
+
+| Cache | Location | Purpose | When it’s read | Expiration / deletion |
+| --- | --- | --- | --- | --- |
+| Forecast downloads | `ibf_cache/forecasts/<lat_lon>.json` | Raw Open-Meteo ensemble responses keyed by latitude, longitude, units, and day count. | `ibf.api.open_meteo.fetch_forecast()` reads this file before making a network call. | Used only while the file is newer than `cache_ttl_minutes` (default 60). Anything older than 48 hours is automatically deleted the next time any forecast cache is checked. Set `cache_ttl_minutes=0` in a `ForecastRequest` to skip caching altogether. |
+| Processed datasets | `ibf_cache/processed/<slug>.json` | The post-processed dataset that feeds the LLM plus the fallback “dataset preview” text. | Only written; IBF does not re-read it during the same run. | Overwritten the next time the same location/area slug runs. Safe to delete anytime for disk cleanup. |
+| Geocode search results | `ibf_cache/geocode/search_cache.json` | A normalized place-name lookup table so repeated runs don’t call Open-Meteo (or Google) again. | `ibf.api.geocode.geocode_name()` loads this map before making HTTP requests. | No TTL—delete the file to force fresh coordinates or timezone data. |
+| Reverse country lookups | `ibf_cache/geocode/country_cache.json` | Latitude/longitude → ISO country code pairs for alert provider selection. | `ibf.api.alerts._resolve_country_code()` checks here before calling Google reverse geocoding (falls back to OpenWeatherMap if available). | No automatic expiry. Remove the file if country-routing logic needs to refresh. |
+| Impact context | `ibf_cache/impact/YYYYMMDD_<type>_<slug>_<days>.json` | The structured “Impact-Based Forecast Context” text and metadata for each location/area. | `ibf.api.impact.fetch_impact_context()` loads the matching file (same date, context type, slug, and day span) before asking an LLM. | Only the current local-day file is considered valid. `cleanup_impact_cache()` runs on every request and deletes anything older than three days. |
+
+Because `ibf_cache/` is git-ignored, blowing it away is the fastest way to guarantee a full re-fetch of every upstream resource.
+
+---
+
 ### Optional commands
 
 | Command | When to use it |
@@ -201,7 +245,7 @@ IBF logs every major step (“Reading config…”, “Fetching forecast…”, 
 ### Troubleshooting tips
 
 - **“Missing API key” errors** – double-check `.env` and ensure you ran the commands via `uv run` so the environment file loads automatically.
-- **Geocoding failures** – confirm your Google API key has Geocoding API enabled and that billing is set up (Google requires it even for free tier usage).
+- **Geocoding failures** – confirm `GOOGLE_API_KEY` is present, the Geocoding API is enabled in the selected Google Cloud project, and billing is active (Google requires it even for free-tier usage). Restricting keys to Geocoding/Elevation only is fine.
 - **LLM model errors** – verify the `llm` name matches what your provider supports. For OpenRouter models, prefix with `or:` (e.g., `or:google/gemini-2.0-pro-exp`).
 - **Stuck or slow runs** – add `PYTHONUNBUFFERED=1` before the command to flush logs immediately:  
   `PYTHONUNBUFFERED=1 uv run ibf run --log-level debug --config path/to/config.json`.
