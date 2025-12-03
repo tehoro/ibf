@@ -90,7 +90,7 @@ def test_cli_run_generates_forecasts(
     monkeypatch.setattr(
         executor,
         "fetch_impact_context",
-        lambda name, **_: SimpleNamespace(content=f"Impact context for {name}"),
+        lambda name, **_: SimpleNamespace(content=f"Impact context for {name}", cost_cents=0.0),
     )
 
     def fake_generate_maps(config, **kwargs):

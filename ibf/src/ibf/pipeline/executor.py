@@ -30,6 +30,7 @@ from ..llm import (
     LLMSettings,
     resolve_llm_settings,
     generate_forecast_text,
+    consume_last_cost_cents,
     format_location_dataset,
     format_area_dataset,
     determine_current_season,
@@ -47,6 +48,56 @@ from ..llm.prompts import UnitInstructions
 logger = logging.getLogger(__name__)
 DATASET_CACHE_DIR = ensure_directory("ibf_cache/processed")
 PROMPT_SNAPSHOT_DIR = ensure_directory("ibf_cache/prompts")
+
+
+@dataclass
+class CostBreakdown:
+    context_cents: float = 0.0
+    forecast_cents: float = 0.0
+    translation_cents: float = 0.0
+
+
+_COST_TRACKER: Dict[str, CostBreakdown] = {}
+
+
+def _reset_cost_tracker() -> None:
+    _COST_TRACKER.clear()
+
+
+def _record_cost(kind: str, name: str, *, context: float = 0.0, forecast: float = 0.0, translation: float = 0.0) -> None:
+    label = f"{kind}: {name}"
+    entry = _COST_TRACKER.setdefault(label, CostBreakdown())
+    entry.context_cents += context
+    entry.forecast_cents += forecast
+    entry.translation_cents += translation
+
+
+def _log_cost_summary() -> None:
+    if not _COST_TRACKER:
+        logger.info("LLM cost summary – no tracked costs this run.")
+        return
+
+    header = f"{'Location or Area':<40} {'Context':>12} {'Forecast':>12} {'Translation':>12}"
+    lines = [header, "-" * len(header)]
+    total_context = total_forecast = total_translation = 0.0
+
+    for label in sorted(_COST_TRACKER.keys()):
+        entry = _COST_TRACKER[label]
+        total_context += entry.context_cents
+        total_forecast += entry.forecast_cents
+        total_translation += entry.translation_cents
+        lines.append(
+            f"{label:<40} {entry.context_cents:>12.1f} {entry.forecast_cents:>12.1f} {entry.translation_cents:>12.1f}"
+        )
+
+    lines.append("-" * len(header))
+    lines.append(
+        f"{'TOTAL':<40} {total_context:>12.1f} {total_forecast:>12.1f} {total_translation:>12.1f}"
+    )
+    grand_total = total_context + total_forecast + total_translation
+    lines.append(f"{'Grand total':<40} {grand_total:>12.1f}")
+
+    logger.info("LLM cost summary (USD cents):\n%s", "\n".join(lines))
 
 
 class SupportsUnits(Protocol):
@@ -118,6 +169,7 @@ def execute_pipeline(config: ForecastConfig) -> None:
         logger.info("No locations or areas configured; nothing to do.")
         return
 
+    _reset_cost_tracker()
     for location in config.locations:
         _process_location(location, config)
     for area in config.areas:
@@ -125,6 +177,7 @@ def execute_pipeline(config: ForecastConfig) -> None:
             _process_regional_area(area, config)
         else:
             _process_area(area, config)
+    _log_cost_summary()
 
 
 def _process_location(location: LocationConfig, config: ForecastConfig) -> Optional[LocationForecastPayload]:
@@ -144,12 +197,14 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
         return None
     geocode = payload.geocode
     timezone_name = geocode.timezone or "UTC"
-    ibf_context = fetch_impact_context(
+    impact_context = fetch_impact_context(
         name,
         context_type="location",
         forecast_days=forecast_days,
         timezone_name=timezone_name,
-    ).content
+    )
+    ibf_context = impact_context.content
+    _record_cost("Location", name, context=impact_context.cost_cents)
     logger.info("Fetched impact context for '%s'", name)
     formatted_dataset = payload.formatted_dataset
     dataset = payload.dataset
@@ -191,6 +246,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
                 llm_settings,
                 reasoning=reasoning_payload,
             )
+            _record_cost("Location", name, forecast=consume_last_cost_cents())
         except Exception as exc:
             logger.error("LLM generation failed for %s: %s", name, exc, exc_info=True)
 
@@ -205,6 +261,8 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
         config,
         llm_settings,
     )
+    if translated_text is not None:
+        _record_cost("Location", name, translation=consume_last_cost_cents())
 
     destination = _build_destination_path(config, name)
     logger.info("Writing forecast page for '%s' → %s", name, destination)
@@ -239,12 +297,14 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
         return
 
     area_timezone = payloads[0].geocode.timezone or "UTC"
-    ibf_context = fetch_impact_context(
+    impact_context = fetch_impact_context(
         area.name,
         context_type="area",
         forecast_days=forecast_days,
         timezone_name=area_timezone,
-    ).content
+    )
+    ibf_context = impact_context.content
+    _record_cost("Area", area.name, context=impact_context.cost_cents)
     logger.info("Fetched impact context for area '%s'", area.name)
     formatted_dataset = format_area_dataset(
         area.name,
@@ -294,6 +354,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
                 llm_settings,
                 reasoning=reasoning_payload,
             )
+            _record_cost("Area", area.name, forecast=consume_last_cost_cents())
             logger.info("Requesting area LLM forecast for '%s' using model %s", area.name, llm_settings.model)
         except Exception as exc:
             logger.error("LLM generation failed for area %s: %s", area.name, exc, exc_info=True)
@@ -309,6 +370,8 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
         config,
         llm_settings,
     )
+    if translated_text is not None:
+        _record_cost("Area", area.name, translation=consume_last_cost_cents())
 
     destination = _build_destination_path(config, area.name)
     logger.info("Writing area forecast page for '%s' → %s", area.name, destination)
@@ -344,12 +407,14 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
         return
 
     area_timezone = payloads[0].geocode.timezone or "UTC"
-    ibf_context = fetch_impact_context(
+    regional_context = fetch_impact_context(
         area.name,
         context_type="regional",
         forecast_days=forecast_days,
         timezone_name=area_timezone,
-    ).content
+    )
+    ibf_context = regional_context.content
+    _record_cost("Regional", area.name, context=regional_context.cost_cents)
     logger.info("Fetched impact context for regional area '%s'", area.name)
     formatted_dataset = format_area_dataset(
         area.name,
@@ -406,6 +471,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
                 reasoning=reasoning_payload,
             )
             logger.info("Requesting regional LLM forecast for '%s' using model %s", area.name, llm_settings.model)
+            _record_cost("Regional", area.name, forecast=consume_last_cost_cents())
         except Exception as exc:
             logger.error(
                 "Regional LLM generation failed for %s: %s", area.name, exc, exc_info=True
@@ -422,6 +488,8 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
         config,
         llm_settings,
     )
+    if translated_text is not None:
+        _record_cost("Regional", area.name, translation=consume_last_cost_cents())
 
     destination = _build_destination_path(config, area.name)
     logger.info("Writing regional forecast page for '%s' → %s", area.name, destination)

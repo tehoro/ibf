@@ -16,6 +16,7 @@ from .settings import LLMSettings
 from .costs import get_model_cost
 
 logger = logging.getLogger(__name__)
+_LAST_COST_CENTS: float = 0.0
 
 
 def generate_forecast_text(
@@ -217,13 +218,17 @@ def _log_usage_and_cost(model_name: str, usage: Any) -> None:
 
     cost_entry = get_model_cost(model_name)
     cost_display = "n/a"
+    cost_cents = 0.0
     if cost_entry:
         usd = cost_entry.cost_for_usage(
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             cached_input_tokens=cached_prompt_tokens,
         )
-        cost_display = f"{usd * 100:.2f}"
+        cost_cents = usd * 100
+        cost_display = f"{cost_cents:.2f}"
+    else:
+        cost_cents = 0.0
 
     logger.info(
         "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
@@ -234,6 +239,8 @@ def _log_usage_and_cost(model_name: str, usage: Any) -> None:
         total_tokens,
         cost_display,
     )
+    global _LAST_COST_CENTS
+    _LAST_COST_CENTS = cost_cents
 
 
 def _normalize_chat_usage(usage: Any) -> Tuple[int, int, int, int]:
@@ -261,4 +268,12 @@ def _normalize_chat_usage(usage: Any) -> Tuple[int, int, int, int]:
         return int(prompt_tokens), int(cached), int(completion_tokens), int(total_tokens)
 
     raise ValueError("Unsupported usage payload structure")
+
+
+def consume_last_cost_cents() -> float:
+    """Return and reset the most recent LLM cost (in USD cents)."""
+    global _LAST_COST_CENTS
+    value = _LAST_COST_CENTS
+    _LAST_COST_CENTS = 0.0
+    return value
 

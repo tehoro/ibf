@@ -3,7 +3,7 @@ LLM utilities: prompt generation, formatting, and client wrappers.
 """
 
 from .settings import LLMSettings, resolve_llm_settings
-from .client import generate_forecast_text
+from .client import generate_forecast_text, consume_last_cost_cents
 from .formatter import (
     format_location_dataset,
     format_area_dataset,
@@ -24,6 +24,7 @@ __all__ = [
     "LLMSettings",
     "resolve_llm_settings",
     "generate_forecast_text",
+    "consume_last_cost_cents",
     "format_location_dataset",
     "format_area_dataset",
     "determine_current_season",

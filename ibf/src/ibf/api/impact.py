@@ -40,6 +40,7 @@ class ImpactContext:
     content: str
     from_cache: bool
     cache_path: Optional[Path] = None
+    cost_cents: float = 0.0
 
 
 def fetch_impact_context(
@@ -72,9 +73,15 @@ def fetch_impact_context(
     cached_context, cache_path = _load_recent_cache(context_type, name, forecast_days, timezone_name)
     if cached_context:
         logger.info("Using cached impact context for %s (%s)", name, context_type)
-        return ImpactContext(name=name, content=cached_context, from_cache=True, cache_path=cache_path)
+        return ImpactContext(
+            name=name,
+            content=cached_context,
+            from_cache=True,
+            cache_path=cache_path,
+            cost_cents=0.0,
+        )
 
-    context = _generate_context(context_type, name, forecast_days, timezone_name, secrets)
+    context, cost_cents = _generate_context(context_type, name, forecast_days, timezone_name, secrets)
     if context:
         store_impact_context(
             name,
@@ -83,10 +90,16 @@ def fetch_impact_context(
             forecast_days=forecast_days,
             timezone_name=timezone_name,
         )
-        return ImpactContext(name=name, content=context, from_cache=False, cache_path=cache_path)
+        return ImpactContext(
+            name=name,
+            content=context,
+            from_cache=False,
+            cache_path=cache_path,
+            cost_cents=cost_cents,
+        )
 
     logger.info("Impact context unavailable for %s (%s); continuing without it.", name, context_type)
-    return ImpactContext(name=name, content="", from_cache=False, cache_path=cache_path)
+    return ImpactContext(name=name, content="", from_cache=False, cache_path=cache_path, cost_cents=0.0)
 
 
 def store_impact_context(
@@ -224,12 +237,12 @@ def _generate_context(
     forecast_days: int,
     timezone_name: str,
     secrets: Secrets,
-) -> str:
+) -> Tuple[str, float]:
     """Call GPT-4o with web search enabled (fallback to chat completions) for context."""
     api_key = secrets.openai_api_key
     if not api_key:
         logger.warning("OPENAI_API_KEY is required to generate impact context.")
-        return ""
+        return "", 0.0
 
     client = OpenAI(api_key=api_key)
     max_event_days = EVENT_LOOKAHEAD_DAYS
@@ -264,6 +277,7 @@ For each item, add 1–2 sentences explaining why it is relevant for an impact-b
 
 IMPORTANT: Provide only the structured context information as plain text. Do NOT include any URLs, web links, or citations. Do not offer to draft the forecast or ask if you should proceed. Just provide the requested contextual information as text only."""
 
+    cost_cents = 0.0
     try:
         response = client.responses.create(
             model="gpt-4o",
@@ -271,7 +285,7 @@ IMPORTANT: Provide only the structured context information as plain text. Do NOT
             tools=[{"type": "web_search"}],
             timeout=60.0,
         )
-        _log_usage_and_cost("gpt-4o", getattr(response, "usage", None))
+        cost_cents = _log_usage_and_cost("gpt-4o", getattr(response, "usage", None))
         context_text = _extract_response_text(response)
     except Exception as exc:
         logger.warning(
@@ -289,19 +303,21 @@ IMPORTANT: Provide only the structured context information as plain text. Do NOT
                 temperature=0.2,
                 max_tokens=1800,
             )
-            _log_usage_and_cost("gpt-4o", getattr(fallback, "usage", None))
+            cost_cents = _log_usage_and_cost("gpt-4o", getattr(fallback, "usage", None))
             if fallback.choices:
                 context_text = fallback.choices[0].message.content.strip()
             else:
                 context_text = ""
         except Exception as chat_exc:
             logger.error("Chat completions fallback failed for impact context (%s): %s", name, chat_exc)
-            return ""
+            return "", 0.0
 
     context_text = _clean_context_text(context_text)
     if context_text:
         logger.info("Generated impact context for %s (%s); %d characters", name, context_type, len(context_text))
-    return context_text
+    else:
+        cost_cents = 0.0
+    return context_text, cost_cents
 
 
 def _extract_response_text(response) -> str:
@@ -346,19 +362,38 @@ def _clean_context_text(text: str) -> str:
     return cleaned.strip()
 
 
-def _log_usage_and_cost(model_name: str, usage: Any) -> None:
+def _log_usage_and_cost(model_name: str, usage: Any) -> float:
     """Log token usage and estimated cost (in USD cents) for the impact context call."""
     if not usage:
-        return
+        logger.info(
+            "Impact context LLM usage – model=%s input_tokens=%s cached_input_tokens=%s output_tokens=%s total_tokens=%s cost_usd_cents=%s",
+            model_name,
+            "n/a",
+            "n/a",
+            "n/a",
+            "n/a",
+            "n/a",
+        )
+        return 0.0
 
     try:
         input_tokens, cached_input_tokens, output_tokens, total_tokens = _normalize_usage(usage)
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("Unable to normalize LLM usage data (%s): %s", type(usage), exc)
-        return
+        logger.info(
+            "Impact context LLM usage – model=%s input_tokens=%s cached_input_tokens=%s output_tokens=%s total_tokens=%s cost_usd_cents=%s",
+            model_name,
+            getattr(usage, "input_tokens", "n/a"),
+            "n/a",
+            getattr(usage, "output_tokens", "n/a"),
+            getattr(usage, "total_tokens", "n/a"),
+            "n/a",
+        )
+        return 0.0
 
     cost_entry = get_model_cost(model_name)
     cost_display = "n/a"
+    usd = 0.0
     if cost_entry:
         usd = cost_entry.cost_for_usage(
             input_tokens=input_tokens,
@@ -376,6 +411,7 @@ def _log_usage_and_cost(model_name: str, usage: Any) -> None:
         total_tokens,
         cost_display,
     )
+    return usd * 100 if cost_entry else 0.0
 
 
 def _normalize_usage(usage: Any) -> tuple[int, int, int, int]:
