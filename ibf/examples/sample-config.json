@@ -1,43 +1,52 @@
 {
   "locations": [
     {
-      "name": "Bedford, Massachusetts",
-      "units": {
-        "temperature_unit": "fahrenheit",
-        "precipitation_unit": "in",
-        "windspeed_unit": "mph"
-      }
-    },
-    {
-      "name": "Seattle, Washington",
-      "units": {
-        "temperature_unit": "fahrenheit",
-        "precipitation_unit": "in",
-        "windspeed_unit": "mph"
-      }
-    },
-    {
-      "name": "Kingston, Jamaica",
-      "lang": "jam",
-      "units": {
-        "windspeed_unit": "mph",
-        "precipitation_unit": "inch"
-      }
-    },
-    {
       "name": "Otaki, New Zealand",
       "lang": "Maori",
+      "snow_level": true,
+      "model": "ecmwf_aifs025",
       "units": {
         "temperature_unit": "celsius",
         "precipitation_unit": "mm",
         "windspeed_unit": "kph"
       }
+    },
+    {
+      "name": "Seattle, Washington",
+      "model": "icon_seamless",
+      "units": {
+        "temperature_unit": "fahrenheit",
+        "precipitation_unit": "in",
+        "windspeed_unit": "mph"
+      }
+    },
+    {
+      "name": "Bedford, Massachusetts",
+      "model": "ecmwf_ifs025",
+      "units": {
+        "temperature_unit": "fahrenheit",
+        "precipitation_unit": "in",
+        "windspeed_unit": "mph"
+      }
+    },
+
+    {
+      "name": "Kingston, Jamaica",
+      "lang": "jam",
+      "model": "icon_seamless",
+      "units": {
+        "windspeed_unit": "mph",
+        "precipitation_unit": "inch"
+      }
     }
+
   ],
   "areas": [
     {
       "name": "Trinidad and Tobago",
       "lang": "Trinidadian Creole English",
+      "snow_level": false,
+      "model": "gem_global",
       "locations": [
         "Port of Spain, Trinidad and Tobago",
         "Arima, Trinidad and Tobago",
@@ -63,6 +72,8 @@
   "area_reasoning": "high",
   "area_impact_based": "true",
   "area_thin_select": "10",
+  "ensemble_model": "ecmwf_aifs025",
+  "snow_level_enabled": false,
   "enable_reasoning": "true",
   "recent_overwrite_minutes": "0",
   "web_root": "./outputs/example-site",

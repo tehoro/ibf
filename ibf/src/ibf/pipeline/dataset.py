@@ -167,7 +167,6 @@ def _build_member_record(
     wind_speed = _safe_get(indexed, f"wind_speed_10m{base}", index)
     wind_direction = _safe_get(indexed, f"wind_direction_10m{base}", index)
     wind_gusts = _safe_get(indexed, f"wind_gusts_10m{base}", index)
-    fzl = _safe_get(indexed, f"freezing_level_height{base}", index)
 
     required = [
         temperature,
@@ -186,7 +185,7 @@ def _build_member_record(
         dewpoint,
         snowfall,
         precipitation,
-        fzl,
+        None,
         location_altitude,
     )
 
@@ -233,20 +232,23 @@ def _estimate_snow_level(
     try:
         fzl = float(freezing_level)
     except (TypeError, ValueError):
-        return None
+        fzl = None
 
     wet_bulb = calculate_wet_bulb(temperature, dewpoint)
     if math.isnan(wet_bulb):
         return None
 
-    alt_diff = fzl - location_altitude
-    lapse_rate = 0.0065 if abs(alt_diff) < 10 else max(0.001, min(0.015, (temperature - wet_bulb) / alt_diff))
+    alt_diff = (fzl - location_altitude) if fzl is not None else None
+    if alt_diff is None or abs(alt_diff) < 10:
+        lapse_rate = 0.0065
+    else:
+        lapse_rate = max(0.001, min(0.015, (temperature - wet_bulb) / alt_diff))
     first_guess = (wet_bulb - 1.0) / lapse_rate + location_altitude if lapse_rate > 0 else fzl
 
-    if precipitation == 0 or fzl <= location_altitude:
+    if precipitation == 0 or (fzl is not None and fzl <= location_altitude):
         return None
 
-    snow_level = min(first_guess, fzl - 100)
+    snow_level = min(first_guess, fzl - 100) if fzl is not None else first_guess
     if snow_level < location_altitude or snow_level > (location_altitude + 3000):
         return None
     return round(snow_level, -2)

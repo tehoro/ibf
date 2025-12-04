@@ -63,6 +63,8 @@ def _make_mock_payload(name: str, tmp_json_cache) -> LocationForecastPayload:
         dataset_cache=cache_path,
         units=units,
         formatted_dataset=f"Dataset for {name}",
+        highest_terrain_m=None,
+        model_id="ecmwf_ifs025",
     )
 
 
@@ -86,7 +88,7 @@ def test_cli_run_generates_forecasts(
             provider="mock", model=(override_choice or "mock-model"), api_key="test", base_url=None
         ),
     )
-    monkeypatch.setattr(executor, "generate_forecast_text", lambda prompt, system_prompt, settings: "Mock forecast text")
+    monkeypatch.setattr(executor, "generate_forecast_text", lambda *args, **kwargs: "Mock forecast text")
     monkeypatch.setattr(
         executor,
         "fetch_impact_context",

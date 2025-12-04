@@ -108,8 +108,10 @@ IBF only needs a single JSON file (you can base yours on `examples/sample-config
 | `translation_language` | Default translation language if a location/area doesn’t specify one. |
 | `location_forecast_days`, `area_forecast_days` | How many days of data each section covers (default 4). |
 | `location_wordiness`, `area_wordiness` | `"concise"`, `"normal"`, or `"detailed"` tone hints for the LLM. |
-| `location_thin_select`, `area_thin_select` | How many ensemble members to keep when thinning (defaults to 16). |
+| `location_thin_select`, `area_thin_select` | How many ensemble members to keep when thinning (defaults to 16). IBF automatically caps this at the number of members the selected ensemble actually provides. |
+| `ensemble_model` | Default Open-Meteo ensemble to request (e.g., `"ecmwf_ifs025"`). Use the per-location/area `model` field to override specific entries. Supported IDs are listed below. |
 | `location_impact_based`, `area_impact_based` | `true/false` – include impact context in the prompt. |
+| `snow_level_enabled`, `snow_level` (per location/area) | Experimental toggle for snow-level diagnostics (requires deterministic runs with full pressure-level data; ensemble feeds currently lack the needed humidity fields so this usually remains `false`). |
 | `enable_reasoning`, `location_reasoning`, `area_reasoning` | Advanced toggles for longer “thinking” phases; leave as default unless you know a model that supports reasoning tokens. |
 | `recent_overwrite_minutes` | Minimum time before the program overwrites an existing forecast (useful for cron jobs). |
 
@@ -121,6 +123,7 @@ Each location object looks like:
 {
   "name": "Kingston, Jamaica",
   "lang": "jam",
+  "model": "ecmwf_ifs025",
   "units": {
     "temperature_unit": "celsius",
     "precipitation_unit": "mm",
@@ -134,7 +137,9 @@ Field explanations:
 - `name` (required) – exactly how you want it shown on the website.
 - `lang` – optional translation language code (BCP‑47 or ISO, e.g., `"jam"`). Forecast prose is always written in English; this value is only used when you request a translated copy.
 - `translation_language` – per-location override that takes precedence over `lang` and any global `translation_language`.
+- `model` – optional ensemble model override. When omitted, the global `ensemble_model` (default `ecmwf_ifs025`) is used.
 - `units` – override defaults for that location. Snowfall automatically mirrors the precipitation unit (mm or inches), so you usually only need to set `temperature_unit`, `precipitation_unit`, and `windspeed_unit`. Dual units such as `"temperature_unit": "celsius (fahrenheit)"` are also supported.
+- When a forecast period starts late in the day (e.g., “Rest of Today” issued near sunset), IBF instructs the LLM to describe the remaining temperature trend (“temperatures slip from 18°C early evening to 13°C around midnight”) instead of repeating a formal low/high pair.
 
 #### 4.3 Areas and regional areas
 
@@ -148,13 +153,32 @@ Areas combine the text from any number of locations. Example:
     "Scarborough, Trinidad and Tobago"
   ],
   "mode": "area",
+  "model": "gem_global",
   "translation_language": "es"
 }
 ```
 
 - `locations` must match the `name` field of entries in the `locations` list.
 - `mode`: `"area"` produces one summary paragraph per day; `"regional"` adds sub-sections per location so you can describe sub-regions.
-- Each area inherits the global settings but you can override `lang`, `translation_language`, or `units`.
+- Each area inherits the global settings but you can override `lang`, `translation_language`, `units`, `snow_level`, or `model`.
+- `ensemble_model` – default ensemble model (`ecmwf_ifs025` unless overridden).
+- `model` – per-location/per-area ensemble override (see table below).
+
+#### 4.4 Available ensemble models
+
+You may set `ensemble_model` globally or a `model` field on a specific location/area. IBF validates the ID and automatically limits thinning to the number of members each model exposes.
+
+| Model ID | Members | Description |
+| --- | --- | --- |
+| `ecmwf_ifs025` | 51 | ECMWF IFS 0.25° (default). |
+| `ecmwf_aifs025` | 51 | ECMWF AIFS 0.25°. |
+| `gem_global` | 21 | Environment Canada GEM Global 25 km. |
+| `ukmo_global_ensemble_20km` | 21 | UKMO MOGREPS-G 20 km global. |
+| `ukmo_uk_ensemble_2km` | 3 | UKMO MOGREPS-UK 2 km (≈5‑day range). |
+| `gfs025` | 31 | NOAA GFS Ensemble 0.25°. |
+| `icon_seamless` | 40 | DWD ICON seamless ensemble (global + Europe). |
+
+> **Note:** Open-Meteo’s ensemble endpoint returns only a handful of pressure-level variables, so snow-level diagnostics remain experimental and are usually disabled for ensemble runs. Deterministic model support may expand this in the future.
 - When you run IBF, it also creates/upgrades a PNG map at `<web_root>/maps/<area-slug>.png`. Maps regenerate only when you change the list of locations for that area (or when you use `--force-maps`).
 
 #### 4.4 Full example

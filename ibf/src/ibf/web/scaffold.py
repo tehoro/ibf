@@ -63,10 +63,10 @@ MENU_TEMPLATE = """<!DOCTYPE html>
   {location_section}
   {area_section}
   <hr>
-  <p class="footer-note">For feedback email <a href="mailto:neil.gordon@hey.com?subject=Feedback%20On%20Ensemble%20Text%20Forecasts">Neil Gordon</a>.</p>
   <div class="footer-note">
-    All forecasts &copy; Neil Gordon. Data courtesy of <a href="https://open-meteo.com/" target="_blank" rel="noopener">open-meteo.com</a>,
-    using <a href="https://apps.ecmwf.int/datasets/licences/general/" target="_blank" rel="noopener">ECMWF ensemble open data</a>.
+    Forecast produced using <a href="https://github.com/tehoro/ibf" target="_blank" rel="noopener">IBF</a>, developed by <a href="mailto:neil.gordon@hey.com?subject=Comment%20on%20IBF">Neil Gordon</a>.
+    Data courtesy of <a href="https://open-meteo.com/" target="_blank" rel="noopener">open-meteo.com</a>.
+    <br>If you want to interactively request a forecast for a location, visit the <a href="https://chatgpt.com/g/g-4OgZFHOPA-global-ensemble-weather-forecaster" target="_blank" rel="noopener">Global Ensemble Weather Forecaster</a> (ChatGPT account required).
   </div>
 </body>
 </html>

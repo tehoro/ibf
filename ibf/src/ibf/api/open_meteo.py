@@ -29,11 +29,50 @@ HOURLY_FIELDS = ",".join(
         "wind_speed_10m",
         "wind_direction_10m",
         "wind_gusts_10m",
-        "freezing_level_height",
     ]
 )
 
 WINDSPEED_CONVERSIONS = {"kph": "kmh", "kt": "kn", "mps": "ms"}
+
+ENSEMBLE_MODELS = {
+    "ecmwf_ifs025": {
+        "name": "ECMWF IFS 0.25° ensemble",
+        "members": 51,
+        "ack_url": "https://apps.ecmwf.int/datasets/licences/general/",
+    },
+    "ecmwf_aifs025": {
+        "name": "ECMWF AIFS 0.25° ensemble",
+        "members": 51,
+        "ack_url": "https://apps.ecmwf.int/datasets/licences/general/",
+    },
+    "gem_global": {
+        "name": "ECCC GEM Global ensemble",
+        "members": 21,
+        "provider": "Environment and Climate Change Canada",
+    },
+    "ukmo_global_ensemble_20km": {
+        "name": "UKMO MOGREPS-G 20 km ensemble",
+        "members": 21,
+        "provider": "UK Met Office",
+    },
+    "ukmo_uk_ensemble_2km": {
+        "name": "UKMO MOGREPS-UK 2 km ensemble",
+        "members": 3,
+        "provider": "UK Met Office",
+    },
+    "gfs025": {
+        "name": "NOAA GFS 0.25° ensemble",
+        "members": 31,
+        "provider": "NOAA",
+    },
+    "icon_seamless": {
+        "name": "DWD ICON seamless ensemble",
+        "members": 40,
+        "provider": "Deutscher Wetterdienst",
+    },
+}
+
+DEFAULT_ENSEMBLE_MODEL = "ecmwf_ifs025"
 
 
 @dataclass(frozen=True)
@@ -60,7 +99,7 @@ class ForecastRequest:
     temperature_unit: str = "celsius"
     windspeed_unit: str = "kph"
     precipitation_unit: str = "mm"
-    models: str = "ecmwf_ifs025"
+    models: str = DEFAULT_ENSEMBLE_MODEL
     cache_ttl_minutes: int = 60
     cache_dir: Path = field(default_factory=lambda: Path("ibf_cache/forecasts"))
 

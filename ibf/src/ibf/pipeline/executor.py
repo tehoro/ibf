@@ -9,8 +9,9 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Protocol
+from typing import Dict, List, Optional, Protocol, Iterable
 from zoneinfo import ZoneInfo
+import math
 import re
 
 from ..config import ForecastConfig, LocationConfig, AreaConfig
@@ -22,9 +23,12 @@ from ..api import (
     ForecastRequest,
     AlertSummary,
     GeocodeResult,
+    ENSEMBLE_MODELS,
+    DEFAULT_ENSEMBLE_MODEL,
 )
 from ..render import ForecastPage, render_forecast_page
 from ..util import slugify, write_text_file, ensure_directory
+from ..util.elevation import get_highest_point
 from .dataset import build_processed_days
 from ..llm import (
     LLMSettings,
@@ -130,6 +134,7 @@ class LocationUnits:
     windspeed_primary: str
     windspeed_secondary: Optional[str]
     altitude_m: float
+    snow_level_enabled: bool = False
 
 
 @dataclass
@@ -153,6 +158,8 @@ class LocationForecastPayload:
     dataset_cache: Path
     units: LocationUnits
     formatted_dataset: str
+    highest_terrain_m: Optional[float] = None
+    model_id: str = DEFAULT_ENSEMBLE_MODEL
 
 
 def execute_pipeline(config: ForecastConfig) -> None:
@@ -184,7 +191,9 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
     """Drive the full fetch/LLM/render workflow for a single configured location."""
     name = location.name
     logger.info("Processing location '%s'", name)
-    units = _resolve_units(location)
+    snow_feature_enabled = _snow_level_enabled(location, config)
+    units = _resolve_units(location, use_snow_level=snow_feature_enabled)
+    model_id = _resolve_model_id(location, config)
     forecast_days = _resolve_forecast_days(config.location_forecast_days, 4)
     payload = _collect_location_payload(
         name,
@@ -192,6 +201,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
         units=units,
         thin_select=int(config.location_thin_select or 16),
         forecast_days=forecast_days,
+        model_id=model_id,
     )
     if not payload:
         return None
@@ -266,6 +276,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
 
     destination = _build_destination_path(config, name)
     logger.info("Writing forecast page for '%s' → %s", name, destination)
+    model_label, model_ack = _model_credit([payload.model_id])
     render_forecast_page(
         ForecastPage(
             destination=destination,
@@ -275,6 +286,8 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
             translated_text=translated_text,
             translation_language=translation_target,
             ibf_context=ibf_context,
+            model_label=model_label,
+            model_ack_url=model_ack,
         )
     )
     logger.info("Rendered forecast page for '%s' → %s", name, destination)
@@ -284,13 +297,14 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
 def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Generate an area-level forecast (single text block) across representative spots."""
     logger.info("Processing area '%s'", area.name)
-    base_units = _resolve_units(area)
+    base_units = _resolve_units(area, use_snow_level=_snow_level_enabled(area, config))
+    area_model_id = _resolve_model_id(area, config)
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
     forecast_days = _resolve_forecast_days(
         config.area_forecast_days or config.location_forecast_days, 4
     )
 
-    payloads = _collect_area_payloads(area, config, base_units, thin_select, forecast_days)
+    payloads = _collect_area_payloads(area, config, base_units, thin_select, forecast_days, area_model_id)
 
     if not payloads:
         logger.warning("Area '%s' has no valid location data; skipping.", area.name)
@@ -377,6 +391,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     logger.info("Writing area forecast page for '%s' → %s", area.name, destination)
     map_link = _map_link_for(config, area.name)
 
+    model_label, model_ack = _model_credit(payload.model_id for payload in payloads)
     render_forecast_page(
         ForecastPage(
             destination=destination,
@@ -387,6 +402,8 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
             translation_language=translation_target,
             ibf_context=ibf_context,
             map_link=map_link,
+            model_label=model_label,
+            model_ack_url=model_ack,
         )
     )
     logger.info("Rendered area forecast page for '%s' → %s", area.name, destination)
@@ -395,13 +412,14 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
 def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Produce a regional forecast that is broken down by sub-regions."""
     logger.info("Processing regional area '%s'", area.name)
-    base_units = _resolve_units(area)
+    base_units = _resolve_units(area, use_snow_level=_snow_level_enabled(area, config))
+    area_model_id = _resolve_model_id(area, config)
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
     forecast_days = _resolve_forecast_days(
         config.area_forecast_days or config.location_forecast_days, 4
     )
 
-    payloads = _collect_area_payloads(area, config, base_units, thin_select, forecast_days)
+    payloads = _collect_area_payloads(area, config, base_units, thin_select, forecast_days, area_model_id)
     if not payloads:
         logger.warning("Regional area '%s' has no valid location data; skipping.", area.name)
         return
@@ -495,6 +513,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     logger.info("Writing regional forecast page for '%s' → %s", area.name, destination)
     map_link = _map_link_for(config, area.name)
 
+    model_label, model_ack = _model_credit(payload.model_id for payload in payloads)
     render_forecast_page(
         ForecastPage(
             destination=destination,
@@ -505,6 +524,8 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
             translation_language=translation_target,
             ibf_context=ibf_context,
             map_link=map_link,
+            model_label=model_label,
+            model_ack_url=model_ack,
         )
     )
     logger.info("Rendered regional forecast page for '%s' → %s", area.name, destination)
@@ -518,6 +539,7 @@ def _collect_location_payload(
     thin_select: int,
     forecast_days: int,
     cache_label: Optional[str] = None,
+    model_id: str = DEFAULT_ENSEMBLE_MODEL,
 ) -> Optional[LocationForecastPayload]:
     """Gather geocode, alerts, forecast, processed dataset, and formatted text."""
     logger.info("Geocoding '%s'", name)
@@ -533,7 +555,18 @@ def _collect_location_payload(
         country_code=geocode.country_code,
     )
 
+    highest_terrain: Optional[float] = None
+    if units.snow_level_enabled:
+        highest_val = get_highest_point(geocode.latitude, geocode.longitude, radius_km=50)
+        if math.isfinite(highest_val):
+            highest_terrain = highest_val
+        else:
+            logger.debug("Highest terrain lookup failed for '%s'; continuing without it.", name)
+
     request_days = max(forecast_days, 0) + 1
+    model_entry = ENSEMBLE_MODELS.get(model_id, ENSEMBLE_MODELS.get(DEFAULT_ENSEMBLE_MODEL, {}))
+    available_members = model_entry.get("members")
+    effective_thin = min(thin_select, available_members) if isinstance(available_members, int) and available_members > 0 else thin_select
     try:
         logger.info(
             "Fetching forecast data for '%s' (%s days + buffer)", name, forecast_days
@@ -547,6 +580,7 @@ def _collect_location_payload(
                 temperature_unit=_temperature_unit_for_api(units.temperature_primary),
                 precipitation_unit=_precipitation_unit_for_api(units.precipitation_primary),
                 windspeed_unit=_windspeed_unit_for_api(units.windspeed_primary),
+                models=model_id,
             )
         )
     except RuntimeError as exc:
@@ -558,7 +592,7 @@ def _collect_location_payload(
         timezone_name=geocode.timezone or "UTC",
         precipitation_unit=units.precipitation_primary,
         windspeed_unit=units.windspeed_primary,
-        thin_select=thin_select,
+        thin_select=effective_thin,
         location_altitude=units.altitude_m,
     )
     dataset = _limit_days(dataset, forecast_days)
@@ -566,7 +600,8 @@ def _collect_location_payload(
         logger.warning("No processed data produced for '%s'; skipping.", name)
         return None
 
-    dataset_path = _write_dataset_cache(cache_label or name, dataset)
+    cache_slug = cache_label or f"{name}__{model_id}"
+    dataset_path = _write_dataset_cache(cache_slug, dataset)
     logger.info("Processed %d day(s) for '%s'; dataset cached at %s", len(dataset), name, dataset_path)
     formatted_dataset = format_location_dataset(
         dataset,
@@ -586,6 +621,8 @@ def _collect_location_payload(
         dataset_cache=dataset_path,
         units=units,
         formatted_dataset=formatted_dataset,
+        highest_terrain_m=highest_terrain,
+        model_id=model_id,
     )
 
 
@@ -595,31 +632,39 @@ def _collect_area_payloads(
     base_units: LocationUnits,
     thin_select: int,
     forecast_days: int,
+    model_id: str,
 ) -> List[LocationForecastPayload]:
     """Fetch datasets for each representative location needed for an area."""
     payloads: List[LocationForecastPayload] = []
     for location_name in area.locations:
         logger.info("Collecting data for representative location '%s' in area '%s'", location_name, area.name)
         location_units = _find_location_units(config, location_name)
-        units_for_location = (
-            replace(base_units, altitude_m=location_units.altitude_m)
-            if location_units
-            else base_units
-        )
+        if location_units:
+            units_for_location = replace(
+                base_units,
+                altitude_m=location_units.altitude_m,
+                snow_level_enabled=location_units.snow_level_enabled,
+            )
+        else:
+            units_for_location = base_units
+        location_cfg = _find_location_config(config, location_name)
+        effective_model = _resolve_model_id(location_cfg, config) if location_cfg else model_id
+        slug = f"{area.name}__{location_name}__{effective_model}"
         payload = _collect_location_payload(
             location_name,
             config=config,
             units=units_for_location,
             thin_select=thin_select,
             forecast_days=forecast_days,
-            cache_label=f"{area.name}__{location_name}",
+            cache_label=slug,
+            model_id=effective_model,
         )
         if payload:
             payloads.append(payload)
     return payloads
 
 
-def _resolve_units(config_obj: SupportsUnits) -> LocationUnits:
+def _resolve_units(config_obj: SupportsUnits, *, use_snow_level: bool = False) -> LocationUnits:
     """Normalize/merge explicit unit overrides with defaults for a config entry."""
     units = getattr(config_obj, "units", {}) or {}
 
@@ -665,7 +710,29 @@ def _resolve_units(config_obj: SupportsUnits) -> LocationUnits:
         windspeed_primary=wind_primary,
         windspeed_secondary=wind_secondary,
         altitude_m=altitude_val,
+        snow_level_enabled=use_snow_level,
     )
+
+
+def _resolve_model_id(config_obj: object, config: ForecastConfig) -> str:
+    """Determine which ensemble model to use for a given config entity."""
+    candidate = None
+    if config_obj is not None:
+        candidate = getattr(config_obj, "model", None)
+    if not candidate:
+        candidate = getattr(config, "ensemble_model", None)
+    model_id = (candidate or DEFAULT_ENSEMBLE_MODEL).strip().lower()
+    if model_id not in ENSEMBLE_MODELS:
+        logger.warning("Unknown ensemble model '%s'; falling back to %s", model_id, DEFAULT_ENSEMBLE_MODEL)
+        return DEFAULT_ENSEMBLE_MODEL
+    return model_id
+
+
+def _snow_level_enabled(entity: SupportsUnits, config: ForecastConfig) -> bool:
+    override = getattr(entity, "snow_level", None)
+    if override is not None:
+        return bool(override)
+    return bool(getattr(config, "snow_level_enabled", False))
 
 
 def _find_location_units(config: ForecastConfig, name: str) -> Optional[LocationUnits]:
@@ -673,8 +740,37 @@ def _find_location_units(config: ForecastConfig, name: str) -> Optional[Location
     target = name.strip().lower()
     for entry in config.locations:
         if entry.name.strip().lower() == target:
-            return _resolve_units(entry)
+            return _resolve_units(entry, use_snow_level=_snow_level_enabled(entry, config))
     return None
+
+
+def _find_location_config(config: ForecastConfig, name: str):
+    """Return the LocationConfig instance matching the provided name, if any."""
+    target = name.strip().lower()
+    for entry in config.locations:
+        if entry.name.strip().lower() == target:
+            return entry
+    return None
+
+
+def _model_credit(model_ids: Iterable[str]) -> tuple[str, Optional[str]]:
+    """Return a human-readable label and optional acknowledgement URL for footer text."""
+    unique_ids = sorted({(mid or "").strip().lower() for mid in model_ids if mid})
+    if not unique_ids:
+        unique_ids = [DEFAULT_ENSEMBLE_MODEL]
+
+    def label_for(model_id: str) -> tuple[str, Optional[str]]:
+        info = ENSEMBLE_MODELS.get(model_id, {})
+        name = info.get("name") or info.get("description") or model_id
+        ack_url = info.get("ack_url")
+        return name, ack_url
+
+    if len(unique_ids) == 1:
+        return label_for(unique_ids[0])
+
+    labels = [label_for(mid)[0] for mid in unique_ids]
+    composite = "multiple ensemble models (" + ", ".join(labels) + ")"
+    return composite, None
 
 
 def _unit_instructions(units: LocationUnits) -> UnitInstructions:
@@ -703,10 +799,15 @@ def _short_period_instruction(dataset: List[dict], tz_str: str) -> str:
         tz = ZoneInfo(tz_str)
     except Exception:
         tz = ZoneInfo("UTC")
-    if datetime.now(tz).hour >= 22:
+    now_hour = datetime.now(tz).hour
+    if now_hour >= 22:
         return (
             "CRITICAL: The first forecast period covers only the last 1-2 hours of the day. "
-            "Be extremely brief (1-2 sentences) and focus only on immediate conditions."
+            "Be extremely brief (1-2 sentences), focus only on immediate conditions, and describe temperatures as a short-term trend instead of quoting full low/high values."
+        )
+    if now_hour >= 15:
+        return (
+            "IMPORTANT: The first forecast period only covers the remainder of today. Describe how temperatures change through the rest of the day (e.g., 'temperatures drop from 18°C early evening to 13°C by midnight') instead of quoting a separate low/high pair."
         )
     return ""
 

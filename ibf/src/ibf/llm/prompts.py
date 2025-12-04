@@ -64,6 +64,7 @@ Describe the most likely conditions and also mention important alternative outco
 - Include weather conditions, timing of any precipitation (morning/afternoon/evening/night), at least one wind direction with speed, and both the low and high temperatures using the specified units.
 - Use future tense for temperatures ("the low will be...", "the high is expected near...").
 - For partial days (e.g., "Rest of Today"), describe only the remaining part of the day and keep it very brief if only 1–2 hours remain.
+- When very little of the day remains (for example "Rest of Today" issued late afternoon/evening), describe how temperatures will trend (e.g., "temperatures fall from 18°C early evening to about 13°C overnight") instead of quoting a formal low/high pair.
 
 #ALERTS
 - If any alerts are provided, explicitly work each one into the relevant day's paragraph. State the official source exactly as provided (e.g., MetService) along with the alert title and hazard.
