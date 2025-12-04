@@ -129,7 +129,7 @@ def test_cli_run_generates_forecasts(
 
     area_page = web_root / slugify("Sample Area") / "index.html"
     html = area_page.read_text(encoding="utf-8")
-    assert "Open map for Sample Area" in html
+    assert "Show map for Sample Area" in html
     assert "../maps/samplearea.png" in html
 
     hash_file = web_root / ".ibf_maps_hash"

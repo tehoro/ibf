@@ -72,11 +72,8 @@ def fetch_alerts(latitude: float, longitude: float, *, country_code: Optional[st
     if country == "US":
         return _fetch_us_alerts(latitude, longitude)
     if country == "NZ":
-        nz_alerts = _fetch_nz_alerts(latitude, longitude)
-        if nz_alerts:
-            return nz_alerts
-        logger.info("MetService feed returned no alerts; falling back to OpenWeatherMap.")
-        return _fetch_openweather_alerts(latitude, longitude, secrets)
+        # MetService feed is authoritative; do not fall back to OpenWeatherMap if it returns none.
+        return _fetch_nz_alerts(latitude, longitude)
     if country == "CA":
         logger.info("Canadian alerts falling back to OpenWeatherMap.")
 

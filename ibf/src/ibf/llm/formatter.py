@@ -15,7 +15,8 @@ import pytz
 from ..api.alerts import AlertSummary
 from ..util import convert_hour_to_ampm  # will add helper there
 
-
+PRECIP_HEAVY_THRESHOLD_MM = 10.0
+PRECIP_HEAVY_THRESHOLD_IN = 0.5
 def format_location_dataset(
     dataset: List[dict],
     alerts: List[AlertSummary],
@@ -103,9 +104,12 @@ def format_location_dataset(
                 weather_desc = str(member_data.get("weather", "Unknown")).capitalize()
                 snow_level = member_data.get("snow_level")
 
-                precip_text = ""
-                if isinstance(precip_val, (int, float)) and precip_val > 0:
-                    precip_text = f"{precip_val:.1f} {precipitation_unit}/h"
+                precip_text = _format_hourly_precip_rate(
+                    precipitation=precip_val,
+                    snowfall=snowfall_val,
+                    weather_desc=weather_desc,
+                    unit=precipitation_unit,
+                )
 
                 snow_text = ""
                 if isinstance(snow_level, int) and snow_level > 0:
@@ -257,6 +261,46 @@ def _format_wind(direction: str, speed: float, gust: float) -> str:
     return f"{base}{gust_part}"
 
 
+def _format_hourly_precip_rate(
+    precipitation: Any,
+    snowfall: Any,
+    weather_desc: str,
+    unit: str,
+) -> str:
+    """Return a formatted precipitation rate, labeling ambiguous phases."""
+    if not isinstance(precipitation, (int, float)):
+        return ""
+    precision = 0 if unit == "mm" else 1
+    value = round(float(precipitation), precision)
+    if value == 0:
+        return ""
+    value_text = f"{value:.{precision}f}"
+    phase = _precip_phase(snowfall, weather_desc)
+    rate_text = f"{value_text} {unit}/h"
+    if phase == "mixed":
+        return f"(Precip {rate_text})"
+    return rate_text
+
+
+def _precip_phase(snowfall: Any, weather_desc: str) -> str:
+    """Determine whether precip is rain, snow, or mixed for labeling."""
+    snowfall_amt = float(snowfall) if isinstance(snowfall, (int, float)) else 0.0
+    weather_lower = (weather_desc or "").lower()
+    snow_keywords = ("snow", "sleet", "flurry", "wintry", "freezing", "ice pellet")
+    rain_keywords = ("rain", "shower", "drizzle", "thunder", "storm")
+
+    has_snow_signal = snowfall_amt > 0 or any(keyword in weather_lower for keyword in snow_keywords)
+    has_rain_signal = any(keyword in weather_lower for keyword in rain_keywords)
+
+    if has_snow_signal and has_rain_signal:
+        return "mixed"
+    if has_snow_signal:
+        return "snow"
+    if has_rain_signal:
+        return "rain"
+    return "rain" if snowfall_amt == 0 else "mixed"
+
+
 def _member_summary(
     high_temp: float,
     low_temp: float,
@@ -347,6 +391,16 @@ def calculate_range_summary(
         summary_lines.append(precip_line)
     if snow_line:
         summary_lines.append(snow_line)
+    heavy_threshold_mm = (
+        PRECIP_HEAVY_THRESHOLD_MM if precip_unit == "mm" else PRECIP_HEAVY_THRESHOLD_IN * 25.4
+    )
+    heavy_precip_line = precipitation_exceedance_probability(
+        daily_precip,
+        precip_unit,
+        heavy_threshold_mm,
+    )
+    if heavy_precip_line:
+        summary_lines.append(heavy_precip_line)
     return "\n".join(summary_lines)
 
 
@@ -365,6 +419,47 @@ def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str)
     lower = round(percentiles[0], 1 if unit != "mm" else 0)
     upper = round(percentiles[1], 1 if unit != "mm" else 0)
     return f"Estimated probability of {label}: {probability}%\nLikely {label} {lower} {unit} to {upper} {unit}"
+
+
+def precipitation_exceedance_probability(
+    values: List[float],
+    unit: str,
+    threshold_mm: float,
+) -> str:
+    """
+    Provide the probability of exceeding a precipitation threshold.
+
+    The threshold is defined in millimeters and converted into the working unit before
+    counting how many ensemble members exceed it.
+    """
+    if threshold_mm <= 0:
+        return ""
+
+    numeric = [v for v in values if isinstance(v, (int, float))]
+    if not numeric:
+        return ""
+
+    threshold_value = threshold_mm if unit == "mm" else threshold_mm / 25.4
+    exceedances = [v for v in numeric if v >= threshold_value]
+    if not exceedances:
+        return ""
+
+    probability = _jeffreys_probability(len(exceedances), len(numeric))
+
+    threshold_label = _format_threshold_label(unit, threshold_mm, threshold_value)
+    return f"Estimated probability of precipitation >= {threshold_label}: {probability}%"
+
+
+def _format_threshold_label(unit: str, threshold_mm: float, threshold_value: float) -> str:
+    """Return a display string for the heavy precipitation threshold."""
+    if unit == "mm":
+        rounded = int(threshold_mm) if float(threshold_mm).is_integer() else round(threshold_mm, 1)
+        return f"{rounded} mm"
+
+    converted = round(threshold_value, 1 if threshold_value < 10 else 0)
+    rounded_mm = int(threshold_mm) if float(threshold_mm).is_integer() else round(threshold_mm, 1)
+    unit_label = "in" if unit == "inch" else unit
+    return f"{rounded_mm} mm ({converted} {unit_label})"
 
 
 def estimate_percentiles(values: Iterable[float], lower_fraction: float) -> tuple[float, float]:

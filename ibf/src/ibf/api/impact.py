@@ -23,6 +23,12 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = ensure_directory("ibf_cache/impact")
 MAX_CONTEXT_AGE_DAYS = 3
 EVENT_LOOKAHEAD_DAYS = 10
+CONTEXT_SECTION_HEADINGS = [
+    "Existing Vulnerabilities",
+    "Weather Impact Thresholds",
+    "Exposed Populations and Assets",
+    "Upcoming Events",
+]
 
 
 @dataclass
@@ -157,12 +163,20 @@ def _cache_path(
     timezone_name: str,
     *,
     date_override: Optional[datetime] = None,
+    legacy_suffix: bool = False,
 ) -> Path:
-    """Return the cache file path for the given context parameters."""
+    """
+    Return the cache file path for the given context parameters.
+
+    legacy_suffix=True preserves the older filename scheme that included the forecast_days suffix.
+    """
     safe_name = _slugify(name)
     local_now = date_override or get_local_now(timezone_name)
     date_str = local_now.strftime("%Y%m%d")
-    filename = f"{date_str}_{context_type}_{safe_name}_{forecast_days}.json"
+    filename = f"{date_str}_{context_type}_{safe_name}"
+    if legacy_suffix:
+        filename += f"_{forecast_days}"
+    filename += ".json"
     return CACHE_DIR / filename
 
 
@@ -222,6 +236,18 @@ def _load_recent_cache(
         if cached:
             return cached, cache_path
 
+        legacy_path = _cache_path(
+            context_type,
+            name,
+            forecast_days,
+            timezone_name,
+            date_override=date_candidate,
+            legacy_suffix=True,
+        )
+        cached_legacy = _load_cache(legacy_path)
+        if cached_legacy:
+            return cached_legacy, legacy_path
+
     today_path = _cache_path(context_type, name, forecast_days, timezone_name, date_override=local_now)
     return None, today_path
 
@@ -274,6 +300,16 @@ Use only recent, publicly available information covering the period from {start_
     • "Upcoming Events"
 
 For each item, add 1–2 sentences explaining why it is relevant for an impact-based forecast and warning for the next {forecast_days} days. For events in the "Upcoming Events" section, you MUST include the exact date (day, month, and year) for each event, and only include events occurring today or within the next {max_event_days} days (up to {events_end_iso}). Do not use vague timeframes and do not include past events or events beyond that window. For the "Weather Impact Thresholds" section, provide specific quantitative thresholds when available (e.g., "X mm rainfall", "Y km/h winds"), as these will be used to determine when impacts should be mentioned in the forecast.
+
+Formatting requirements:
+
+    • Begin immediately with the first heading. Do NOT include any introduction, preamble, concluding remarks, summaries, or sign-offs.
+    • Use Markdown level-3 headings in the exact form:
+        ### Existing Vulnerabilities
+        ### Weather Impact Thresholds
+        ### Exposed Populations and Assets
+        ### Upcoming Events
+    • Under each heading, use bullet-style lines (you may use the "•" bullet character) that concisely state the information.
 
 IMPORTANT: Provide only the structured context information as plain text. Do NOT include any URLs, web links, or citations. Do not offer to draft the forecast or ask if you should proceed. Just provide the requested contextual information as text only."""
 
@@ -353,13 +389,39 @@ def _clean_context_text(text: str) -> str:
     cleaned = re.sub(r"\s*(###\s)", r"\n\n\1", cleaned)  # ensure headings start on their own line
     cleaned = cleaned.strip()
     unwanted = [
+        r"^Here is the requested.*?\n\n",
         r"\n\nIf you'd like.*",
         r"\n\nWould you like.*",
         r"\n\nLet me know.*",
+        r"\n\nEach of these items.*",
     ]
     for pattern in unwanted:
-        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE | re.DOTALL)
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE | re.DOTALL | re.MULTILINE)
+
+    cleaned = _standardize_context_headings(cleaned)
+    cleaned = _trim_before_first_heading(cleaned)
     return cleaned.strip()
+
+
+def _standardize_context_headings(text: str) -> str:
+    """Force known section headings to Markdown h3 style."""
+    if not text:
+        return ""
+    updated = text
+    for heading in CONTEXT_SECTION_HEADINGS:
+        pattern = rf"^\s*(?:#{1,6}\s*)?(?:\*\*|__)?{re.escape(heading)}(?:\*\*|__)?\s*:?"
+        updated = re.sub(pattern, f"### {heading}", updated, flags=re.IGNORECASE | re.MULTILINE)
+    return updated
+
+
+def _trim_before_first_heading(text: str) -> str:
+    """Remove any intro content before the first heading."""
+    if not text:
+        return ""
+    first_idx = text.find("### ")
+    if first_idx > 0:
+        return text[first_idx:]
+    return text
 
 
 def _log_usage_and_cost(model_name: str, usage: Any) -> float:

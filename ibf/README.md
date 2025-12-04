@@ -209,7 +209,7 @@ IBF logs every major step (“Reading config…”, “Fetching forecast…”, 
 
 - Everything lands under the `web_root` folder you set (example: `outputs/example-site`).
   - Each location has its own subfolder with an `index.html`.
-  - Each area/regional area also gets its own subfolder and includes an “Open map” link.
+  - Each area/regional area also gets its own subfolder and includes a “Show map” link.
   - `maps/` holds PNG snapshots of each area.
 - `ibf_cache/` (in the project root) stores API responses and processed datasets so reruns are faster.
 - If you’re publishing to another web server, simply upload the contents of `web_root`.

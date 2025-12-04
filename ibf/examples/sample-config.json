@@ -1,6 +1,22 @@
 {
   "locations": [
     {
+      "name": "Bedford, Massachusetts",
+      "units": {
+        "temperature_unit": "fahrenheit",
+        "precipitation_unit": "in",
+        "windspeed_unit": "mph"
+      }
+    },
+    {
+      "name": "Seattle, Washington",
+      "units": {
+        "temperature_unit": "fahrenheit",
+        "precipitation_unit": "in",
+        "windspeed_unit": "mph"
+      }
+    },
+    {
       "name": "Kingston, Jamaica",
       "lang": "jam",
       "units": {
@@ -10,29 +26,13 @@
     },
     {
       "name": "Otaki, New Zealand",
+      "lang": "Maori",
       "units": {
         "temperature_unit": "celsius",
         "precipitation_unit": "mm",
         "windspeed_unit": "kph"
       }
-    },
-    {
-      "name": "London, United Kingdom",
-      "units": {
-        "temperature_unit": "celsius",
-        "precipitation_unit": "mm",
-        "windspeed_unit": "mph"
-      }
-    },
-   {
-      "name": "Bedford, Massachusetts",
-      "units": {
-        "temperature_unit": "fahrenheit",
-        "precipitation_unit": "in",
-        "windspeed_unit": "mph"
-      }
     }
-
   ],
   "areas": [
     {

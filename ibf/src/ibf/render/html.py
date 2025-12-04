@@ -43,7 +43,7 @@ def render_forecast_page(page: ForecastPage) -> Path:
 
     if page.map_link:
         body_parts.append(
-            f'<p class="map-link"><a href="{page.map_link}" target="_blank" rel="noopener">Open map for {page.display_name}</a></p>'
+            f'<p class="map-link"><a href="{page.map_link}" target="_blank" rel="noopener">Show map for {page.display_name}</a></p>'
         )
 
     body_parts.append(f'<div id="forecast-content">{forecast_html}</div>')
@@ -87,24 +87,36 @@ def render_forecast_page(page: ForecastPage) -> Path:
 def _markdown_to_html(text: str) -> str:
     import re
 
+    bullet_regex = re.compile(r"^([*\-•])\s+(.*)")
+
     def convert_lists(md: str) -> str:
         lines = md.splitlines()
         result = []
         in_list = False
+
+        def start_list():
+            nonlocal in_list
+            result.append("<ul>")
+            in_list = True
+
+        def end_list():
+            nonlocal in_list
+            result.append("</ul>")
+            in_list = False
+
         for line in lines:
             stripped = line.strip()
-            if stripped.startswith("- "):
+            match = bullet_regex.match(stripped)
+            if match:
                 if not in_list:
-                    result.append("<ul>")
-                    in_list = True
-                result.append(f"<li>{stripped[2:].strip()}</li>")
+                    start_list()
+                result.append(f"<li>{match.group(2).strip()}</li>")
             else:
                 if in_list:
-                    result.append("</ul>")
-                    in_list = False
+                    end_list()
                 result.append(line)
         if in_list:
-            result.append("</ul>")
+            end_list()
         return "\n".join(result)
 
     html = convert_lists(text)
@@ -112,6 +124,8 @@ def _markdown_to_html(text: str) -> str:
     html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
     html = re.sub(r"\*(.+?)\*", r"<em>\1</em>", html)
     html = html.replace("\n", "<br>")
+    html = re.sub(r"<br>\s*(<h3>)", r"\1", html)
+    html = re.sub(r"(</h3>)\s*<br>", r"\1", html)
     html = re.sub(r"<br>(\s*<ul>)", r"\1", html)
     html = re.sub(r"(<ul>)<br>", r"\1", html)
     html = re.sub(r"</li><br><li>", r"</li><li>", html)
@@ -151,7 +165,7 @@ def _render_ibf_block(context: Optional[str]) -> Optional[str]:
 _STYLE_BLOCK = """<style>
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #f8f9fa; color: #212529; margin: 1em auto; padding: 0 1em; max-width: 800px; line-height: 1.6; }
 h1 { color: #343a40; border-bottom: 2px solid #dee2e6; padding-bottom: 0.5em; margin-top: 1em; margin-bottom: 1em; font-size: 1.8em; }
-h3 { color: #495057; font-size: 1.1em; font-weight: normal; margin-top: -0.5em; margin-bottom: 1em; }
+h3 { color: #495057; font-size: 1.1em; font-weight: 600; margin-top: 0.8em; margin-bottom: 0.4em; }
 #forecast-content, #translated-forecast-content { background: #ffffff; padding: 1.5em 2em; border: 1px solid #dee2e6; border-radius: 6px; white-space: pre-wrap; word-wrap: break-word; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 2em; }
 #forecast-content strong, #translated-forecast-content strong { color: #0d6efd; font-weight: bold; }
 #forecast-content em, #translated-forecast-content em { color: #6f42c1; font-style: italic; }
