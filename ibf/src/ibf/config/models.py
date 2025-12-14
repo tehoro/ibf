@@ -9,7 +9,7 @@ import hashlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 
 class ConfigError(RuntimeError):
@@ -100,12 +100,25 @@ class ForecastConfig(BaseModel):
     translation_llm: Optional[str] = None
     recent_overwrite_minutes: int = 0
     snow_level_enabled: bool = False
-    ensemble_model: Optional[str] = None
+    # Global default forecast model. This name matches the per-location/per-area override field.
+    # Backwards-compat: configs may still provide "ensemble_model"; it will be mapped into "model".
+    model: Optional[str] = None
+    ensemble_model: Optional[str] = Field(default=None, exclude=True)
 
     model_config = {
         "arbitrary_types_allowed": True,
         "populate_by_name": True,
     }
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_fields(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+        if not data.get("model") and data.get("ensemble_model"):
+            data = dict(data)
+            data["model"] = data.get("ensemble_model")
+        return data
 
     @property
     def hash(self) -> str:

@@ -1,5 +1,5 @@
 {
-   "ensemble_model": "ens:ecmwf_aifs025",
+   "model": "ens:ecmwf_aifs025",
    "llm": "or:openai/gpt-5.1",
    "web_root": "./outputs/example-site",
 

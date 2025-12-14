@@ -70,7 +70,7 @@
   "area_reasoning": "high",
   "area_impact_based": "true",
   "area_thin_select": "10",
-  "ensemble_model": "ecmwf_aifs025",
+  "model": "ecmwf_aifs025",
   "snow_level_enabled": false,
   "enable_reasoning": "true",
   "recent_overwrite_minutes": "0",

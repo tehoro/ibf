@@ -135,7 +135,7 @@ IBF uses a single JSON file. Start by copying `examples/sample-config.json` to a
 
 | Field | Meaning | Example |
 | --- | --- | --- |
-| `ensemble_model` | Default ensemble model for all forecasts unless overridden per location/area (see ensemble model list below). | `"ecmwf_aifs025"` |
+| `model` | Default forecast model for all forecasts unless overridden per location/area. Use `ens:<id>` for ensemble models and `det:<id>` for deterministic models. | `"ens:ecmwf_aifs025"` |
 | `llm` | Primary model ID (OpenRouter: `or:provider/model`, OpenAI: `gpt-4o-mini`, Gemini: `gemini-*`). For OpenRouter names, copy from <https://openrouter.ai/models> and prefix with `or:`. | `"or:openai/gpt-5.1"` |
 | `enable_reasoning` | Whether to allow reasoning tokens if the model supports them. | `"true"` |
 | `web_root` | Where output HTML is written. Relative paths are fine. | `"./outputs/example-site"` |
@@ -161,7 +161,7 @@ Each location can include:
 | Field | Meaning | Example |
 | --- | --- | --- |
 | `name` | Display name; must match any area references. | `"Otaki, New Zealand"` |
-| `model` | Optional override of `ensemble_model` for this location. | `"ecmwf_aifs025"` |
+| `model` | Optional override of the global `model` for this location. Supports `ens:` / `det:` prefixes. | `"det:ecmwf_ifs"` |
 | `translation_language` | Per-location translation target; overrides global/default. English output is always produced; this adds a translated copy. | `"es"` |
 | `units.temperature_unit` | Temperature unit. | `"celsius"` |
 | `units.precipitation_unit` | Precipitation unit. | `"mm"` |
@@ -176,7 +176,7 @@ Each area can include:
 | `name` | Area display name. | `"Trinidad and Tobago"` |
 | `locations` | List of location names (must match `locations[*].name`). | `["Port of Spain, Trinidad and Tobago", ...]` |
 | `mode` | `"area"` for summary per day; `"regional"` adds sub-sections per location. | `"area"` |
-| `model` | Optional override of `ensemble_model` for this area. | `"gem_global"` |
+| `model` | Optional override of the global `model` for this area. Supports `ens:` / `det:` prefixes. | `"ens:gem_global"` |
 | `translation_language` | Per-area translation target. English output is always produced; this adds a translated copy. | `"es"` |
 | `units.temperature_unit` | Temperature unit override. | `"celsius"` |
 | `units.precipitation_unit` | Precipitation unit override. | `"mm"` |
@@ -184,7 +184,9 @@ Each area can include:
 
 #### 4.4 Available ensemble models
 
-You may set `ensemble_model` globally or a `model` field on a specific location/area. IBF validates the ID and automatically limits thinning to the number of members each model exposes.
+You may set `model` globally or a `model` field on a specific location/area. Use `ens:` for ensembles and `det:` for deterministic models. IBF validates known ensemble IDs and automatically limits thinning to the number of members each model exposes.
+
+> Backwards compatibility: older configs using `ensemble_model` still work; they are treated as `model`.
 
 | Model ID | Members | Description |
 | --- | --- | --- |
