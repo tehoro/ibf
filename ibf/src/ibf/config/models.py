@@ -82,6 +82,7 @@ class ForecastConfig(BaseModel):
     """
     locations: List[LocationConfig] = Field(default_factory=list)
     areas: List[AreaConfig] = Field(default_factory=list)
+    units: Dict[str, str] = Field(default_factory=dict)
     web_root: Optional[Path] = None
     location_forecast_days: Optional[int] = None
     area_forecast_days: Optional[int] = None

@@ -54,6 +54,7 @@ Always refer to the date and specific day of the week exactly as mentioned in th
 
 #OUTPUT
 Describe the most likely conditions and also mention important alternative outcomes using natural language of likelihood or risk. Never imply spatial variation (e.g., do not say "in places").
+- For winds, use direction words (e.g., "southwesterlies") rather than compass abbreviations, and include a speed range in the required units.
 
 #RANGE SUMMARY
 - Always use the RANGE SUMMARY information when stating low/high temperatures and precipitation or snowfall ranges.
@@ -77,6 +78,7 @@ Rainfall: {rainfall_unit_instruction}
 Snowfall: {snowfall_unit_instruction}
 Wind Speed: {windspeed_unit_instruction}
 {conversion_instructions}
+- When showing bracketed secondary units, round sensibly (e.g., mm/cm to whole numbers; inches to one decimal; wind speeds to nearest whole unit).
 """
 
 SYSTEM_PROMPT_AREA = """
@@ -94,7 +96,7 @@ You will receive forecast datasets for several locations inside the target area.
 #STYLE & CONTENT
 - Use simple, clear language that a 12-year-old could understand.
 - Mention precipitation timing, type, and the likely range of amounts when wet weather is expected.
-- Always describe at least one wind direction and speed range using the required unit.
+- Always describe at least one wind direction and speed range using the required unit, and spell out the direction (e.g., "southwesterlies") instead of abbreviations.
 - Always mention both the low and high temperatures using the required unit, never the plural words "highs" or "lows".
 - Discuss uncertainty or alternative outcomes using natural phrasing like "risk of" or "could".
 - When alerts are provided, include each one prominently in the relevant day's text, citing the official source name and alert title while summarizing timing and hazard details.
@@ -110,6 +112,8 @@ Wind Speed: {windspeed_unit_instruction}
 
 - Do not convert to other units beyond the optional bracketed secondary values described above.
 - Ensure precipitation and snowfall amounts include a space before the unit (e.g., "10 mm").
+- When showing bracketed secondary units, round sensibly (mm/cm to whole numbers; inches to one decimal; wind speeds to nearest whole unit).
+- Do not invent extra precision beyond the dataset; keep secondary units concise.
 """
 
 SYSTEM_PROMPT_REGIONAL = """
@@ -132,6 +136,7 @@ Wind Speed: {windspeed_unit_instruction}
 {conversion_instructions}
 
 Only include alerts if present in the data, and never state that no alerts exist.
+- When showing bracketed secondary units, round sensibly (mm/cm to whole numbers; inches to one decimal; wind speeds to nearest whole unit).
 """
 
 SYSTEM_PROMPT_TRANSLATE = """
@@ -160,19 +165,19 @@ def build_spot_system_prompt(units: UnitInstructions) -> str:
     conversion_lines = []
     if units.temperature_secondary:
         conversion_lines.append(
-            "Temperature conversions: include the secondary unit in brackets after the primary (e.g., 18°C (64°F))."
+            "Temperature conversions: include the secondary unit in brackets after the primary (e.g., 18°C (64°F)). Round secondary temps sensibly (nearest whole for °C/°F)."
         )
     if units.precipitation_secondary:
         conversion_lines.append(
-            "Rainfall conversions: include the secondary unit in brackets after the primary."
+            "Rainfall conversions: include the secondary unit in brackets after the primary. Round mm/cm to whole numbers; inches to one decimal."
         )
     if units.snowfall_secondary:
         conversion_lines.append(
-            "Snowfall conversions: include the secondary unit in brackets after the primary."
+            "Snowfall conversions: include the secondary unit in brackets after the primary. Round mm/cm to whole numbers; inches to one decimal."
         )
     if units.windspeed_secondary:
         conversion_lines.append(
-            "Wind conversions: include the secondary unit in brackets after the primary."
+            "Wind conversions: include the secondary unit in brackets after the primary. Round wind speeds to the nearest whole number."
         )
 
     conversion_text = "\n".join(conversion_lines)
@@ -189,13 +194,13 @@ def build_area_system_prompt(units: UnitInstructions) -> str:
     """Construct the system prompt for aggregated area forecasts."""
     conversion_lines = []
     if units.temperature_secondary:
-        conversion_lines.append("If provided, include the secondary temperature unit in brackets.")
+        conversion_lines.append("If provided, include the secondary temperature unit in brackets (round sensibly, nearest whole).")
     if units.precipitation_secondary:
-        conversion_lines.append("If provided, include the secondary rainfall unit in brackets.")
+        conversion_lines.append("If provided, include the secondary rainfall unit in brackets. Round mm/cm to whole numbers; inches to one decimal.")
     if units.snowfall_secondary:
-        conversion_lines.append("If provided, include the secondary snowfall unit in brackets.")
+        conversion_lines.append("If provided, include the secondary snowfall unit in brackets. Round mm/cm to whole numbers; inches to one decimal.")
     if units.windspeed_secondary:
-        conversion_lines.append("If provided, include the secondary wind unit in brackets.")
+        conversion_lines.append("If provided, include the secondary wind unit in brackets. Round wind speeds to the nearest whole number.")
     conversion_text = "\n".join(conversion_lines)
     return SYSTEM_PROMPT_AREA.format(
         temperature_unit_instruction=_format_unit_label(units.temperature_primary, "temperature"),
@@ -210,13 +215,13 @@ def build_regional_system_prompt(units: UnitInstructions) -> str:
     """Construct the system prompt for regional (multi-sub-region) forecasts."""
     conversion_lines = []
     if units.temperature_secondary:
-        conversion_lines.append("If provided, include the secondary temperature unit in brackets.")
+        conversion_lines.append("If provided, include the secondary temperature unit in brackets (round sensibly, nearest whole).")
     if units.precipitation_secondary:
-        conversion_lines.append("If provided, include the secondary rainfall unit in brackets.")
+        conversion_lines.append("If provided, include the secondary rainfall unit in brackets. Round mm/cm to whole numbers; inches to one decimal.")
     if units.snowfall_secondary:
-        conversion_lines.append("If provided, include the secondary snowfall unit in brackets.")
+        conversion_lines.append("If provided, include the secondary snowfall unit in brackets. Round mm/cm to whole numbers; inches to one decimal.")
     if units.windspeed_secondary:
-        conversion_lines.append("If provided, include the secondary wind unit in brackets.")
+        conversion_lines.append("If provided, include the secondary wind unit in brackets. Round wind speeds to the nearest whole number.")
     conversion_text = "\n".join(conversion_lines)
     return SYSTEM_PROMPT_REGIONAL.format(
         temperature_unit_instruction=_format_unit_label(units.temperature_primary, "temperature"),

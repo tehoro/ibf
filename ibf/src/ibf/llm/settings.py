@@ -19,7 +19,7 @@ class LLMSettings:
     Attributes:
         model: Model identifier (e.g., "gpt-4o-mini").
         api_key: API key for authentication.
-        provider: "openai", "openrouter", "gemini", or "deepinfra".
+        provider: "openai", "openrouter", or "gemini".
         base_url: Optional custom API base URL.
         is_google: True if using the Google Generative AI SDK.
         temperature: Sampling temperature.
@@ -62,16 +62,6 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
             api_key=api_key,
             provider="gemini",
             is_google=True,
-            max_tokens=6000,
-        )
-
-    if choice_lower == "deepinfrar1":
-        api_key = _require_env("DEEP_INFRA_API_KEY")
-        return LLMSettings(
-            model="deepseek-ai/DeepSeek-R1",
-            api_key=api_key,
-            provider="deepinfra",
-            base_url="https://api.deepinfra.com/v1/openai",
             max_tokens=6000,
         )
 

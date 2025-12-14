@@ -416,9 +416,20 @@ def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str)
     percentiles = estimate_percentiles(positive, 0.20)
     if any(math.isnan(x) for x in percentiles):
         return f"Estimated probability of {label}: {probability}%"
-    lower = round(percentiles[0], 1 if unit != "mm" else 0)
-    upper = round(percentiles[1], 1 if unit != "mm" else 0)
-    return f"Estimated probability of {label}: {probability}%\nLikely {label} {lower} {unit} to {upper} {unit}"
+    precision = 0 if unit == "mm" else 1
+    lower = round(percentiles[0], precision)
+    upper = round(percentiles[1], precision)
+
+    def _fmt(value: float) -> str:
+        if precision == 0:
+            return f"{int(value)}"
+        return f"{value:.1f}"
+
+    lower_text = _fmt(lower)
+    upper_text = _fmt(upper)
+    if lower == upper:
+        return f"Estimated probability of {label}: {probability}%\nLikely {label} around {lower_text} {unit}"
+    return f"Estimated probability of {label}: {probability}%\nLikely {label} {lower_text} {unit} to {upper_text} {unit}"
 
 
 def precipitation_exceedance_probability(

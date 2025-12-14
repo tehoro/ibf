@@ -86,7 +86,6 @@ def generate_area_maps(
             figure_path = _build_area_map(
                 area_name=area.name,
                 locations=area.locations,
-                language=area.lang or "en",
                 destination=root,
                 width=map_width,
                 height=map_height,
@@ -106,7 +105,6 @@ def _build_area_map(
     *,
     area_name: str,
     locations: Iterable[str],
-    language: str,
     destination: Path,
     width: int,
     height: int,
@@ -121,7 +119,6 @@ def _build_area_map(
     Args:
         area_name: Name of the area.
         locations: List of location names to plot.
-        language: Language for geocoding.
         destination: Directory to save the map.
         width: Image width.
         height: Image height.
@@ -134,7 +131,7 @@ def _build_area_map(
     coordinates: Dict[str, tuple[float, float]] = {}
 
     for name in locations:
-        result = geocode_name(name, language=language)
+        result = geocode_name(name)
         if result:
             coordinates[name] = (result.latitude, result.longitude)
         else:

@@ -1,6 +1,44 @@
+Unified impact-based forecast CLI and service.
+
+See the root-level `README.md` for full documentation and usage details.
 ## Impact-Based Forecast (IBF) Toolkit
 
-IBF is a single command-line program that reads a `config.json` file, pulls the latest ensemble weather data, asks your preferred LLM to write impact-focused forecast text (plus translations), and publishes ready-to-share HTML pages (with optional maps) to a folder of your choice. This guide walks you through every step with the assumption that you are setting it up for the first time.
+IBF is a single command-line program that reads a `config.json` file, pulls the latest ensemble weather data, asks your preferred LLM to write impact-focused forecast text (plus optional translations), and publishes ready-to-share HTML pages (with optional maps) to a folder of your choice. This guide walks you through every step with the assumption that you are setting it up for the first time.
+
+---
+
+## Quick start (simplest path)
+1) **Install uv** (recommended):  
+   `curl -LsSf https://astral.sh/uv/install.sh | sh`
+
+2) **Get the code**: clone or unzip the repo so you have the `ibf/` folder.
+
+3) **Set up the virtual env (from inside `ibf/`)**:
+   ```bash
+   uv venv .venv
+   source .venv/bin/activate
+   uv pip install -e .   # or: uv sync
+   ```
+
+4) **Create your secrets file with required API keys**:
+   ```bash
+   cp .env.example .env
+   # open .env and paste your keys (at minimum GOOGLE_API_KEY, OPENWEATHERMAP_API_KEY, OPENAI_API_KEY)
+   ```
+
+5) **Create a config** (JSON):  
+   ```bash
+   cp examples/sample-config.json /path/to/config.json   # place it anywhere you like
+   # edit that file to match your locations/areas/web_root/etc.
+   ```
+
+6) **Run IBF**:
+   ```bash
+   uv run ibf run --config /path/to/config.json
+   ```
+   Outputs go under the `web_root` you set in the config. If you enable folium/Chrome screenshots for maps, ensure Chrome + chromedriver are installed locally.
+
+If you hit PEP 668 “externally-managed-environment” errors, always use the uv venv + `uv pip` shown above instead of system `pip`.
 
 ---
 
@@ -48,12 +86,11 @@ All instructions below assume you are inside that `ibf` directory.
 
 | Variable | What it’s for | Where to get it |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | Forecast + impact context LLMs (OpenAI-hosted models) | <https://platform.openai.com/> → create API key |
-| `OPENROUTER_API_KEY` | Forecast LLMs via OpenRouter (for `or:provider/model` names) | <https://openrouter.ai/> → Account → API Keys |
-| `GEMINI_API_KEY` | Google Gemini models (optional) | <https://aistudio.google.com/app/apikey> |
-| `DEEP_INFRA_API_KEY` | DeepInfra models (optional) | <https://deepinfra.com/dashboard> |
-| `OPENWEATHERMAP_API_KEY` | Severe weather alerts outside the US/NZ | <https://openweathermap.org/api> – create free account, enable **One Call** |
 | `GOOGLE_API_KEY` *(required)* | All geocoding + optional elevation lookup | See [How to get a Google Maps Geocoding API key](#how-to-get-a-google-maps-geocoding-api-key) |
+| `OPENWEATHERMAP_API_KEY` *(required for alerts)* | Official weather alerts in most countries | <https://openweathermap.org/api> – create free account, enable **One Call** |
+| `OPENAI_API_KEY` *(required for impact context)* | Impact-context LLM calls (OpenAI-hosted) | <https://platform.openai.com/> → create API key |
+| `OPENROUTER_API_KEY` | LLMs via OpenRouter (`or:provider/model`) | <https://openrouter.ai/> → Account → API Keys |
+| `GEMINI_API_KEY` | Google Gemini models (optional) | <https://aistudio.google.com/app/apikey> |
 
 Tips:
 
@@ -90,79 +127,60 @@ That’s it—after this setup, IBF can geocode any location globally without ad
 
 ---
 
-### Step 4 – Understand the configuration file
+### Step 4 – Understand the configuration file (JSON)
 
-IBF only needs a single JSON file (you can base yours on `examples/sample-config.json`). It has three sections:
+IBF uses a single JSON file. Start by copying `examples/sample-config.json` to a convenient location (it does not have to live inside `ibf`; e.g., `/path/to/config.json`). The config has three parts: **global settings**, **locations**, and **areas**.
 
-1. **Global settings** – impact the whole run.
-2. **Locations** – individual towns/cities.
-3. **Areas** – combined reports that summarize several locations (including “regional” breakdowns).
+#### 4.1 Global settings (order used in the example)
 
-#### 4.1 Global settings
+| Field | Meaning | Example |
+| --- | --- | --- |
+| `ensemble_model` | Default ensemble model for all forecasts unless overridden per location/area (see ensemble model list below). | `"ecmwf_aifs025"` |
+| `llm` | Primary model ID (OpenRouter: `or:provider/model`, OpenAI: `gpt-4o-mini`, Gemini: `gemini-*`). For OpenRouter names, copy from <https://openrouter.ai/models> and prefix with `or:`. | `"or:openai/gpt-5.1"` |
+| `enable_reasoning` | Whether to allow reasoning tokens if the model supports them. | `"true"` |
+| `web_root` | Where output HTML is written. Relative paths are fine. | `"./outputs/example-site"` |
+| `location_forecast_days` | Days per location forecast (stay ≤7). | `"4"` |
+| `location_wordiness` | Length guidance for locations: `normal`, `brief`, or `detailed`. | `"normal"` |
+| `location_reasoning` | Reasoning hint for locations: `low`, `medium`, or `high`. Balance quality vs cost. | `"high"` |
+| `location_impact_based` | Include impact context for locations. | `"true"` |
+| `location_thin_select` | Thin ensemble members to this count for locations (e.g., from 51 ECMWF members to 10) to save LLM cost. IBF caps at available members. | `"10"` |
+| `area_forecast_days` | Days per area/regional forecast (stay ≤7). | `"2"` |
+| `area_wordiness` | Length guidance for areas: `normal`, `brief`, or `detailed`. | `"normal"` |
+| `area_reasoning` | Reasoning hint for areas: `low`, `medium`, or `high`. | `"high"` |
+| `area_impact_based` | Include impact context for areas. | `"true"` |
+| `area_thin_select` | Thin ensemble members to this count for areas. | `"10"` |
+| `recent_overwrite_minutes` | Skip overwriting outputs newer than this many minutes. | `"0"` |
+| *(optional)* `units.*` | Global unit defaults; can be overridden per location/area. | e.g., `{"temperature_unit": "fahrenheit"}` |
+| *(optional)* `translation_llm` | Alternate model for translations only. | `""` |
+| *(optional)* `translation_language` | Default translation language if locations/areas omit one (English output is always produced; translations are additional). | `""` |
 
-| Setting | Description |
-| --- | --- |
-| `web_root` | Folder where finished HTML pages are written. Example: `"outputs/example-site"`. |
-| `llm` | Main model name (e.g., `"openai/gpt-4o-mini"` or `"or:openrouter/polaris-alpha"`). |
-| `translation_llm` | Optional cheaper/faster LLM used only for translations (leave blank to reuse `llm`). |
-| `translation_language` | Default translation language if a location/area doesn’t specify one. |
-| `location_forecast_days`, `area_forecast_days` | How many days of data each section covers (default 4). |
-| `location_wordiness`, `area_wordiness` | `"concise"`, `"normal"`, or `"detailed"` tone hints for the LLM. |
-| `location_thin_select`, `area_thin_select` | How many ensemble members to keep when thinning (defaults to 16). IBF automatically caps this at the number of members the selected ensemble actually provides. |
-| `ensemble_model` | Default Open-Meteo ensemble to request (e.g., `"ecmwf_ifs025"`). Use the per-location/area `model` field to override specific entries. Supported IDs are listed below. |
-| `location_impact_based`, `area_impact_based` | `true/false` – include impact context in the prompt. |
-| `snow_level_enabled`, `snow_level` (per location/area) | Experimental toggle for snow-level diagnostics (requires deterministic runs with full pressure-level data; ensemble feeds currently lack the needed humidity fields so this usually remains `false`). |
-| `enable_reasoning`, `location_reasoning`, `area_reasoning` | Advanced toggles for longer “thinking” phases; leave as default unless you know a model that supports reasoning tokens. |
-| `recent_overwrite_minutes` | Minimum time before the program overwrites an existing forecast (useful for cron jobs). |
+#### 4.2 Locations (array of objects)
 
-#### 4.2 Location entries
+Each location can include:
 
-Each location object looks like:
+| Field | Meaning | Example |
+| --- | --- | --- |
+| `name` | Display name; must match any area references. | `"Otaki, New Zealand"` |
+| `model` | Optional override of `ensemble_model` for this location. | `"ecmwf_aifs025"` |
+| `translation_language` | Per-location translation target; overrides global/default. English output is always produced; this adds a translated copy. | `"es"` |
+| `units.temperature_unit` | Temperature unit. | `"celsius"` |
+| `units.precipitation_unit` | Precipitation unit. | `"mm"` |
+| `units.windspeed_unit` | Wind unit. | `"kph"` |
 
-```json
-{
-  "name": "Kingston, Jamaica",
-  "lang": "jam",
-  "model": "ecmwf_ifs025",
-  "units": {
-    "temperature_unit": "celsius",
-    "precipitation_unit": "mm",
-    "windspeed_unit": "kph"
-  }
-}
-```
+#### 4.3 Areas (or regional areas; array of objects)
 
-Field explanations:
+Each area can include:
 
-- `name` (required) – exactly how you want it shown on the website.
-- `lang` – optional translation language code (BCP‑47 or ISO, e.g., `"jam"`). Forecast prose is always written in English; this value is only used when you request a translated copy.
-- `translation_language` – per-location override that takes precedence over `lang` and any global `translation_language`.
-- `model` – optional ensemble model override. When omitted, the global `ensemble_model` (default `ecmwf_ifs025`) is used.
-- `units` – override defaults for that location. Snowfall automatically mirrors the precipitation unit (mm or inches), so you usually only need to set `temperature_unit`, `precipitation_unit`, and `windspeed_unit`. Dual units such as `"temperature_unit": "celsius (fahrenheit)"` are also supported.
-- When a forecast period starts late in the day (e.g., “Rest of Today” issued near sunset), IBF instructs the LLM to describe the remaining temperature trend (“temperatures slip from 18°C early evening to 13°C around midnight”) instead of repeating a formal low/high pair.
-
-#### 4.3 Areas and regional areas
-
-Areas combine the text from any number of locations. Example:
-
-```json
-{
-  "name": "Trinidad and Tobago",
-  "locations": [
-    "Port of Spain, Trinidad and Tobago",
-    "Scarborough, Trinidad and Tobago"
-  ],
-  "mode": "area",
-  "model": "gem_global",
-  "translation_language": "es"
-}
-```
-
-- `locations` must match the `name` field of entries in the `locations` list.
-- `mode`: `"area"` produces one summary paragraph per day; `"regional"` adds sub-sections per location so you can describe sub-regions.
-- Each area inherits the global settings but you can override `lang`, `translation_language`, `units`, `snow_level`, or `model`.
-- `ensemble_model` – default ensemble model (`ecmwf_ifs025` unless overridden).
-- `model` – per-location/per-area ensemble override (see table below).
+| Field | Meaning | Example |
+| --- | --- | --- |
+| `name` | Area display name. | `"Trinidad and Tobago"` |
+| `locations` | List of location names (must match `locations[*].name`). | `["Port of Spain, Trinidad and Tobago", ...]` |
+| `mode` | `"area"` for summary per day; `"regional"` adds sub-sections per location. | `"area"` |
+| `model` | Optional override of `ensemble_model` for this area. | `"gem_global"` |
+| `translation_language` | Per-area translation target. English output is always produced; this adds a translated copy. | `"es"` |
+| `units.temperature_unit` | Temperature unit override. | `"celsius"` |
+| `units.precipitation_unit` | Precipitation unit override. | `"mm"` |
+| `units.windspeed_unit` | Wind unit override. | `"kph"` |
 
 #### 4.4 Available ensemble models
 
@@ -178,8 +196,16 @@ You may set `ensemble_model` globally or a `model` field on a specific location/
 | `gfs025` | 31 | NOAA GFS Ensemble 0.25°. |
 | `icon_seamless` | 40 | DWD ICON seamless ensemble (global + Europe). |
 
-> **Note:** Open-Meteo’s ensemble endpoint returns only a handful of pressure-level variables, so snow-level diagnostics remain experimental and are usually disabled for ensemble runs. Deterministic model support may expand this in the future.
+> Snow-level fields are not supported; omit any `snow_level` or `snow_level_enabled` entries in configs.
 - When you run IBF, it also creates/upgrades a PNG map at `<web_root>/maps/<area-slug>.png`. Maps regenerate only when you change the list of locations for that area (or when you use `--force-maps`).
+
+#### 4.5 Units (overrides per location/area)
+
+- Global defaults are `celsius`, `mm`, `kph`. You can set `units.*` globally and override per location/area.
+- `temperature_unit`: `celsius` (default) or `fahrenheit`.
+- `precipitation_unit`: `mm` (default) or `in` (snow follows precip unit; default snow shown in cm when using mm).
+- `windspeed_unit`: `kph` (default), `mph`, `kn` (knots), or `mps` (meters per second).
+- Dual units are supported by writing the secondary in parentheses, e.g., `"mph (kph)"` or `"celsius (fahrenheit)"`. The first is primary; the second is shown alongside.
 
 #### 4.4 Full example
 

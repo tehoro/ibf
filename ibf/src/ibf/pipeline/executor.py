@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Protocol, Iterable
 from zoneinfo import ZoneInfo
@@ -192,7 +192,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
     name = location.name
     logger.info("Processing location '%s'", name)
     snow_feature_enabled = _snow_level_enabled(location, config)
-    units = _resolve_units(location, use_snow_level=snow_feature_enabled)
+    units = _resolve_units(location, global_units=config.units, use_snow_level=snow_feature_enabled)
     model_id = _resolve_model_id(location, config)
     forecast_days = _resolve_forecast_days(config.location_forecast_days, 4)
     payload = _collect_location_payload(
@@ -297,7 +297,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
 def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Generate an area-level forecast (single text block) across representative spots."""
     logger.info("Processing area '%s'", area.name)
-    base_units = _resolve_units(area, use_snow_level=_snow_level_enabled(area, config))
+    base_units = _resolve_units(area, global_units=config.units, use_snow_level=_snow_level_enabled(area, config))
     area_model_id = _resolve_model_id(area, config)
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
     forecast_days = _resolve_forecast_days(
@@ -412,7 +412,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
 def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Produce a regional forecast that is broken down by sub-regions."""
     logger.info("Processing regional area '%s'", area.name)
-    base_units = _resolve_units(area, use_snow_level=_snow_level_enabled(area, config))
+    base_units = _resolve_units(area, global_units=config.units, use_snow_level=_snow_level_enabled(area, config))
     area_model_id = _resolve_model_id(area, config)
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
     forecast_days = _resolve_forecast_days(
@@ -664,9 +664,12 @@ def _collect_area_payloads(
     return payloads
 
 
-def _resolve_units(config_obj: SupportsUnits, *, use_snow_level: bool = False) -> LocationUnits:
+def _resolve_units(config_obj: SupportsUnits, *, global_units: Dict[str, str] | None = None, use_snow_level: bool = False) -> LocationUnits:
     """Normalize/merge explicit unit overrides with defaults for a config entry."""
-    units = getattr(config_obj, "units", {}) or {}
+    units: Dict[str, str] = {}
+    if global_units:
+        units.update(global_units)
+    units.update(getattr(config_obj, "units", {}) or {})
 
     def _split(value: Optional[str], default: str) -> tuple[str, Optional[str]]:
         if not value:
@@ -740,7 +743,7 @@ def _find_location_units(config: ForecastConfig, name: str) -> Optional[Location
     target = name.strip().lower()
     for entry in config.locations:
         if entry.name.strip().lower() == target:
-            return _resolve_units(entry, use_snow_level=_snow_level_enabled(entry, config))
+            return _resolve_units(entry, global_units=config.units, use_snow_level=_snow_level_enabled(entry, config))
     return None
 
 
@@ -914,8 +917,64 @@ def _snapshot_prompt(
             ]
         )
         path.write_text(body + "\n", encoding="utf-8")
+        _cleanup_prompt_cache()
     except Exception as exc:
         logger.debug("Failed to snapshot prompt for %s/%s: %s", kind, name, exc)
+
+
+def _cleanup_prompt_cache(max_age_days: int = 3, min_keep: int = 10) -> None:
+    """
+    Remove old prompt snapshot files from the cache.
+    
+    Files older than max_age_days will be deleted, but at least min_keep files
+    will always be retained (the newest ones) as examples.
+    
+    Args:
+        max_age_days: Files older than this many days will be deleted.
+        min_keep: Minimum number of files to keep regardless of age.
+    """
+    try:
+        cutoff_time = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        prompt_files = []
+        
+        # Collect all prompt files with their parsed timestamps
+        for path in PROMPT_SNAPSHOT_DIR.glob("*.txt"):
+            try:
+                # Extract timestamp from filename: YYYYMMDDTHHMMSSZ_*.txt
+                filename = path.name
+                if "_" not in filename:
+                    continue
+                timestamp_str = filename.split("_", 1)[0]
+                file_time = datetime.strptime(timestamp_str, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+                prompt_files.append((file_time, path))
+            except (ValueError, OSError):
+                # Skip files with invalid timestamps or other errors
+                continue
+        
+        if not prompt_files:
+            return
+        
+        # Sort by timestamp, newest first
+        prompt_files.sort(key=lambda x: x[0], reverse=True)
+        
+        # Keep at least min_keep files
+        files_to_keep = prompt_files[:min_keep]
+        files_to_check = prompt_files[min_keep:]
+        
+        # Delete files that are both old and not in the top min_keep
+        deleted_count = 0
+        for file_time, path in files_to_check:
+            if file_time < cutoff_time:
+                try:
+                    path.unlink()
+                    deleted_count += 1
+                except OSError:
+                    continue
+        
+        if deleted_count > 0:
+            logger.debug("Cleaned up %d old prompt snapshot(s), kept %d", deleted_count, len(files_to_keep))
+    except Exception as exc:
+        logger.debug("Failed to cleanup prompt cache: %s", exc)
 
 
 def _limit_days(days: List[dict], max_days: int) -> List[dict]:
@@ -964,20 +1023,12 @@ def _map_link_for(config: ForecastConfig, name: str) -> Optional[str]:
 
 def _location_translation_language(location: LocationConfig, config: ForecastConfig) -> Optional[str]:
     """Determine which language (if any) a location forecast should be translated into."""
-    return (
-        location.translation_language
-        or location.lang
-        or config.translation_language
-    )
+    return location.translation_language or config.translation_language
 
 
 def _area_translation_language(area: AreaConfig, config: ForecastConfig) -> Optional[str]:
     """Determine the translation language for an area-level forecast."""
-    return (
-        area.translation_language
-        or area.lang
-        or config.translation_language
-    )
+    return area.translation_language or config.translation_language
 
 
 def _maybe_translate(

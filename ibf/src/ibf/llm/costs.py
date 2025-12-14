@@ -77,6 +77,21 @@ MODEL_COSTS: Dict[str, ModelCost] = {
         cached_input_per_million=0.025,
         output_per_million=2.00,
     ),
+    "gemini-2.5-flash": ModelCost(
+        input_per_million=0.30,
+        cached_input_per_million=0.03,
+        output_per_million=2.50,
+    ),
+    "google/gemini-2.5-flash": ModelCost(
+        input_per_million=0.30,
+        cached_input_per_million=0.03,
+        output_per_million=2.50,
+    ),
+    "or:deepseek/deepseek-v3.2": ModelCost(
+        input_per_million=0.27,
+        cached_input_per_million=0.22,
+        output_per_million=0.40,
+    ),
 }
 
 
