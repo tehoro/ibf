@@ -1,5 +1,5 @@
 {
-   "ensemble_model": "ecmwf_aifs025",
+   "ensemble_model": "ens:ecmwf_aifs025",
    "llm": "or:openai/gpt-5.1",
    "web_root": "./outputs/example-site",
 
@@ -25,7 +25,7 @@
   "locations": [
     {
       "name": "Otaki, New Zealand",
-      "model": "ecmwf_aifs025",
+      "model": "ens:ecmwf_aifs025",
       "lang": "Maori",
 
       "units": {
@@ -36,7 +36,7 @@
     },
     {
       "name": "Seattle, Washington",
-      "model": "icon_seamless",
+      "model": "ens:icon_seamless",
       "units": {
         "temperature_unit": "fahrenheit",
         "precipitation_unit": "in",
@@ -45,7 +45,7 @@
     },
     {
       "name": "Bedford, Massachusetts",
-      "model": "ecmwf_ifs025",
+      "model": "ens:ecmwf_ifs025",
       "units": {
         "temperature_unit": "fahrenheit",
         "precipitation_unit": "in",
@@ -55,7 +55,7 @@
     {
       "name": "Kingston, Jamaica",
       "lang": "jam",
-      "model": "icon_seamless",
+      "model": "ens:icon_seamless",
       "units": {
         "windspeed_unit": "mph",
         "precipitation_unit": "inch"
@@ -67,7 +67,7 @@
       "name": "Trinidad and Tobago",
       "lang": "Trinidadian Creole English",
       "snow_level": false,
-      "model": "gem_global",
+      "model": "ens:gem_global",
       "locations": [
         "Port of Spain, Trinidad and Tobago",
         "Arima, Trinidad and Tobago",

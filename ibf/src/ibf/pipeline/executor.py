@@ -25,6 +25,8 @@ from ..api import (
     GeocodeResult,
     ENSEMBLE_MODELS,
     DEFAULT_ENSEMBLE_MODEL,
+    ModelSpec,
+    resolve_model_spec,
 )
 from ..render import ForecastPage, render_forecast_page
 from ..util import slugify, write_text_file, ensure_directory
@@ -160,6 +162,8 @@ class LocationForecastPayload:
     formatted_dataset: str
     highest_terrain_m: Optional[float] = None
     model_id: str = DEFAULT_ENSEMBLE_MODEL
+    model_kind: str = "ensemble"
+    model_ref: str = ""
 
 
 def execute_pipeline(config: ForecastConfig) -> None:
@@ -193,7 +197,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
     logger.info("Processing location '%s'", name)
     snow_feature_enabled = _snow_level_enabled(location, config)
     units = _resolve_units(location, global_units=config.units, use_snow_level=snow_feature_enabled)
-    model_id = _resolve_model_id(location, config)
+    model_spec = _resolve_model_spec(location, config)
     forecast_days = _resolve_forecast_days(config.location_forecast_days, 4)
     payload = _collect_location_payload(
         name,
@@ -201,7 +205,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
         units=units,
         thin_select=int(config.location_thin_select or 16),
         forecast_days=forecast_days,
-        model_id=model_id,
+        model_spec=model_spec,
     )
     if not payload:
         return None
@@ -276,7 +280,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
 
     destination = _build_destination_path(config, name)
     logger.info("Writing forecast page for '%s' → %s", name, destination)
-    model_label, model_ack = _model_credit([payload.model_id])
+    model_label, model_ack = _model_credit([payload.model_ref or payload.model_id])
     render_forecast_page(
         ForecastPage(
             destination=destination,
@@ -298,13 +302,13 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Generate an area-level forecast (single text block) across representative spots."""
     logger.info("Processing area '%s'", area.name)
     base_units = _resolve_units(area, global_units=config.units, use_snow_level=_snow_level_enabled(area, config))
-    area_model_id = _resolve_model_id(area, config)
+    area_model_spec = _resolve_model_spec(area, config)
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
     forecast_days = _resolve_forecast_days(
         config.area_forecast_days or config.location_forecast_days, 4
     )
 
-    payloads = _collect_area_payloads(area, config, base_units, thin_select, forecast_days, area_model_id)
+    payloads = _collect_area_payloads(area, config, base_units, thin_select, forecast_days, area_model_spec)
 
     if not payloads:
         logger.warning("Area '%s' has no valid location data; skipping.", area.name)
@@ -391,7 +395,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     logger.info("Writing area forecast page for '%s' → %s", area.name, destination)
     map_link = _map_link_for(config, area.name)
 
-    model_label, model_ack = _model_credit(payload.model_id for payload in payloads)
+    model_label, model_ack = _model_credit(payload.model_ref or payload.model_id for payload in payloads)
     render_forecast_page(
         ForecastPage(
             destination=destination,
@@ -413,13 +417,13 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Produce a regional forecast that is broken down by sub-regions."""
     logger.info("Processing regional area '%s'", area.name)
     base_units = _resolve_units(area, global_units=config.units, use_snow_level=_snow_level_enabled(area, config))
-    area_model_id = _resolve_model_id(area, config)
+    area_model_spec = _resolve_model_spec(area, config)
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
     forecast_days = _resolve_forecast_days(
         config.area_forecast_days or config.location_forecast_days, 4
     )
 
-    payloads = _collect_area_payloads(area, config, base_units, thin_select, forecast_days, area_model_id)
+    payloads = _collect_area_payloads(area, config, base_units, thin_select, forecast_days, area_model_spec)
     if not payloads:
         logger.warning("Regional area '%s' has no valid location data; skipping.", area.name)
         return
@@ -513,7 +517,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     logger.info("Writing regional forecast page for '%s' → %s", area.name, destination)
     map_link = _map_link_for(config, area.name)
 
-    model_label, model_ack = _model_credit(payload.model_id for payload in payloads)
+    model_label, model_ack = _model_credit(payload.model_ref or payload.model_id for payload in payloads)
     render_forecast_page(
         ForecastPage(
             destination=destination,
@@ -539,7 +543,7 @@ def _collect_location_payload(
     thin_select: int,
     forecast_days: int,
     cache_label: Optional[str] = None,
-    model_id: str = DEFAULT_ENSEMBLE_MODEL,
+    model_spec: Optional[ModelSpec] = None,
 ) -> Optional[LocationForecastPayload]:
     """Gather geocode, alerts, forecast, processed dataset, and formatted text."""
     logger.info("Geocoding '%s'", name)
@@ -564,9 +568,9 @@ def _collect_location_payload(
             logger.debug("Highest terrain lookup failed for '%s'; continuing without it.", name)
 
     request_days = max(forecast_days, 0) + 1
-    model_entry = ENSEMBLE_MODELS.get(model_id, ENSEMBLE_MODELS.get(DEFAULT_ENSEMBLE_MODEL, {}))
-    available_members = model_entry.get("members")
-    effective_thin = min(thin_select, available_members) if isinstance(available_members, int) and available_members > 0 else thin_select
+    resolved_model = model_spec or _resolve_model_spec(None, config)
+    available_members = max(1, int(getattr(resolved_model, "members", 1) or 1))
+    effective_thin = min(thin_select, available_members)
     try:
         logger.info(
             "Fetching forecast data for '%s' (%s days + buffer)", name, forecast_days
@@ -580,7 +584,8 @@ def _collect_location_payload(
                 temperature_unit=_temperature_unit_for_api(units.temperature_primary),
                 precipitation_unit=_precipitation_unit_for_api(units.precipitation_primary),
                 windspeed_unit=_windspeed_unit_for_api(units.windspeed_primary),
-                models=model_id,
+                models=resolved_model.model_id,
+                model_kind=resolved_model.kind,
             )
         )
     except RuntimeError as exc:
@@ -600,7 +605,7 @@ def _collect_location_payload(
         logger.warning("No processed data produced for '%s'; skipping.", name)
         return None
 
-    cache_slug = cache_label or f"{name}__{model_id}"
+    cache_slug = cache_label or f"{name}__{resolved_model.kind}__{resolved_model.model_id}"
     dataset_path = _write_dataset_cache(cache_slug, dataset)
     logger.info("Processed %d day(s) for '%s'; dataset cached at %s", len(dataset), name, dataset_path)
     formatted_dataset = format_location_dataset(
@@ -622,7 +627,9 @@ def _collect_location_payload(
         units=units,
         formatted_dataset=formatted_dataset,
         highest_terrain_m=highest_terrain,
-        model_id=model_id,
+        model_id=resolved_model.model_id,
+        model_kind=resolved_model.kind,
+        model_ref=resolved_model.ref,
     )
 
 
@@ -632,7 +639,7 @@ def _collect_area_payloads(
     base_units: LocationUnits,
     thin_select: int,
     forecast_days: int,
-    model_id: str,
+    model_spec: ModelSpec,
 ) -> List[LocationForecastPayload]:
     """Fetch datasets for each representative location needed for an area."""
     payloads: List[LocationForecastPayload] = []
@@ -648,8 +655,8 @@ def _collect_area_payloads(
         else:
             units_for_location = base_units
         location_cfg = _find_location_config(config, location_name)
-        effective_model = _resolve_model_id(location_cfg, config) if location_cfg else model_id
-        slug = f"{area.name}__{location_name}__{effective_model}"
+        effective_spec = _resolve_model_spec(location_cfg, config) if location_cfg else model_spec
+        slug = f"{area.name}__{location_name}__{effective_spec.kind}__{effective_spec.model_id}"
         payload = _collect_location_payload(
             location_name,
             config=config,
@@ -657,7 +664,7 @@ def _collect_area_payloads(
             thin_select=thin_select,
             forecast_days=forecast_days,
             cache_label=slug,
-            model_id=effective_model,
+            model_spec=effective_spec,
         )
         if payload:
             payloads.append(payload)
@@ -717,18 +724,22 @@ def _resolve_units(config_obj: SupportsUnits, *, global_units: Dict[str, str] | 
     )
 
 
-def _resolve_model_id(config_obj: object, config: ForecastConfig) -> str:
-    """Determine which ensemble model to use for a given config entity."""
+def _resolve_model_spec(config_obj: object, config: ForecastConfig) -> ModelSpec:
+    """
+    Determine which forecast model to use for a given config entity.
+
+    Supports:
+    - Explicit prefixes: "ens:<id>" / "det:<id>"
+    - Back-compat: unprefixed ensemble IDs still work
+    """
     candidate = None
     if config_obj is not None:
         candidate = getattr(config_obj, "model", None)
     if not candidate:
         candidate = getattr(config, "ensemble_model", None)
-    model_id = (candidate or DEFAULT_ENSEMBLE_MODEL).strip().lower()
-    if model_id not in ENSEMBLE_MODELS:
-        logger.warning("Unknown ensemble model '%s'; falling back to %s", model_id, DEFAULT_ENSEMBLE_MODEL)
-        return DEFAULT_ENSEMBLE_MODEL
-    return model_id
+    if not candidate:
+        candidate = f"ens:{DEFAULT_ENSEMBLE_MODEL}"
+    return resolve_model_spec(str(candidate))
 
 
 def _snow_level_enabled(entity: SupportsUnits, config: ForecastConfig) -> bool:
@@ -756,23 +767,19 @@ def _find_location_config(config: ForecastConfig, name: str):
     return None
 
 
-def _model_credit(model_ids: Iterable[str]) -> tuple[str, Optional[str]]:
+def _model_credit(model_refs: Iterable[str]) -> tuple[str, Optional[str]]:
     """Return a human-readable label and optional acknowledgement URL for footer text."""
-    unique_ids = sorted({(mid or "").strip().lower() for mid in model_ids if mid})
-    if not unique_ids:
-        unique_ids = [DEFAULT_ENSEMBLE_MODEL]
+    unique_refs = sorted({(ref or "").strip() for ref in model_refs if ref})
+    if not unique_refs:
+        unique_refs = [f"ens:{DEFAULT_ENSEMBLE_MODEL}"]
 
-    def label_for(model_id: str) -> tuple[str, Optional[str]]:
-        info = ENSEMBLE_MODELS.get(model_id, {})
-        name = info.get("name") or info.get("description") or model_id
-        ack_url = info.get("ack_url")
-        return name, ack_url
+    specs = [resolve_model_spec(ref) for ref in unique_refs]
 
-    if len(unique_ids) == 1:
-        return label_for(unique_ids[0])
+    if len(specs) == 1:
+        return specs[0].name, specs[0].ack_url
 
-    labels = [label_for(mid)[0] for mid in unique_ids]
-    composite = "multiple ensemble models (" + ", ".join(labels) + ")"
+    labels = [spec.name for spec in specs]
+    composite = "multiple models (" + ", ".join(labels) + ")"
     return composite, None
 
 

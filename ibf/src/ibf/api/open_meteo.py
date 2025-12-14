@@ -1,5 +1,9 @@
 """
-Client for the Open-Meteo ECMWF ensemble endpoint with file-based caching.
+Client for Open-Meteo forecast endpoints with file-based caching.
+
+Supports both:
+- Ensemble endpoint (ensemble models, multiple members)
+- Forecast endpoint (deterministic models, single "member00")
 """
 
 from __future__ import annotations
@@ -9,7 +13,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Literal, Any
 
 import requests
 
@@ -17,7 +21,8 @@ from ..util import ensure_directory, is_file_stale
 
 logger = logging.getLogger(__name__)
 
-BASE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
+ENSEMBLE_BASE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
+FORECAST_BASE_URL = "https://api.open-meteo.com/v1/forecast"
 HOURLY_FIELDS = ",".join(
     [
         "temperature_2m",
@@ -33,6 +38,8 @@ HOURLY_FIELDS = ",".join(
 )
 
 WINDSPEED_CONVERSIONS = {"kph": "kmh", "kt": "kn", "mps": "ms"}
+
+ModelKind = Literal["ensemble", "deterministic"]
 
 ENSEMBLE_MODELS = {
     "ecmwf_ifs025": {
@@ -74,11 +81,107 @@ ENSEMBLE_MODELS = {
 
 DEFAULT_ENSEMBLE_MODEL = "ecmwf_ifs025"
 
+DETERMINISTIC_MODELS: Dict[str, Dict[str, Any]] = {
+    # Open-Meteo ECMWF IFS HRES 9 km deterministic
+    # https://open-meteo.com/en/docs/ecmwf-api
+    "ecmwf_ifs": {
+        "name": "ECMWF IFS HRES 9 km (deterministic)",
+        "ack_url": "https://apps.ecmwf.int/datasets/licences/general/",
+    }
+}
+
+
+@dataclass(frozen=True)
+class ModelSpec:
+    """Resolved model metadata used to route API calls and label outputs."""
+
+    ref: str
+    kind: ModelKind
+    model_id: str
+    name: str
+    members: int = 1
+    provider: Optional[str] = None
+    ack_url: Optional[str] = None
+
+
+def resolve_model_spec(value: Optional[str]) -> ModelSpec:
+    """
+    Resolve a model reference into a ModelSpec.
+
+    Accepted forms:
+    - "ens:<open-meteo-ensemble-id>" (explicit ensemble)
+    - "det:<open-meteo-forecast-id>" (explicit deterministic)
+    - "<open-meteo-ensemble-id>"     (back-compat: treated as ensemble if known)
+    - "<open-meteo-forecast-id>"     (treated as deterministic otherwise)
+    """
+    raw = (value or "").strip()
+    if not raw:
+        raw = f"ens:{DEFAULT_ENSEMBLE_MODEL}"
+
+    prefix: Optional[str] = None
+    rest = raw
+    if ":" in raw:
+        candidate_prefix, candidate_rest = raw.split(":", 1)
+        candidate_prefix = candidate_prefix.strip().lower()
+        if candidate_prefix in {"ens", "ensemble"}:
+            prefix = "ens"
+            rest = candidate_rest.strip()
+        elif candidate_prefix in {"det", "deterministic"}:
+            prefix = "det"
+            rest = candidate_rest.strip()
+
+    if not rest:
+        rest = DEFAULT_ENSEMBLE_MODEL
+
+    if prefix == "ens":
+        kind: ModelKind = "ensemble"
+        model_id = rest
+    elif prefix == "det":
+        kind = "deterministic"
+        model_id = rest
+    else:
+        # Back-compat / convenience: infer kind by known ensemble IDs.
+        kind = "ensemble" if rest in ENSEMBLE_MODELS else "deterministic"
+        model_id = rest
+
+    if kind == "ensemble":
+        info = ENSEMBLE_MODELS.get(model_id)
+        if not info:
+            logger.warning(
+                "Unknown ensemble model '%s'; falling back to %s",
+                model_id,
+                DEFAULT_ENSEMBLE_MODEL,
+            )
+            model_id = DEFAULT_ENSEMBLE_MODEL
+            info = ENSEMBLE_MODELS.get(model_id, {})
+        members = int(info.get("members") or 1)
+        return ModelSpec(
+            ref=f"ens:{model_id}",
+            kind="ensemble",
+            model_id=model_id,
+            name=str(info.get("name") or model_id),
+            members=max(1, members),
+            provider=info.get("provider"),
+            ack_url=info.get("ack_url"),
+        )
+
+    # Deterministic: allow unknown IDs (Open-Meteo may add models); treat as 1 member.
+    dinfo = DETERMINISTIC_MODELS.get(model_id, {})
+    return ModelSpec(
+        ref=f"det:{model_id}",
+        kind="deterministic",
+        model_id=model_id,
+        name=str(dinfo.get("name") or model_id),
+        members=1,
+        provider=dinfo.get("provider"),
+        ack_url=dinfo.get("ack_url"),
+    )
+
 
 @dataclass(frozen=True)
 class ForecastRequest:
     """
-    Parameters for an ECMWF ensemble forecast request.
+    Parameters for an Open-Meteo forecast request.
 
     Attributes:
         latitude: Target latitude.
@@ -88,7 +191,8 @@ class ForecastRequest:
         temperature_unit: "celsius" or "fahrenheit".
         windspeed_unit: "kph", "mph", "ms", or "kn".
         precipitation_unit: "mm" or "inch".
-        models: Comma-separated list of models (default "ecmwf_ifs025").
+        models: Open-Meteo model identifier (default "ecmwf_ifs025").
+        model_kind: "ensemble" or "deterministic" (routes to correct endpoint).
         cache_ttl_minutes: How long to keep the cache valid (default 60).
         cache_dir: Directory to store cache files.
     """
@@ -100,6 +204,7 @@ class ForecastRequest:
     windspeed_unit: str = "kph"
     precipitation_unit: str = "mm"
     models: str = DEFAULT_ENSEMBLE_MODEL
+    model_kind: ModelKind = "ensemble"
     cache_ttl_minutes: int = 60
     cache_dir: Path = field(default_factory=lambda: Path("ibf_cache/forecasts"))
 
@@ -156,11 +261,14 @@ def _cache_key(request: ForecastRequest) -> str:
     """Create a stable filename fragment for a forecast request."""
     lat_suffix = "N" if request.latitude >= 0 else "S"
     lon_suffix = "E" if request.longitude >= 0 else "W"
+    model_token = (request.models or "").strip().lower().replace(",", "+")
+    kind_token = "ens" if request.model_kind == "ensemble" else "det"
     return (
         f"{abs(round(request.latitude, 2))}{lat_suffix}_"
         f"{abs(round(request.longitude, 2))}{lon_suffix}_"
         f"{request.forecast_days}_{request.temperature_unit}_"
-        f"{request.precipitation_unit}_{request.windspeed_unit}"
+        f"{request.precipitation_unit}_{request.windspeed_unit}_"
+        f"{kind_token}_{model_token}"
     )
 
 
@@ -207,6 +315,7 @@ def cleanup_forecast_cache(cache_dir: Path, max_age_hours: int = 48) -> None:
 
 def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
     """Call Open-Meteo with basic retries and validation."""
+    base_url = ENSEMBLE_BASE_URL if request.model_kind == "ensemble" else FORECAST_BASE_URL
     params = {
         "latitude": request.latitude,
         "longitude": request.longitude,
@@ -222,7 +331,7 @@ def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
     last_error: Optional[str] = None
     for attempt in range(1, 4):
         try:
-            response = requests.get(BASE_URL, params=params, timeout=30)
+            response = requests.get(base_url, params=params, timeout=30)
             response.raise_for_status()
             data = response.json()
             _validate_response(data)

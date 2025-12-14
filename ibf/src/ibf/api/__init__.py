@@ -8,6 +8,9 @@ from .open_meteo import (
     fetch_forecast,
     ENSEMBLE_MODELS,
     DEFAULT_ENSEMBLE_MODEL,
+    DETERMINISTIC_MODELS,
+    ModelSpec,
+    resolve_model_spec,
 )
 from .alerts import AlertSummary, fetch_alerts
 from .impact import ImpactContext, fetch_impact_context
@@ -19,6 +22,9 @@ __all__ = [
     "fetch_forecast",
     "ENSEMBLE_MODELS",
     "DEFAULT_ENSEMBLE_MODEL",
+    "DETERMINISTIC_MODELS",
+    "ModelSpec",
+    "resolve_model_spec",
     "AlertSummary",
     "fetch_alerts",
     "ImpactContext",

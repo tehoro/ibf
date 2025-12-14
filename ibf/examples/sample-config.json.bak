@@ -4,7 +4,7 @@
       "name": "Otaki, New Zealand",
       "lang": "Maori",
       "snow_level": true,
-      "model": "ecmwf_aifs025",
+      "model": "ens:ecmwf_aifs025",
       "units": {
         "temperature_unit": "celsius",
         "precipitation_unit": "mm",
@@ -13,7 +13,7 @@
     },
     {
       "name": "Seattle, Washington",
-      "model": "icon_seamless",
+      "model": "ens:icon_seamless",
       "units": {
         "temperature_unit": "fahrenheit",
         "precipitation_unit": "in",
@@ -22,7 +22,7 @@
     },
     {
       "name": "Bedford, Massachusetts",
-      "model": "ecmwf_ifs025",
+      "model": "ens:ecmwf_ifs025",
       "units": {
         "temperature_unit": "fahrenheit",
         "precipitation_unit": "in",
@@ -32,7 +32,7 @@
     {
       "name": "Kingston, Jamaica",
       "lang": "jam",
-      "model": "icon_seamless",
+      "model": "ens:icon_seamless",
       "units": {
         "windspeed_unit": "mph",
         "precipitation_unit": "inch"
