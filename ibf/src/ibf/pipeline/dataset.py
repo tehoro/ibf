@@ -161,6 +161,7 @@ def _build_member_record(
     temperature = _safe_get(indexed, f"temperature_2m{base}", index)
     dewpoint = _safe_get(indexed, f"dewpoint_2m{base}", index)
     precipitation = _safe_get(indexed, f"precipitation{base}", index)
+    precip_probability = _safe_get(indexed, f"precipitation_probability{base}", index)
     snowfall = _safe_get(indexed, f"snowfall{base}", index)
     weather_code = _safe_get(indexed, f"weather_code{base}", index)
     cloud_cover = _safe_get(indexed, f"cloud_cover{base}", index)
@@ -189,7 +190,7 @@ def _build_member_record(
         location_altitude,
     )
 
-    return {
+    record: Dict[str, Any] = {
         "temperature": _round_value(temperature, 1),
         "precipitation": _round_value(
             precipitation, 1 if precipitation_unit == "mm" else 2
@@ -202,6 +203,18 @@ def _build_member_record(
         "wind_gust": round_windspeed(wind_gusts, windspeed_unit) if wind_gusts else 0,
         "snow_level": int(snow_level) if snow_level is not None else None,
     }
+
+    # Probability of precipitation (POP) is typically available only for deterministic models.
+    # If absent or invalid, omit it entirely.
+    if isinstance(precip_probability, (int, float)):
+        try:
+            pop_int = int(round(float(precip_probability)))
+            if 0 <= pop_int <= 100:
+                record["pop"] = pop_int
+        except Exception:
+            pass
+
+    return record
 
 
 def _safe_get(indexed: Dict[str, List[Any]], key: str, idx: int) -> Any:

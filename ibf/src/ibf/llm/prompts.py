@@ -76,6 +76,7 @@ Describe the most likely conditions and also mention important alternative outco
 Temperature: {temperature_unit_instruction}
 Rainfall: {rainfall_unit_instruction}
 Snowfall: {snowfall_unit_instruction}
+POP: Hourly precipitation probability in percent, shown as "pop N" in the hourly lines.
 Wind Speed: {windspeed_unit_instruction}
 {conversion_instructions}
 - When showing bracketed secondary units, round sensibly (e.g., mm/cm to whole numbers; inches to one decimal; wind speeds to nearest whole unit).
@@ -155,6 +156,7 @@ You will receive forecast datasets for several locations inside the target area.
 Temperature: {temperature_unit_instruction}
 Rainfall: {rainfall_unit_instruction}
 Snowfall: {snowfall_unit_instruction}
+POP: Hourly precipitation probability in percent, shown as "pop N" in the hourly lines (when available).
 Wind Speed: {windspeed_unit_instruction}
 {conversion_instructions}
 
@@ -214,6 +216,7 @@ You are an expert regional meteorologist. Use the supplied representative locati
 Temperature: {temperature_unit_instruction}
 Rainfall: {rainfall_unit_instruction}
 Snowfall: {snowfall_unit_instruction}
+POP: Hourly precipitation probability in percent, shown as "pop N" in the hourly lines (when available).
 Wind Speed: {windspeed_unit_instruction}
 {conversion_instructions}
 

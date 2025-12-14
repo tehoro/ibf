@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 ENSEMBLE_BASE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
 FORECAST_BASE_URL = "https://api.open-meteo.com/v1/forecast"
-HOURLY_FIELDS = ",".join(
+HOURLY_FIELDS_BASE = ",".join(
     [
         "temperature_2m",
         "dewpoint_2m",
@@ -34,6 +34,16 @@ HOURLY_FIELDS = ",".join(
         "wind_speed_10m",
         "wind_direction_10m",
         "wind_gusts_10m",
+    ]
+)
+
+# Deterministic models typically include probability of precipitation.
+# Only request this field for deterministic requests to avoid incompatibilities
+# with the ensemble endpoint.
+HOURLY_FIELDS_DETERMINISTIC = ",".join(
+    [
+        HOURLY_FIELDS_BASE,
+        "precipitation_probability",
     ]
 )
 
@@ -316,10 +326,11 @@ def cleanup_forecast_cache(cache_dir: Path, max_age_hours: int = 48) -> None:
 def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
     """Call Open-Meteo with basic retries and validation."""
     base_url = ENSEMBLE_BASE_URL if request.model_kind == "ensemble" else FORECAST_BASE_URL
+    hourly_fields = HOURLY_FIELDS_BASE if request.model_kind == "ensemble" else HOURLY_FIELDS_DETERMINISTIC
     params = {
         "latitude": request.latitude,
         "longitude": request.longitude,
-        "hourly": HOURLY_FIELDS,
+        "hourly": hourly_fields,
         "timezone": request.timezone,
         "forecast_days": request.forecast_days,
         "temperature_unit": request.temperature_unit,

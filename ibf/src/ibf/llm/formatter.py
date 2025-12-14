@@ -92,6 +92,7 @@ def format_location_dataset(
                 wind_speed = member_data.get("wind_speed", 0.0)
                 wind_gust = member_data.get("wind_gust", 0.0)
                 wind_direction = member_data.get("wind_direction", "variable")
+                pop = member_data.get("pop")
 
                 if isinstance(temp, (int, float)):
                     high_temp = max(high_temp, temp)
@@ -118,6 +119,7 @@ def format_location_dataset(
                     snow_text = f"snow down to about {snow_level} m"
 
                 wind_text = _format_wind(wind_direction, wind_speed, wind_gust)
+                pop_text = f"pop {int(pop)}" if isinstance(pop, int) else ""
 
                 temp_text = f"{_format_temp(temp)}" if isinstance(temp, (int, float)) else "N/A"
                 details = [temp_text, weather_desc]
@@ -125,6 +127,8 @@ def format_location_dataset(
                     details.append(precip_text)
                 if snow_text:
                     details.append(snow_text)
+                if pop_text:
+                    details.append(pop_text)
                 details.append(wind_text)
                 detail_str = " ".join(part.strip() for part in details if part)
                 block_lines.append(f"{hour_label} {detail_str}")
