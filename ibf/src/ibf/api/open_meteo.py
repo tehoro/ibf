@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import hashlib
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -271,6 +272,8 @@ def _cache_key(request: ForecastRequest) -> str:
     """Create a stable filename fragment for a forecast request."""
     lat_suffix = "N" if request.latitude >= 0 else "S"
     lon_suffix = "E" if request.longitude >= 0 else "W"
+    hourly_fields = _hourly_fields_for(request)
+    fields_sig = hashlib.sha1(hourly_fields.encode("utf-8")).hexdigest()[:8]
     model_token = (request.models or "").strip().lower().replace(",", "+")
     kind_token = "ens" if request.model_kind == "ensemble" else "det"
     return (
@@ -278,7 +281,7 @@ def _cache_key(request: ForecastRequest) -> str:
         f"{abs(round(request.longitude, 2))}{lon_suffix}_"
         f"{request.forecast_days}_{request.temperature_unit}_"
         f"{request.precipitation_unit}_{request.windspeed_unit}_"
-        f"{kind_token}_{model_token}"
+        f"{kind_token}_{model_token}_{fields_sig}"
     )
 
 
@@ -326,7 +329,7 @@ def cleanup_forecast_cache(cache_dir: Path, max_age_hours: int = 48) -> None:
 def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
     """Call Open-Meteo with basic retries and validation."""
     base_url = ENSEMBLE_BASE_URL if request.model_kind == "ensemble" else FORECAST_BASE_URL
-    hourly_fields = HOURLY_FIELDS_BASE if request.model_kind == "ensemble" else HOURLY_FIELDS_DETERMINISTIC
+    hourly_fields = _hourly_fields_for(request)
     params = {
         "latitude": request.latitude,
         "longitude": request.longitude,
@@ -362,6 +365,11 @@ def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
             time.sleep(2 ** (attempt - 1))
 
     raise RuntimeError(last_error or "Failed to fetch Open-Meteo forecast.")
+
+
+def _hourly_fields_for(request: ForecastRequest) -> str:
+    """Return the hourly fields string for this request (affects caching)."""
+    return HOURLY_FIELDS_BASE if request.model_kind == "ensemble" else HOURLY_FIELDS_DETERMINISTIC
 
 
 def _validate_response(data: Dict[str, object]) -> None:
