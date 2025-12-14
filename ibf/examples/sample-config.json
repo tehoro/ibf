@@ -5,7 +5,7 @@
    "translation_llm": "or:openai/gpt-5-mini",
 
 
-  "location_forecast_days": "4",
+  "location_forecast_days": "6",
   "location_wordiness": "normal",
   "location_reasoning": "high",
   "location_impact_based": "true",
@@ -32,7 +32,12 @@
   "locations": [
     {
       "name": "Otaki, New Zealand",
-      "model": "ens:ecmwf_aifs025",
+      "model": "ens:ecmwf_ifs025",
+      "translation_language": "Maori"
+    },
+    {
+      "name": "Otaki Beach, New Zealand",
+      "model": "det:ecmwf_ifs",
       "translation_language": "Maori"
     },
     {
@@ -66,7 +71,7 @@
   "areas": [
     {
       "name": "Trinidad and Tobago",
-      "model": "ens:gem_global",
+      "model": "det:ecmwf_ifs",
       "translation_language": "Trinidadian Creole English",
       "locations": [
         "Port of Spain, Trinidad and Tobago",

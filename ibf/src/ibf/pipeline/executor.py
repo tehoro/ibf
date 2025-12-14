@@ -230,7 +230,10 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
     if formatted_dataset and not formatted_dataset.startswith("Error"):
         try:
             llm_settings = resolve_llm_settings(config)
-            system_prompt = build_spot_system_prompt(_unit_instructions(payload.units))
+            system_prompt = build_spot_system_prompt(
+                _unit_instructions(payload.units),
+                model_kind=payload.model_kind,
+            )
             short_instr = _short_period_instruction(dataset, geocode.timezone or "UTC")
             impact_instr = _impact_instruction(_as_bool(config.location_impact_based))
             prompt = build_spot_user_prompt(
@@ -343,7 +346,11 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     if formatted_dataset:
         try:
             llm_settings = resolve_llm_settings(config)
-            system_prompt = build_area_system_prompt(_unit_instructions(base_units))
+            area_kind = "ensemble" if any(p.model_kind == "ensemble" for p in payloads) else "deterministic"
+            system_prompt = build_area_system_prompt(
+                _unit_instructions(base_units),
+                model_kind=area_kind,
+            )
             short_instr = _short_period_instruction(
                 payloads[0].dataset, payloads[0].geocode.timezone or "UTC"
             )
@@ -457,7 +464,11 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     if formatted_dataset:
         try:
             llm_settings = resolve_llm_settings(config)
-            system_prompt = build_regional_system_prompt(_unit_instructions(base_units))
+            area_kind = "ensemble" if any(p.model_kind == "ensemble" for p in payloads) else "deterministic"
+            system_prompt = build_regional_system_prompt(
+                _unit_instructions(base_units),
+                model_kind=area_kind,
+            )
             short_instr = _short_period_instruction(
                 payloads[0].dataset, payloads[0].geocode.timezone or "UTC"
             )

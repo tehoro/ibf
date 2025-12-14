@@ -64,6 +64,7 @@ def format_location_dataset(
             continue
 
         ensemble_keys = list(hours[0].get("ensemble_members", {}).keys())
+        is_single_member = len(ensemble_keys) <= 1
         members_output: List[str] = []
         daily_lows: List[float] = []
         daily_highs: List[float] = []
@@ -147,19 +148,25 @@ def format_location_dataset(
                 daily_snow.append(round(total_snow, 1))
 
         if members_output:
-            range_summary = calculate_range_summary(
-                daily_lows,
-                daily_highs,
-                daily_precip,
-                daily_snow,
-                temperature_unit.capitalize()[0],
-                precipitation_unit,
-                snowfall_unit,
-                _should_use_only_low(hours),
-                _should_reverse_high_low(hours),
-            )
             scenarios_text = "\n\n".join(members_output)
-            output_parts.append(f"{date_heading}\n{scenarios_text}\nRANGE SUMMARY:\n" + range_summary + "\n")
+            if is_single_member:
+                # Deterministic-style output: the per-member summary already contains
+                # the low/high and precip/snow totals. Avoid emitting probabilistic
+                # range summaries which are meaningless with a single member.
+                output_parts.append(f"{date_heading}\n{scenarios_text}\n")
+            else:
+                range_summary = calculate_range_summary(
+                    daily_lows,
+                    daily_highs,
+                    daily_precip,
+                    daily_snow,
+                    temperature_unit.capitalize()[0],
+                    precipitation_unit,
+                    snowfall_unit,
+                    _should_use_only_low(hours),
+                    _should_reverse_high_low(hours),
+                )
+                output_parts.append(f"{date_heading}\n{scenarios_text}\nRANGE SUMMARY:\n" + range_summary + "\n")
 
     final_text = "\n".join(part for part in output_parts if part.strip())
     return (alert_text + "\n" + final_text).strip() if alert_text else final_text.strip()
