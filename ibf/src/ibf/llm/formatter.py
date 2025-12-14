@@ -72,7 +72,8 @@ def format_location_dataset(
         daily_snow: List[float] = []
 
         for member in ensemble_keys:
-            block_lines = [f"Scenario {member.replace('member', '')}:"]
+            # For deterministic (single-member) datasets, omit the "Scenario 00:" label.
+            block_lines = [] if is_single_member else [f"Scenario {member.replace('member', '')}:"]
             high_temp = -math.inf
             low_temp = math.inf
             total_precip = 0.0
