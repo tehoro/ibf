@@ -149,7 +149,7 @@ def format_location_dataset(
                 if math.isfinite(high_temp) and math.isfinite(low_temp):
                     daily_highs.append(round(high_temp))
                     daily_lows.append(round(low_temp))
-                daily_precip.append(round(total_precip, 1))
+                daily_precip.append(_normalize_daily_total(total_precip, precipitation_unit, kind="rainfall"))
                 daily_snow.append(round(total_snow, 1))
 
         if members_output:
@@ -330,10 +330,73 @@ def _member_summary(
     ]
     if total_snow > 0:
         lines.append(f" Total snowfall: {round(total_snow)} {snowfall_unit}.")
-    if total_precip > 0:
-        precision = 0 if precipitation_unit == "mm" else 1
-        lines.append(f" Total rainfall: {round(total_precip, precision)} {precipitation_unit}.")
+    rainfall_line = _format_total_amount_line(total_precip, precipitation_unit, label="rainfall")
+    if rainfall_line:
+        lines.append(rainfall_line)
     return "\n".join(lines)
+
+
+def _normalize_daily_total(value: float, unit: str, *, kind: str) -> float:
+    """
+    Normalize totals used for RANGE SUMMARY calculations.
+
+    For mm rainfall, treat trace totals as 0 and round sub-1 mm totals to 0.5 mm
+    to avoid misleading outputs like "0.0 mm" or "near 0 mm".
+    """
+    if not isinstance(value, (int, float)):
+        return 0.0
+    v = float(value)
+    if v <= 0:
+        return 0.0
+
+    if kind == "rainfall" and unit == "mm":
+        # Treat trace rainfall as 0.
+        if v < 0.25:
+            return 0.0
+        if v < 1.0:
+            return round(v * 2.0) / 2.0
+        return float(int(round(v)))
+
+    # Default: keep some precision for statistics.
+    return round(v, 1)
+
+
+def _format_total_amount_line(value: float, unit: str, *, label: str) -> str:
+    """
+    Format a "Total rainfall/snowfall" line, omitting meaningless near-zero totals.
+
+    For mm rainfall:
+    - < 0.25 mm: omit
+    - 0.25 mm to < 1.0 mm: round to nearest 0.5 mm
+    - >= 1.0 mm: round to nearest whole mm (and print as an integer, not 1.0)
+    """
+    if not isinstance(value, (int, float)):
+        return ""
+    v = float(value)
+    if v <= 0:
+        return ""
+
+    if label == "rainfall" and unit == "mm":
+        if v < 0.25:
+            return ""
+        if v < 1.0:
+            rounded = round(v * 2.0) / 2.0
+        else:
+            rounded = float(int(round(v)))
+        if rounded <= 0:
+            return ""
+        # Render 0.5 steps without trailing .0
+        text = str(int(rounded)) if float(rounded).is_integer() else f"{rounded:.1f}".rstrip("0").rstrip(".")
+        return f" Total rainfall: {text} {unit}."
+
+    # Default formatting: keep existing behavior but avoid "0.0".
+    precision = 0 if unit == "mm" else 1
+    rounded = round(v, precision)
+    if rounded == 0:
+        return ""
+    if precision == 0:
+        return f" Total {label}: {int(rounded)} {unit}."
+    return f" Total {label}: {rounded:.{precision}f} {unit}."
 
 
 def _should_use_only_low(hours: List[dict]) -> bool:
