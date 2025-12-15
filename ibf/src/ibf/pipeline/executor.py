@@ -747,6 +747,7 @@ def _resolve_model_spec(config_obj: object, config: ForecastConfig) -> ModelSpec
     if config_obj is not None:
         candidate = getattr(config_obj, "model", None)
     if not candidate:
+        # Prefer the unified global name ("model"), but accept legacy "ensemble_model".
         candidate = getattr(config, "model", None) or getattr(config, "ensemble_model", None)
     if not candidate:
         candidate = f"ens:{DEFAULT_ENSEMBLE_MODEL}"
