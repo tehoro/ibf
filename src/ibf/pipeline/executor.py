@@ -181,8 +181,10 @@ def execute_pipeline(config: ForecastConfig) -> None:
         return
 
     _reset_cost_tracker()
-    for location in config.locations:
-        _process_location(location, config)
+    # Generate unique names for locations to avoid conflicts
+    unique_names = _generate_unique_location_names(config)
+    for i, location in enumerate(config.locations):
+        _process_location(location, config, unique_names[i])
     for area in config.areas:
         if getattr(area, "mode", "area") == "regional":
             _process_regional_area(area, config)
@@ -191,10 +193,11 @@ def execute_pipeline(config: ForecastConfig) -> None:
     _log_cost_summary()
 
 
-def _process_location(location: LocationConfig, config: ForecastConfig) -> Optional[LocationForecastPayload]:
+def _process_location(location: LocationConfig, config: ForecastConfig, display_name: Optional[str] = None) -> Optional[LocationForecastPayload]:
     """Drive the full fetch/LLM/render workflow for a single configured location."""
     name = location.name
-    logger.info("Processing location '%s'", name)
+    unique_name = display_name or name
+    logger.info("Processing location '%s' (display: '%s')", name, unique_name)
     snow_feature_enabled = _snow_level_enabled(location, config)
     units = _resolve_units(location, global_units=config.units, use_snow_level=snow_feature_enabled)
     model_spec = _resolve_model_spec(location, config)
@@ -281,13 +284,13 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
     if translated_text is not None:
         _record_cost("Location", name, translation=consume_last_cost_cents())
 
-    destination = _build_destination_path(config, name)
-    logger.info("Writing forecast page for '%s' → %s", name, destination)
+    destination = _build_destination_path(config, unique_name)
+    logger.info("Writing forecast page for '%s' → %s", unique_name, destination)
     model_label, model_ack = _model_credit([payload.model_ref or payload.model_id])
     render_forecast_page(
         ForecastPage(
             destination=destination,
-            display_name=name,
+            display_name=unique_name,
             issue_time=_format_issue_time(timezone_name),
             forecast_text=forecast_text,
             translated_text=translated_text,
@@ -297,7 +300,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig) -> Optio
             model_ack_url=model_ack,
         )
     )
-    logger.info("Rendered forecast page for '%s' → %s", name, destination)
+    logger.info("Rendered forecast page for '%s' → %s", unique_name, destination)
     return payload
 
 
@@ -752,6 +755,69 @@ def _resolve_model_spec(config_obj: object, config: ForecastConfig) -> ModelSpec
     if not candidate:
         candidate = f"ens:{DEFAULT_ENSEMBLE_MODEL}"
     return resolve_model_spec(str(candidate))
+
+
+def _generate_unique_location_names(config: ForecastConfig) -> List[str]:
+    """
+    Generate unique display names for locations to avoid conflicts when multiple
+    forecasts exist for the same location name (e.g., deterministic vs ensemble).
+
+    Returns a list of unique display names, one per location in config order.
+    For duplicates, appends suffixes like " (Deterministic)", " (Ensemble)", or " 1", " 2".
+    """
+    from collections import defaultdict
+    
+    name_counts: Dict[str, int] = {}
+    location_kinds: List[tuple[str, str]] = []  # (name, kind) pairs in order
+    
+    # First pass: count occurrences and record model kinds
+    for location in config.locations:
+        name = location.name
+        name_counts[name] = name_counts.get(name, 0) + 1
+        model_spec = _resolve_model_spec(location, config)
+        location_kinds.append((name, model_spec.kind))
+    
+    # Determine which names should use kind labels (exactly 2 duplicates with different kinds)
+    name_should_use_kinds: Dict[str, bool] = {}
+    name_kinds_all: Dict[str, set] = defaultdict(set)
+    for i, location in enumerate(config.locations):
+        name = location.name
+        kind = location_kinds[i][1]
+        name_kinds_all[name].add(kind)
+    
+    for name in name_counts:
+        if name_counts[name] == 2 and len(name_kinds_all[name]) == 2:
+            name_should_use_kinds[name] = True
+        else:
+            name_should_use_kinds[name] = False
+    
+    # Second pass: assign unique names
+    result: List[str] = []
+    name_occurrences: Dict[str, int] = {}
+    
+    for i, location in enumerate(config.locations):
+        name = location.name
+        kind = location_kinds[i][1]
+        
+        if name_counts[name] == 1:
+            # No duplicates, use original name
+            result.append(name)
+        else:
+            # Duplicate found - need to disambiguate
+            occurrence = name_occurrences.get(name, 0) + 1
+            name_occurrences[name] = occurrence
+            
+            # If exactly 2 duplicates with different kinds, use kind labels
+            if name_should_use_kinds[name]:
+                if kind == "deterministic":
+                    result.append(f"{name} (Deterministic)")
+                else:
+                    result.append(f"{name} (Ensemble)")
+            else:
+                # More than two duplicates or same kind - use numbers
+                result.append(f"{name} {occurrence}")
+    
+    return result
 
 
 def _snow_level_enabled(entity: SupportsUnits, config: ForecastConfig) -> bool:

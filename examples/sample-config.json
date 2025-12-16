@@ -1,19 +1,19 @@
 {
-   "model": "ens:ecmwf_aifs025",
+   "model": "det:ecmwf_ifs",
    "llm": "or:openai/gpt-5.1",
    "enable_reasoning": "true",
    "translation_llm": "or:openai/gpt-5-mini",
 
 
-  "location_forecast_days": "6",
+  "location_forecast_days": "4",
   "location_wordiness": "normal",
-  "location_reasoning": "high",
+  "location_reasoning": "medium",
   "location_impact_based": "true",
   "location_thin_select": "10",
 
   "area_forecast_days": "2",
   "area_wordiness": "normal",
-  "area_reasoning": "high",
+  "area_reasoning": "medium",
   "area_impact_based": "true",
   "area_thin_select": "10",
 
@@ -31,18 +31,10 @@
 
   "locations": [
     {
-      "name": "Otaki, New Zealand",
-      "model": "ens:ecmwf_ifs025",
-      "translation_language": "Maori"
-    },
-    {
-      "name": "Otaki Beach, New Zealand",
-      "model": "det:ecmwf_ifs",
-      "translation_language": "Maori"
+      "name": "Otaki Beach, New Zealand"
     },
     {
       "name": "Seattle, Washington",
-      "model": "ens:icon_seamless",
       "units": {
         "temperature_unit": "fahrenheit",
         "precipitation_unit": "in",
@@ -51,7 +43,6 @@
     },
     {
       "name": "Bedford, Massachusetts",
-      "model": "ens:ecmwf_ifs025",
       "units": {
         "temperature_unit": "fahrenheit",
         "precipitation_unit": "in",
@@ -60,9 +51,8 @@
     },
     {
       "name": "Kingston, Jamaica",
-      "translation_language": "jam",
-      "model": "ens:icon_seamless",
       "units": {
+              "temperature_unit": "fahrenheit(celsius)",
         "windspeed_unit": "mph",
         "precipitation_unit": "in"
       }
@@ -71,8 +61,6 @@
   "areas": [
     {
       "name": "Trinidad and Tobago",
-      "model": "det:ecmwf_ifs",
-      "translation_language": "Trinidadian Creole English",
       "locations": [
         "Port of Spain, Trinidad and Tobago",
         "Arima, Trinidad and Tobago",

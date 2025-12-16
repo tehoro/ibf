@@ -6,10 +6,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, List
+from typing import Iterable, List, Dict
+from collections import defaultdict
 
 from ..config import ForecastConfig
 from ..util import slugify, write_text_file
+from ..api import resolve_model_spec, DEFAULT_ENSEMBLE_MODEL
 
 DEFAULT_WEB_ROOT = Path("outputs/forecasts")
 
@@ -161,6 +163,77 @@ def build_menu_section(title: str, entries: Iterable[tuple[str, str]]) -> str:
     return f"<h2>{title}</h2>\n<ul>\n{items}\n</ul>"
 
 
+def _resolve_model_spec_for_location(location, config: ForecastConfig):
+    """Helper to resolve model spec for a location (similar to executor's version)."""
+    candidate = getattr(location, "model", None)
+    if not candidate:
+        candidate = getattr(config, "model", None) or getattr(config, "ensemble_model", None)
+    if not candidate:
+        candidate = f"ens:{DEFAULT_ENSEMBLE_MODEL}"
+    return resolve_model_spec(str(candidate))
+
+
+def _generate_unique_location_names(config: ForecastConfig) -> List[str]:
+    """
+    Generate unique display names for locations to avoid conflicts when multiple
+    forecasts exist for the same location name (e.g., deterministic vs ensemble).
+
+    Returns a list of unique display names, one per location in config order.
+    For duplicates, appends suffixes like " (Deterministic)", " (Ensemble)", or " 1", " 2".
+    """
+    name_counts: Dict[str, int] = {}
+    location_kinds: List[tuple[str, str]] = []  # (name, kind) pairs in order
+    
+    # First pass: count occurrences and record model kinds
+    for location in config.locations:
+        name = location.name
+        name_counts[name] = name_counts.get(name, 0) + 1
+        model_spec = _resolve_model_spec_for_location(location, config)
+        location_kinds.append((name, model_spec.kind))
+    
+    # Determine which names should use kind labels (exactly 2 duplicates with different kinds)
+    name_should_use_kinds: Dict[str, bool] = {}
+    name_kinds_all: Dict[str, set] = defaultdict(set)
+    for i, location in enumerate(config.locations):
+        name = location.name
+        kind = location_kinds[i][1]
+        name_kinds_all[name].add(kind)
+    
+    for name in name_counts:
+        if name_counts[name] == 2 and len(name_kinds_all[name]) == 2:
+            name_should_use_kinds[name] = True
+        else:
+            name_should_use_kinds[name] = False
+    
+    # Second pass: assign unique names
+    result: List[str] = []
+    name_occurrences: Dict[str, int] = {}
+    
+    for i, location in enumerate(config.locations):
+        name = location.name
+        kind = location_kinds[i][1]
+        
+        if name_counts[name] == 1:
+            # No duplicates, use original name
+            result.append(name)
+        else:
+            # Duplicate found - need to disambiguate
+            occurrence = name_occurrences.get(name, 0) + 1
+            name_occurrences[name] = occurrence
+            
+            # If exactly 2 duplicates with different kinds, use kind labels
+            if name_should_use_kinds[name]:
+                if kind == "deterministic":
+                    result.append(f"{name} (Deterministic)")
+                else:
+                    result.append(f"{name} (Ensemble)")
+            else:
+                # More than two duplicates or same kind - use numbers
+                result.append(f"{name} {occurrence}")
+    
+    return result
+
+
 def generate_site_structure(config: ForecastConfig, *, force: bool = False) -> ScaffoldReport:
     """
     Ensure the menu + placeholder directories exist for every location and area.
@@ -179,14 +252,17 @@ def generate_site_structure(config: ForecastConfig, *, force: bool = False) -> S
     report = ScaffoldReport(root=root)
     ensure_directory(root, report)
 
-    # Locations
+    # Locations - generate unique names to avoid conflicts
+    unique_names = _generate_unique_location_names(config)
     location_entries: List[tuple[str, str]] = []
-    for location in config.locations:
-        slug = slugify(location.name)
+    for i, location in enumerate(config.locations):
+        unique_name = unique_names[i]
+        slug = slugify(unique_name)
         location_dir = root / slug
         ensure_directory(location_dir, report)
-        write_placeholder(location_dir / "index.html", location.name, force, report)
-        location_entries.append((slug, location.name.replace(", NZ", "")))
+        write_placeholder(location_dir / "index.html", unique_name, force, report)
+        display_label = unique_name.replace(", NZ", "")
+        location_entries.append((slug, display_label))
 
     # Areas
     area_entries: List[tuple[str, str]] = []

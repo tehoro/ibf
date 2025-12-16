@@ -1,0 +1,63 @@
+INSTRUCTIONS
+
+You have been presented with a directory called originalcode
+
+This has two subdirectories in it - one is webforecasts which is code for setup and running of routine
+forecasts by called an API based at replit.  The controlling file is config.json.
+
+The other directory is the full contents of an app that runs at replit and can be called using an API
+to fetch ECMWF ensemble data from open-meteo.com and do lots of work including calling an LLM to create and return forecast text
+
+I want to refactor this all into one complete Python program - completely modularised rather than
+in this rather complex form with some files which are very long
+
+From the very beginning I would like this to be set up to be hosted on github (private for now) in such a way that
+a rather noin-technical user can install it on their own machine (be that macOS< windows or Linux).
+
+It should use the uv method of creating a virtual environment in which all teh requirements including which python we 
+are using can be installed
+
+When the system is run the parameter should include the particular config.json file as an argument to the run
+do this can maybe be run to schedule as a cron job or similar, for different configuration files
+
+At the moment, a separate setup.py is run to set up the web structure for the various location and area forecasts
+I would like this to be automatically done every time the program is run instead, in case the config file changes
+or else there may be some kind of system that recognises the config file is different and the other files need creating
+Or something.
+
+Replit uses Secrets for the API Keys and so on.  These should be stored in whatever is the most appropriate way to do this
+for a github repository - e.g., in a .env file or something.  Again, there needs to be clear instructions to the user about how to do that.
+
+These are the secrets currently used:
+
+OPENWEATHERMAP_API_KEY
+
+••••••••
+
+
+
+OPENAI_API_KEY
+
+••••••••
+
+
+
+DEEP_INFRA_API_KEY
+
+••••••••
+
+
+
+OPENROUTER_API_KEY
+
+••••••••
+
+
+
+GOOGLE_API_KEY
+
+••••••••
+
+
+
+GEMINI_API_KEY

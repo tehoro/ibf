@@ -1,0 +1,218 @@
+2025-11-11 18:15:23,502 [INFO] Attempting to load config from: /Users/miniserver/Dropbox/Developer/webforecasts/config.json
+2025-11-11 18:15:23,504 [INFO] First 10 bytes of config file: b'{\n    "loc'
+2025-11-11 18:15:23,504 [INFO] First 10 characters of config file: '{\n    "loc'
+2025-11-11 18:15:23,504 [INFO] Config file JSON parsed successfully.
+2025-11-11 18:15:23,504 [INFO] 
+--- Updating 19 Individual Location Forecasts ---
+2025-11-11 18:15:23,504 [INFO] Processing location: St John's, Antigua and Barbuda (Requesting lang: Antiguan and Barbudan Creole English)
+2025-11-11 18:15:23,504 [INFO] Setting wordiness=brief for location: St John's, Antigua and Barbuda
+2025-11-11 18:15:23,504 [INFO] Setting reasoning=high for location: St John's, Antigua and Barbuda
+2025-11-11 18:15:23,504 [INFO] Setting impact_based=yes for location: St John's, Antigua and Barbuda
+2025-11-11 18:15:23,504 [INFO] Applying specific units for location 'St John's, Antigua and Barbuda': {'temperature_unit': 'celsius(fahrenheit)', 'windspeed_unit': 'mph(kph)', 'precipitation_unit': 'inch(mm)'}
+2025-11-11 18:15:23,504 [INFO] Adding lang=Antiguan and Barbudan Creole English parameter for location 'St John's, Antigua and Barbuda'
+2025-11-11 18:15:23,504 [INFO] Fetching forecast for 'St John's, Antigua and Barbuda' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=St%20John%27s%2C%20Antigua%20and%20Barbuda&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&temperature_unit=celsius%28fahrenheit%29&windspeed_unit=mph%28kph%29&precipitation_unit=inch%28mm%29&lang=Antiguan%20and%20Barbudan%20Creole%20English (Attempt 1)
+2025-11-11 18:16:20,949 [INFO] Successfully retrieved forecast for St John's, Antigua and Barbuda (with Antiguan and Barbudan Creole English translation) (with ibf_context)
+2025-11-11 18:16:20,951 [INFO] Adding translated (Antiguan and Barbudan Creole English) content for St John's, Antigua and Barbuda
+2025-11-11 18:16:21,692 [INFO] Updated forecast page for St John's, Antigua and Barbuda, including translation, including ibf_context
+2025-11-11 18:16:21,692 [INFO] Processing location: Bridgetown, Barbados (Requesting lang: Bajan (Barbadian Creole English))
+2025-11-11 18:16:21,692 [INFO] Setting wordiness=brief for location: Bridgetown, Barbados
+2025-11-11 18:16:21,692 [INFO] Setting reasoning=high for location: Bridgetown, Barbados
+2025-11-11 18:16:21,692 [INFO] Setting impact_based=yes for location: Bridgetown, Barbados
+2025-11-11 18:16:21,692 [INFO] Applying specific units for location 'Bridgetown, Barbados': {'temperature_unit': 'celsius', 'windspeed_unit': 'kph(mph)', 'precipitation_unit': 'mm'}
+2025-11-11 18:16:21,692 [INFO] Adding lang=Bajan (Barbadian Creole English) parameter for location 'Bridgetown, Barbados'
+2025-11-11 18:16:21,692 [INFO] Fetching forecast for 'Bridgetown, Barbados' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Bridgetown%2C%20Barbados&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&temperature_unit=celsius&windspeed_unit=kph%28mph%29&precipitation_unit=mm&lang=Bajan%20%28Barbadian%20Creole%20English%29 (Attempt 1)
+2025-11-11 18:16:49,079 [INFO] Successfully retrieved forecast for Bridgetown, Barbados (with Bajan (Barbadian Creole English) translation) (with ibf_context)
+2025-11-11 18:16:49,087 [INFO] Adding translated (Bajan (Barbadian Creole English)) content for Bridgetown, Barbados
+2025-11-11 18:16:49,094 [INFO] Updated forecast page for Bridgetown, Barbados, including translation, including ibf_context
+2025-11-11 18:16:49,094 [INFO] Processing location: Belmopan, Belize (Requesting lang: Belizean Kriol English)
+2025-11-11 18:16:49,094 [INFO] Setting wordiness=brief for location: Belmopan, Belize
+2025-11-11 18:16:49,094 [INFO] Setting reasoning=high for location: Belmopan, Belize
+2025-11-11 18:16:49,094 [INFO] Setting impact_based=yes for location: Belmopan, Belize
+2025-11-11 18:16:49,094 [INFO] Applying specific units for location 'Belmopan, Belize': {'temperature_unit': 'fahrenheit(celsius)', 'windspeed_unit': 'mph', 'precipitation_unit': 'inch(mm)'}
+2025-11-11 18:16:49,094 [INFO] Adding lang=Belizean Kriol English parameter for location 'Belmopan, Belize'
+2025-11-11 18:16:49,094 [INFO] Fetching forecast for 'Belmopan, Belize' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Belmopan%2C%20Belize&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&temperature_unit=fahrenheit%28celsius%29&windspeed_unit=mph&precipitation_unit=inch%28mm%29&lang=Belizean%20Kriol%20English (Attempt 1)
+2025-11-11 18:17:19,314 [INFO] Successfully retrieved forecast for Belmopan, Belize (with Belizean Kriol English translation) (with ibf_context)
+2025-11-11 18:17:19,315 [INFO] Adding translated (Belizean Kriol English) content for Belmopan, Belize
+2025-11-11 18:17:19,321 [INFO] Updated forecast page for Belmopan, Belize, including translation, including ibf_context
+2025-11-11 18:17:19,321 [INFO] Processing location: Roseau, Dominica (Requesting lang: Dominican Creole French (Kwéyòl))
+2025-11-11 18:17:19,321 [INFO] Setting wordiness=brief for location: Roseau, Dominica
+2025-11-11 18:17:19,321 [INFO] Setting reasoning=high for location: Roseau, Dominica
+2025-11-11 18:17:19,321 [INFO] Setting impact_based=yes for location: Roseau, Dominica
+2025-11-11 18:17:19,321 [INFO] Applying specific units for location 'Roseau, Dominica': {'temperature_unit': 'celsius(fahrenheit)', 'windspeed_unit': 'kph', 'precipitation_unit': 'mm'}
+2025-11-11 18:17:19,322 [INFO] Adding lang=Dominican Creole French (Kwéyòl) parameter for location 'Roseau, Dominica'
+2025-11-11 18:17:19,322 [INFO] Fetching forecast for 'Roseau, Dominica' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Roseau%2C%20Dominica&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&temperature_unit=celsius%28fahrenheit%29&windspeed_unit=kph&precipitation_unit=mm&lang=Dominican%20Creole%20French%20%28Kw%C3%A9y%C3%B2l%29 (Attempt 1)
+2025-11-11 18:17:49,556 [INFO] Successfully retrieved forecast for Roseau, Dominica (with Dominican Creole French (Kwéyòl) translation) (with ibf_context)
+2025-11-11 18:17:49,560 [INFO] Adding translated (Dominican Creole French (Kwéyòl)) content for Roseau, Dominica
+2025-11-11 18:17:49,565 [INFO] Updated forecast page for Roseau, Dominica, including translation, including ibf_context
+2025-11-11 18:17:49,565 [INFO] Processing location: St. George’s, Grenada (Requesting lang: Grenadian Creole English)
+2025-11-11 18:17:49,565 [INFO] Setting wordiness=brief for location: St. George’s, Grenada
+2025-11-11 18:17:49,565 [INFO] Setting reasoning=high for location: St. George’s, Grenada
+2025-11-11 18:17:49,565 [INFO] Setting impact_based=yes for location: St. George’s, Grenada
+2025-11-11 18:17:49,565 [INFO] Applying specific units for location 'St. George’s, Grenada': {'windspeed_unit': 'mph', 'precipitation_unit': 'inch'}
+2025-11-11 18:17:49,565 [INFO] Adding lang=Grenadian Creole English parameter for location 'St. George’s, Grenada'
+2025-11-11 18:17:49,566 [INFO] Fetching forecast for 'St. George’s, Grenada' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=St.%20George%E2%80%99s%2C%20Grenada&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&windspeed_unit=mph&precipitation_unit=inch&lang=Grenadian%20Creole%20English (Attempt 1)
+2025-11-11 18:18:17,297 [INFO] Successfully retrieved forecast for St. George’s, Grenada (with Grenadian Creole English translation) (with ibf_context)
+2025-11-11 18:18:17,299 [INFO] Adding translated (Grenadian Creole English) content for St. George’s, Grenada
+2025-11-11 18:18:17,335 [INFO] Updated forecast page for St. George’s, Grenada, including translation, including ibf_context
+2025-11-11 18:18:17,335 [INFO] Processing location: Georgetown, Guyana (Requesting lang: Guyanese Creole English)
+2025-11-11 18:18:17,335 [INFO] Setting wordiness=brief for location: Georgetown, Guyana
+2025-11-11 18:18:17,336 [INFO] Setting reasoning=high for location: Georgetown, Guyana
+2025-11-11 18:18:17,336 [INFO] Setting impact_based=yes for location: Georgetown, Guyana
+2025-11-11 18:18:17,336 [INFO] Adding lang=Guyanese Creole English parameter for location 'Georgetown, Guyana'
+2025-11-11 18:18:17,336 [INFO] Fetching forecast for 'Georgetown, Guyana' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Georgetown%2C%20Guyana&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&lang=Guyanese%20Creole%20English (Attempt 1)
+2025-11-11 18:18:50,194 [INFO] Successfully retrieved forecast for Georgetown, Guyana (with Guyanese Creole English translation) (with ibf_context)
+2025-11-11 18:18:50,195 [INFO] Adding translated (Guyanese Creole English) content for Georgetown, Guyana
+2025-11-11 18:18:50,201 [INFO] Updated forecast page for Georgetown, Guyana, including translation, including ibf_context
+2025-11-11 18:18:50,202 [INFO] Processing location: Kingston, Jamaica (Requesting lang: Jamaican Patois (Jamaican Creole))
+2025-11-11 18:18:50,202 [INFO] Setting wordiness=brief for location: Kingston, Jamaica
+2025-11-11 18:18:50,202 [INFO] Setting reasoning=high for location: Kingston, Jamaica
+2025-11-11 18:18:50,202 [INFO] Setting impact_based=yes for location: Kingston, Jamaica
+2025-11-11 18:18:50,202 [INFO] Applying specific units for location 'Kingston, Jamaica': {'windspeed_unit': 'mph', 'precipitation_unit': 'inch'}
+2025-11-11 18:18:50,202 [INFO] Adding lang=Jamaican Patois (Jamaican Creole) parameter for location 'Kingston, Jamaica'
+2025-11-11 18:18:50,202 [INFO] Fetching forecast for 'Kingston, Jamaica' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Kingston%2C%20Jamaica&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&windspeed_unit=mph&precipitation_unit=inch&lang=Jamaican%20Patois%20%28Jamaican%20Creole%29 (Attempt 1)
+2025-11-11 18:19:20,387 [INFO] Successfully retrieved forecast for Kingston, Jamaica (with Jamaican Patois (Jamaican Creole) translation) (with ibf_context)
+2025-11-11 18:19:20,389 [INFO] Adding translated (Jamaican Patois (Jamaican Creole)) content for Kingston, Jamaica
+2025-11-11 18:19:20,395 [INFO] Updated forecast page for Kingston, Jamaica, including translation, including ibf_context
+2025-11-11 18:19:20,395 [INFO] Processing location: Brades, Montserrat (Requesting lang: Montserrat Creole English)
+2025-11-11 18:19:20,395 [INFO] Setting wordiness=brief for location: Brades, Montserrat
+2025-11-11 18:19:20,395 [INFO] Setting reasoning=high for location: Brades, Montserrat
+2025-11-11 18:19:20,395 [INFO] Setting impact_based=yes for location: Brades, Montserrat
+2025-11-11 18:19:20,395 [INFO] Applying specific units for location 'Brades, Montserrat': {'temperature_unit': 'celsius(fahrenheit)', 'windspeed_unit': 'mph(kph)', 'precipitation_unit': 'inch(mm)'}
+2025-11-11 18:19:20,395 [INFO] Adding lang=Montserrat Creole English parameter for location 'Brades, Montserrat'
+2025-11-11 18:19:20,395 [INFO] Fetching forecast for 'Brades, Montserrat' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Brades%2C%20Montserrat&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&temperature_unit=celsius%28fahrenheit%29&windspeed_unit=mph%28kph%29&precipitation_unit=inch%28mm%29&lang=Montserrat%20Creole%20English (Attempt 1)
+2025-11-11 18:19:51,224 [INFO] Successfully retrieved forecast for Brades, Montserrat (with Montserrat Creole English translation) (with ibf_context)
+2025-11-11 18:19:51,226 [INFO] Adding translated (Montserrat Creole English) content for Brades, Montserrat
+2025-11-11 18:19:51,357 [INFO] Updated forecast page for Brades, Montserrat, including translation, including ibf_context
+2025-11-11 18:19:51,357 [INFO] Processing location: Basseterre, Saint Kitts and Nevis (Requesting lang: Kittitian Creole English)
+2025-11-11 18:19:51,357 [INFO] Setting wordiness=brief for location: Basseterre, Saint Kitts and Nevis
+2025-11-11 18:19:51,357 [INFO] Setting reasoning=high for location: Basseterre, Saint Kitts and Nevis
+2025-11-11 18:19:51,357 [INFO] Setting impact_based=yes for location: Basseterre, Saint Kitts and Nevis
+2025-11-11 18:19:51,357 [INFO] Applying specific units for location 'Basseterre, Saint Kitts and Nevis': {'temperature_unit': 'celsius(fahrenheit)', 'windspeed_unit': 'mph(kph)', 'precipitation_unit': 'inch(mm)'}
+2025-11-11 18:19:51,357 [INFO] Adding lang=Kittitian Creole English parameter for location 'Basseterre, Saint Kitts and Nevis'
+2025-11-11 18:19:51,357 [INFO] Fetching forecast for 'Basseterre, Saint Kitts and Nevis' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Basseterre%2C%20Saint%20Kitts%20and%20Nevis&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&temperature_unit=celsius%28fahrenheit%29&windspeed_unit=mph%28kph%29&precipitation_unit=inch%28mm%29&lang=Kittitian%20Creole%20English (Attempt 1)
+2025-11-11 18:20:21,324 [INFO] Successfully retrieved forecast for Basseterre, Saint Kitts and Nevis (with Kittitian Creole English translation) (with ibf_context)
+2025-11-11 18:20:21,325 [INFO] Adding translated (Kittitian Creole English) content for Basseterre, Saint Kitts and Nevis
+2025-11-11 18:20:21,884 [INFO] Updated forecast page for Basseterre, Saint Kitts and Nevis, including translation, including ibf_context
+2025-11-11 18:20:21,884 [INFO] Processing location: Castries, Saint Lucia (Requesting lang: Saint Lucian Creole (Kwéyòl))
+2025-11-11 18:20:21,884 [INFO] Setting wordiness=brief for location: Castries, Saint Lucia
+2025-11-11 18:20:21,884 [INFO] Setting reasoning=high for location: Castries, Saint Lucia
+2025-11-11 18:20:21,884 [INFO] Setting impact_based=yes for location: Castries, Saint Lucia
+2025-11-11 18:20:21,884 [INFO] Applying specific units for location 'Castries, Saint Lucia': {'windspeed_unit': 'mph(kph)', 'precipitation_unit': 'mm'}
+2025-11-11 18:20:21,884 [INFO] Adding lang=Saint Lucian Creole (Kwéyòl) parameter for location 'Castries, Saint Lucia'
+2025-11-11 18:20:21,884 [INFO] Fetching forecast for 'Castries, Saint Lucia' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Castries%2C%20Saint%20Lucia&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&windspeed_unit=mph%28kph%29&precipitation_unit=mm&lang=Saint%20Lucian%20Creole%20%28Kw%C3%A9y%C3%B2l%29 (Attempt 1)
+2025-11-11 18:20:55,090 [INFO] Successfully retrieved forecast for Castries, Saint Lucia (with Saint Lucian Creole (Kwéyòl) translation) (with ibf_context)
+2025-11-11 18:20:55,091 [INFO] Adding translated (Saint Lucian Creole (Kwéyòl)) content for Castries, Saint Lucia
+2025-11-11 18:20:55,097 [INFO] Updated forecast page for Castries, Saint Lucia, including translation, including ibf_context
+2025-11-11 18:20:55,097 [INFO] Processing location: Kingstown, Saint Vincent and the Grenadines (Requesting lang: Vincentian Creole English)
+2025-11-11 18:20:55,097 [INFO] Setting wordiness=brief for location: Kingstown, Saint Vincent and the Grenadines
+2025-11-11 18:20:55,097 [INFO] Setting reasoning=high for location: Kingstown, Saint Vincent and the Grenadines
+2025-11-11 18:20:55,097 [INFO] Setting impact_based=yes for location: Kingstown, Saint Vincent and the Grenadines
+2025-11-11 18:20:55,098 [INFO] Applying specific units for location 'Kingstown, Saint Vincent and the Grenadines': {'temperature_unit': 'celsius', 'windspeed_unit': 'kph(mph)', 'precipitation_unit': 'mm'}
+2025-11-11 18:20:55,098 [INFO] Adding lang=Vincentian Creole English parameter for location 'Kingstown, Saint Vincent and the Grenadines'
+2025-11-11 18:20:55,098 [INFO] Fetching forecast for 'Kingstown, Saint Vincent and the Grenadines' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Kingstown%2C%20Saint%20Vincent%20and%20the%20Grenadines&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&temperature_unit=celsius&windspeed_unit=kph%28mph%29&precipitation_unit=mm&lang=Vincentian%20Creole%20English (Attempt 1)
+2025-11-11 18:21:24,930 [INFO] Successfully retrieved forecast for Kingstown, Saint Vincent and the Grenadines (with Vincentian Creole English translation) (with ibf_context)
+2025-11-11 18:21:24,932 [INFO] Adding translated (Vincentian Creole English) content for Kingstown, Saint Vincent and the Grenadines
+2025-11-11 18:21:24,938 [INFO] Updated forecast page for Kingstown, Saint Vincent and the Grenadines, including translation, including ibf_context
+2025-11-11 18:21:24,938 [INFO] Processing location: Port of Spain, Trinidad and Tobago (Requesting lang: Trinidadian Creole English)
+2025-11-11 18:21:24,938 [INFO] Setting wordiness=brief for location: Port of Spain, Trinidad and Tobago
+2025-11-11 18:21:24,938 [INFO] Setting reasoning=high for location: Port of Spain, Trinidad and Tobago
+2025-11-11 18:21:24,938 [INFO] Setting impact_based=yes for location: Port of Spain, Trinidad and Tobago
+2025-11-11 18:21:24,938 [INFO] Adding lang=Trinidadian Creole English parameter for location 'Port of Spain, Trinidad and Tobago'
+2025-11-11 18:21:24,938 [INFO] Fetching forecast for 'Port of Spain, Trinidad and Tobago' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Port%20of%20Spain%2C%20Trinidad%20and%20Tobago&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&lang=Trinidadian%20Creole%20English (Attempt 1)
+2025-11-11 18:21:54,646 [INFO] Successfully retrieved forecast for Port of Spain, Trinidad and Tobago (with Trinidadian Creole English translation) (with ibf_context)
+2025-11-11 18:21:54,647 [INFO] Adding translated (Trinidadian Creole English) content for Port of Spain, Trinidad and Tobago
+2025-11-11 18:21:54,653 [INFO] Updated forecast page for Port of Spain, Trinidad and Tobago, including translation, including ibf_context
+2025-11-11 18:21:54,653 [INFO] Processing location: The Valley, Anguilla (Requesting lang: Anguillian Creole English)
+2025-11-11 18:21:54,653 [INFO] Setting wordiness=brief for location: The Valley, Anguilla
+2025-11-11 18:21:54,653 [INFO] Setting reasoning=high for location: The Valley, Anguilla
+2025-11-11 18:21:54,653 [INFO] Setting impact_based=yes for location: The Valley, Anguilla
+2025-11-11 18:21:54,653 [INFO] Applying specific units for location 'The Valley, Anguilla': {'temperature_unit': 'celsius(fahrenheit)', 'windspeed_unit': 'kph(mph)', 'precipitation_unit': 'inch(mm)'}
+2025-11-11 18:21:54,653 [INFO] Adding lang=Anguillian Creole English parameter for location 'The Valley, Anguilla'
+2025-11-11 18:21:54,653 [INFO] Fetching forecast for 'The Valley, Anguilla' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=The%20Valley%2C%20Anguilla&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&temperature_unit=celsius%28fahrenheit%29&windspeed_unit=kph%28mph%29&precipitation_unit=inch%28mm%29&lang=Anguillian%20Creole%20English (Attempt 1)
+2025-11-11 18:22:24,445 [INFO] Successfully retrieved forecast for The Valley, Anguilla (with Anguillian Creole English translation) (with ibf_context)
+2025-11-11 18:22:24,446 [INFO] Adding translated (Anguillian Creole English) content for The Valley, Anguilla
+2025-11-11 18:22:24,452 [INFO] Updated forecast page for The Valley, Anguilla, including translation, including ibf_context
+2025-11-11 18:22:24,452 [INFO] Processing location: Road Town, British Virgin Islands (Requesting lang: Virgin Islands Creole English)
+2025-11-11 18:22:24,452 [INFO] Setting wordiness=brief for location: Road Town, British Virgin Islands
+2025-11-11 18:22:24,452 [INFO] Setting reasoning=high for location: Road Town, British Virgin Islands
+2025-11-11 18:22:24,452 [INFO] Setting impact_based=yes for location: Road Town, British Virgin Islands
+2025-11-11 18:22:24,452 [INFO] Applying specific units for location 'Road Town, British Virgin Islands': {'temperature_unit': 'celsius(fahrenheit)', 'windspeed_unit': 'kph(mph)'}
+2025-11-11 18:22:24,452 [INFO] Adding lang=Virgin Islands Creole English parameter for location 'Road Town, British Virgin Islands'
+2025-11-11 18:22:24,452 [INFO] Fetching forecast for 'Road Town, British Virgin Islands' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Road%20Town%2C%20British%20Virgin%20Islands&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&temperature_unit=celsius%28fahrenheit%29&windspeed_unit=kph%28mph%29&lang=Virgin%20Islands%20Creole%20English (Attempt 1)
+2025-11-11 18:22:56,657 [INFO] Successfully retrieved forecast for Road Town, British Virgin Islands (with Virgin Islands Creole English translation) (with ibf_context)
+2025-11-11 18:22:56,659 [INFO] Adding translated (Virgin Islands Creole English) content for Road Town, British Virgin Islands
+2025-11-11 18:22:56,678 [INFO] Updated forecast page for Road Town, British Virgin Islands, including translation, including ibf_context
+2025-11-11 18:22:56,679 [INFO] Processing location: George Town, Cayman Islands (Requesting lang: Cayman Creole English)
+2025-11-11 18:22:56,680 [INFO] Setting wordiness=brief for location: George Town, Cayman Islands
+2025-11-11 18:22:56,680 [INFO] Setting reasoning=high for location: George Town, Cayman Islands
+2025-11-11 18:22:56,680 [INFO] Setting impact_based=yes for location: George Town, Cayman Islands
+2025-11-11 18:22:56,680 [INFO] Applying specific units for location 'George Town, Cayman Islands': {'temperature_unit': 'fahrenheit(celsius)', 'windspeed_unit': 'kt', 'precipitation_unit': 'mm(inch)'}
+2025-11-11 18:22:56,680 [INFO] Adding lang=Cayman Creole English parameter for location 'George Town, Cayman Islands'
+2025-11-11 18:22:56,680 [INFO] Fetching forecast for 'George Town, Cayman Islands' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=George%20Town%2C%20Cayman%20Islands&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&temperature_unit=fahrenheit%28celsius%29&windspeed_unit=kt&precipitation_unit=mm%28inch%29&lang=Cayman%20Creole%20English (Attempt 1)
+2025-11-11 18:23:26,573 [INFO] Successfully retrieved forecast for George Town, Cayman Islands (with Cayman Creole English translation) (with ibf_context)
+2025-11-11 18:23:26,575 [INFO] Adding translated (Cayman Creole English) content for George Town, Cayman Islands
+2025-11-11 18:23:26,580 [INFO] Updated forecast page for George Town, Cayman Islands, including translation, including ibf_context
+2025-11-11 18:23:26,580 [INFO] Processing location: Cockburn Town, Turks and Caicos Islands (Requesting lang: Turks and Caicos Creole English)
+2025-11-11 18:23:26,580 [INFO] Setting wordiness=brief for location: Cockburn Town, Turks and Caicos Islands
+2025-11-11 18:23:26,580 [INFO] Setting reasoning=high for location: Cockburn Town, Turks and Caicos Islands
+2025-11-11 18:23:26,580 [INFO] Setting impact_based=yes for location: Cockburn Town, Turks and Caicos Islands
+2025-11-11 18:23:26,580 [INFO] Applying specific units for location 'Cockburn Town, Turks and Caicos Islands': {'windspeed_unit': 'mph', 'precipitation_unit': 'inch'}
+2025-11-11 18:23:26,580 [INFO] Adding lang=Turks and Caicos Creole English parameter for location 'Cockburn Town, Turks and Caicos Islands'
+2025-11-11 18:23:26,580 [INFO] Fetching forecast for 'Cockburn Town, Turks and Caicos Islands' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Cockburn%20Town%2C%20Turks%20and%20Caicos%20Islands&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&windspeed_unit=mph&precipitation_unit=inch&lang=Turks%20and%20Caicos%20Creole%20English (Attempt 1)
+2025-11-11 18:23:57,640 [INFO] Successfully retrieved forecast for Cockburn Town, Turks and Caicos Islands (with Turks and Caicos Creole English translation) (with ibf_context)
+2025-11-11 18:23:57,643 [INFO] Adding translated (Turks and Caicos Creole English) content for Cockburn Town, Turks and Caicos Islands
+2025-11-11 18:23:57,650 [INFO] Updated forecast page for Cockburn Town, Turks and Caicos Islands, including translation, including ibf_context
+2025-11-11 18:23:57,650 [INFO] Processing location: Otaki, New Zealand (Requesting lang: Māori)
+2025-11-11 18:23:57,651 [INFO] Setting wordiness=brief for location: Otaki, New Zealand
+2025-11-11 18:23:57,651 [INFO] Setting reasoning=high for location: Otaki, New Zealand
+2025-11-11 18:23:57,651 [INFO] Setting impact_based=yes for location: Otaki, New Zealand
+2025-11-11 18:23:57,651 [INFO] Adding lang=Māori parameter for location 'Otaki, New Zealand'
+2025-11-11 18:23:57,651 [INFO] Fetching forecast for 'Otaki, New Zealand' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Otaki%2C%20New%20Zealand&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&lang=M%C4%81ori (Attempt 1)
+2025-11-11 18:24:34,668 [INFO] Successfully retrieved forecast for Otaki, New Zealand (with Māori translation) (with ibf_context)
+2025-11-11 18:24:34,680 [INFO] Adding translated (Māori) content for Otaki, New Zealand
+2025-11-11 18:24:34,690 [INFO] Updated forecast page for Otaki, New Zealand, including translation, including ibf_context
+2025-11-11 18:24:34,690 [INFO] Processing location: Exeter, UK
+2025-11-11 18:24:34,690 [INFO] Setting wordiness=brief for location: Exeter, UK
+2025-11-11 18:24:34,690 [INFO] Setting reasoning=high for location: Exeter, UK
+2025-11-11 18:24:34,690 [INFO] Setting impact_based=yes for location: Exeter, UK
+2025-11-11 18:24:34,690 [INFO] Applying specific units for location 'Exeter, UK': {'windspeed_unit': 'mph'}
+2025-11-11 18:24:34,690 [INFO] Fetching forecast for 'Exeter, UK' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Exeter%2C%20UK&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes&windspeed_unit=mph (Attempt 1)
+2025-11-11 18:24:52,769 [INFO] Successfully retrieved forecast for Exeter, UK (with ibf_context)
+2025-11-11 18:24:52,860 [INFO] Updated forecast page for Exeter, UK, including ibf_context
+2025-11-11 18:24:52,861 [INFO] Processing location: Toronto, Ontario, Canada
+2025-11-11 18:24:52,861 [INFO] Setting wordiness=brief for location: Toronto, Ontario, Canada
+2025-11-11 18:24:52,861 [INFO] Setting reasoning=high for location: Toronto, Ontario, Canada
+2025-11-11 18:24:52,861 [INFO] Setting impact_based=yes for location: Toronto, Ontario, Canada
+2025-11-11 18:24:52,861 [INFO] Fetching forecast for 'Toronto, Ontario, Canada' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?location=Toronto%2C%20Ontario%2C%20Canada&llm=or%3Aopenrouter/polaris-alpha&forecast_days=4&wordiness=brief&reasoning=high&impact_based=yes (Attempt 1)
+2025-11-11 18:25:17,888 [INFO] Successfully retrieved forecast for Toronto, Ontario, Canada (with ibf_context)
+2025-11-11 18:25:17,896 [INFO] Updated forecast page for Toronto, Ontario, Canada, including ibf_context
+2025-11-11 18:25:17,896 [INFO] 
+--- Updating 3 Area Forecasts ---
+2025-11-11 18:25:17,896 [INFO] Processing area: Jamaica (Requesting lang: Jamaican Patois (Jamaican Creole))
+2025-11-11 18:25:17,897 [INFO] Setting reasoning=high for area: Jamaica
+2025-11-11 18:25:17,897 [INFO] Setting impact_based=yes for area: Jamaica
+2025-11-11 18:25:17,897 [INFO] Applying specific units for area 'Jamaica': {'windspeed_unit': 'mph', 'precipitation_unit': 'inch'}
+2025-11-11 18:25:17,897 [INFO] Adding lang=Jamaican Patois (Jamaican Creole) parameter for area 'Jamaica'
+2025-11-11 18:25:17,897 [INFO] Fetching forecast for 'Jamaica' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?area=Jamaica&location=Negril%2C%20Jamaica:Savanna-la-Mar%2C%20Jamaica:Montego%20Bay%2C%20Jamaica:Falmouth%2C%20Jamaica:Ocho%20Rios%2C%20Jamaica:Port%20Maria%2C%20Jamaica:Buff%20Bay%2C%20Jamaica:Port%20Antonio%2C%20Jamaica:Linstead%2C%20Jamaica:Kingston%2C%20Jamaica:Old%20Harbour%2C%20Jamaica:May%20Pen%2C%20Jamaica:Mandeville%2C%20Jamaica:Treasure%20Beach%2C%20Jamaica:Morant%20Bay%2C%20Jamaica&llm=or%3Aopenrouter/polaris-alpha&forecast_days=2&reasoning=high&impact_based=yes&windspeed_unit=mph&precipitation_unit=inch&lang=Jamaican%20Patois%20%28Jamaican%20Creole%29 (Attempt 1)
+2025-11-11 18:26:35,237 [INFO] Successfully retrieved forecast for Jamaica (with Jamaican Patois (Jamaican Creole) translation) (with ibf_context)
+2025-11-11 18:26:35,239 [INFO] Adding translated (Jamaican Patois (Jamaican Creole)) content for Jamaica
+2025-11-11 18:26:35,287 [INFO] Updated forecast page for Jamaica, including translation, including ibf_context
+2025-11-11 18:26:35,287 [INFO] Processing area: Belize (Requesting lang: Belizean Kriol English)
+2025-11-11 18:26:35,288 [INFO] Setting reasoning=high for area: Belize
+2025-11-11 18:26:35,288 [INFO] Setting impact_based=yes for area: Belize
+2025-11-11 18:26:35,288 [INFO] Applying specific units for area 'Belize': {'temperature_unit': 'fahrenheit(celsius)', 'windspeed_unit': 'mph', 'precipitation_unit': 'inch(mm)'}
+2025-11-11 18:26:35,288 [INFO] Adding lang=Belizean Kriol English parameter for area 'Belize'
+2025-11-11 18:26:35,288 [INFO] Fetching forecast for 'Belize' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?area=Belize&location=Belize%20City%2C%20Belize:San%20Pedro%2C%20Belize:Corozal%20Town%2C%20Belize:Orange%20Walk%20Town%2C%20Belize:Blue%20Creek%20%28Orange%20Walk%29%2C%20Belize:Crooked%20Tree%2C%20Belize:Belmopan%2C%20Belize:San%20Ignacio%2C%20Belize:Sarteneja%2C%20Belize:Dangriga%2C%20Belize:Placencia%2C%20Belize:Bella%20Vista%20%28Toledo%29%2C%20Belize:Punta%20Gorda%2C%20Belize:San%20Antonio%20%28Toledo%29%2C%20Belize:La%20Democracia%2C%20Belize&llm=or%3Aopenrouter/polaris-alpha&forecast_days=2&reasoning=high&impact_based=yes&temperature_unit=fahrenheit%28celsius%29&windspeed_unit=mph&precipitation_unit=inch%28mm%29&lang=Belizean%20Kriol%20English (Attempt 1)
+2025-11-11 18:27:47,832 [INFO] Successfully retrieved forecast for Belize (with Belizean Kriol English translation) (with ibf_context)
+2025-11-11 18:27:47,834 [INFO] Adding translated (Belizean Kriol English) content for Belize
+2025-11-11 18:27:47,848 [INFO] Updated forecast page for Belize, including translation, including ibf_context
+2025-11-11 18:27:47,848 [INFO] Processing area: Trinidad and Tobago (Requesting lang: Trinidadian Creole English)
+2025-11-11 18:27:47,848 [INFO] Setting reasoning=high for area: Trinidad and Tobago
+2025-11-11 18:27:47,848 [INFO] Setting impact_based=yes for area: Trinidad and Tobago
+2025-11-11 18:27:47,849 [INFO] Adding lang=Trinidadian Creole English parameter for area 'Trinidad and Tobago'
+2025-11-11 18:27:47,849 [INFO] Fetching forecast for 'Trinidad and Tobago' from: https://open-meteo-ensemble-forecast-text-neilgordon.replit.app/forecast?area=Trinidad%20and%20Tobago&location=Port%20of%20Spain%2C%20Trinidad%20and%20Tobago:Arima%2C%20Trinidad%20and%20Tobago:Toco%2C%20Trinidad%20and%20Tobago:Manzanilla%2C%20Trinidad%20and%20Tobago:Mayaro%2C%20Trinidad%20and%20Tobago:San%20Fernando%2C%20Trinidad%20and%20Tobago:Point%20Fortin%2C%20Trinidad%20and%20Tobago:Cedros%2C%20Trinidad%20and%20Tobago:Moruga%2C%20Trinidad%20and%20Tobago:Crown%20Point%2C%20Trinidad%20and%20Tobago:Roxborough%2C%20Trinidad%20and%20Tobago&llm=or%3Aopenrouter/polaris-alpha&forecast_days=2&reasoning=high&impact_based=yes&lang=Trinidadian%20Creole%20English (Attempt 1)
+2025-11-11 18:28:55,399 [INFO] Successfully retrieved forecast for Trinidad and Tobago (with Trinidadian Creole English translation) (with ibf_context)
+2025-11-11 18:28:55,401 [INFO] Adding translated (Trinidadian Creole English) content for Trinidad and Tobago
+2025-11-11 18:28:55,409 [INFO] Updated forecast page for Trinidad and Tobago, including translation, including ibf_context
+2025-11-11 18:28:55,409 [INFO] 
+--- All forecast updates complete. ---

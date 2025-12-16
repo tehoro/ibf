@@ -1,0 +1,22 @@
+[project]
+name = "ibf-wizard"
+version = "0.0.1"
+description = "Local NiceGUI wizard for configuring and running the IBF toolkit"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+authors = [
+  { name = "IBF maintainers" }
+]
+dependencies = [
+  "nicegui>=1.4.17,<2.0.0",
+  "pydantic>=2.9.2,<3.0.0",
+  "python-dotenv>=1.0.1,<2.0.0",
+  "pyyaml>=6.0.1,<7.0.0",
+]
+
+[project.scripts]
+ibf-wizard = "ibf_wizard.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
