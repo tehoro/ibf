@@ -1,6 +1,5 @@
 Unified impact-based forecast CLI and service.
 
-See the root-level `README.md` for full documentation and usage details.
 ## Impact-Based Forecast (IBF) Toolkit
 
 IBF is a single command-line program that reads a `config.json` file, pulls the latest ensemble weather data, asks your preferred LLM to write impact-focused forecast text (plus optional translations), and publishes ready-to-share HTML pages (with optional maps) to a folder of your choice. This guide walks you through every step with the assumption that you are setting it up for the first time.
@@ -11,9 +10,9 @@ IBF is a single command-line program that reads a `config.json` file, pulls the 
 1) **Install uv** (recommended):  
    `curl -LsSf https://astral.sh/uv/install.sh | sh`
 
-2) **Get the code**: clone or unzip the repo so you have the `ibf/` folder.
+2) **Get the code**: clone or unzip the repo into a project folder (often named `ibf`).
 
-3) **Set up the virtual env (from inside `ibf/`)**:
+3) **Set up the virtual env (from inside the project folder)**:
    ```bash
    uv venv .venv
    source .venv/bin/activate
@@ -22,8 +21,15 @@ IBF is a single command-line program that reads a `config.json` file, pulls the 
 
 4) **Create your secrets file with required API keys**:
    ```bash
-   cp .env.example .env
-   # open .env and paste your keys (at minimum GOOGLE_API_KEY, OPENWEATHERMAP_API_KEY, OPENAI_API_KEY)
+   # Create a file named ".env" in this folder and paste your keys, e.g.:
+   cat <<'EOF' > .env
+   GOOGLE_API_KEY=
+   OPENWEATHERMAP_API_KEY=
+   OPENAI_API_KEY=
+   # Optional (only if you use these providers):
+   OPENROUTER_API_KEY=
+   GEMINI_API_KEY=
+   EOF
    ```
 
 5) **Create a config** (JSON):  
@@ -48,7 +54,7 @@ If you hit PEP 668 “externally-managed-environment” errors, always use the u
 2. Click **Code → Download ZIP** (or run `git clone https://github.com/tehoro/ibf.git` if you use Git).
 3. Unzip or open the `ibf` folder somewhere easy to find (e.g., `Documents/IBF`).
 
-All instructions below assume you are inside that `ibf` directory.
+All instructions below assume you are inside that project directory (the folder you cloned/unzipped).
 
 ---
 
@@ -81,7 +87,7 @@ All instructions below assume you are inside that `ibf` directory.
 
 ### Step 3 – Prepare your `.env` file (API keys & secrets)
 
-1. Copy the example file: `cp .env.example .env` (or copy/paste in File Explorer/Finder).
+1. Create a file named `.env` in the project folder (same folder as `pyproject.toml`).
 2. Open `.env` in any text editor and fill in the keys below.
 
 | Variable | What it’s for | Where to get it |
