@@ -12,5 +12,9 @@ ibf_cache/
 outputs/
 .pytest_cache/
 
+# Local experimental configs (keep examples/sample-config.json tracked)
+examples/sample-config-*.json
+!examples/sample-config.json
+
 # OS files
 .DS_Store
