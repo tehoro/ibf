@@ -51,14 +51,25 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
     Raises:
         RuntimeError: If a required API key is missing.
     """
-    base_choice = override_choice or config.llm or os.environ.get("IBF_DEFAULT_LLM") or "or:google/gemini-2.5-pro-exp-03-25:free"
+    base_choice = (
+        override_choice
+        or config.llm
+        or os.environ.get("IBF_DEFAULT_LLM")
+        or "or:google/gemini-2.5-pro-exp-03-25:free"
+    )
     choice = base_choice.strip()
     choice_lower = choice.lower()
 
-    if choice_lower.startswith("gemini-"):
+    # Direct Google Gemini SDK:
+    # - allow "gemini-*" (native Gemini model names)
+    # - also accept OpenRouter-style "google/gemini-*" and map it down to "gemini-*"
+    if choice_lower.startswith("gemini-") or choice_lower.startswith("google/gemini-"):
+        model_name = choice
+        if choice_lower.startswith("google/gemini-"):
+            model_name = choice.split("/", 1)[1]
         api_key = _require_env("GEMINI_API_KEY")
         return LLMSettings(
-            model=choice,
+            model=model_name,
             api_key=api_key,
             provider="gemini",
             is_google=True,

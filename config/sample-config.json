@@ -1,6 +1,7 @@
 {
    "model": "ens:ecmwf_aifs025",
    "llm": "or:openai/gpt-5.1",
+   "context_llm": "gpt-4o",
    "web_root": "./outputs/example-site",
 
   "location_forecast_days": "4",

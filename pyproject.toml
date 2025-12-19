@@ -31,6 +31,7 @@ dependencies = [
     "timezonefinder>=6.4.0,<7.0",
     "pytest>=8.3.3,<9.0",
     "pytest-mock>=3.14.0,<4.0",
+    "google-genai>=1.56.0",
 ]
 
 [project.optional-dependencies]

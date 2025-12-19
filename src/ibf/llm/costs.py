@@ -87,6 +87,18 @@ MODEL_COSTS: Dict[str, ModelCost] = {
         cached_input_per_million=0.03,
         output_per_million=2.50,
     ),
+    # Gemini 3 Flash (preview) pricing (USD per 1M tokens).
+    # Provided by user: $0.50 input, $0.35 cached input, $3.00 output.
+    "gemini-3-flash-preview": ModelCost(
+        input_per_million=0.50,
+        cached_input_per_million=0.35,
+        output_per_million=3.00,
+    ),
+    "google/gemini-3-flash-preview": ModelCost(
+        input_per_million=0.50,
+        cached_input_per_million=0.35,
+        output_per_million=3.00,
+    ),
     "or:deepseek/deepseek-v3.2": ModelCost(
         input_per_million=0.27,
         cached_input_per_million=0.22,

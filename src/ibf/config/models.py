@@ -76,6 +76,7 @@ class ForecastConfig(BaseModel):
         location_thin_select: Number of ensemble members to select for locations.
         area_thin_select: Number of ensemble members to select for areas.
         llm: LLM model identifier (e.g., "gpt-4o-mini").
+        context_llm: LLM model identifier to use for impact-context web search (default "gpt-4o").
         translation_language: Global default translation language.
         translation_llm: Specific LLM to use for translation.
         recent_overwrite_minutes: Prevent overwriting fresh forecasts if < N minutes old.
@@ -96,6 +97,7 @@ class ForecastConfig(BaseModel):
     location_thin_select: Optional[int] = None
     area_thin_select: Optional[int] = None
     llm: Optional[str] = None
+    context_llm: Optional[str] = None
     translation_language: Optional[str] = None
     translation_llm: Optional[str] = None
     recent_overwrite_minutes: int = 0

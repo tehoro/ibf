@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = ensure_directory("ibf_cache/impact")
 MAX_CONTEXT_AGE_DAYS = 3
 EVENT_LOOKAHEAD_DAYS = 10
+DEFAULT_CONTEXT_LLM = "gpt-4o"
 CONTEXT_SECTION_HEADINGS = [
     "Existing Vulnerabilities",
     "Weather Impact Thresholds",
@@ -56,6 +57,7 @@ def fetch_impact_context(
     forecast_days: int = 4,
     secrets: Optional[Secrets] = None,
     timezone_name: str = "UTC",
+    context_llm: str = DEFAULT_CONTEXT_LLM,
 ) -> ImpactContext:
     """
     Retrieve or generate impact context for a location or area.
@@ -69,14 +71,22 @@ def fetch_impact_context(
         forecast_days: Number of days to cover in the context.
         secrets: Optional Secrets instance.
         timezone_name: Local timezone for date calculations.
+        context_llm: LLM identifier to use for impact context generation.
 
     Returns:
         An ImpactContext object containing the text.
     """
     secrets = secrets or get_secrets()
     cleanup_impact_cache()
+    context_llm = (context_llm or DEFAULT_CONTEXT_LLM).strip()
 
-    cached_context, cache_path = _load_recent_cache(context_type, name, forecast_days, timezone_name)
+    cached_context, cache_path = _load_recent_cache(
+        context_type,
+        name,
+        forecast_days,
+        timezone_name,
+        context_llm=context_llm,
+    )
     if cached_context:
         logger.info("Using cached impact context for %s (%s)", name, context_type)
         return ImpactContext(
@@ -87,7 +97,14 @@ def fetch_impact_context(
             cost_cents=0.0,
         )
 
-    context, cost_cents = _generate_context(context_type, name, forecast_days, timezone_name, secrets)
+    context, cost_cents = _generate_context(
+        context_type,
+        name,
+        forecast_days,
+        timezone_name,
+        secrets,
+        context_llm=context_llm,
+    )
     if context:
         store_impact_context(
             name,
@@ -95,6 +112,7 @@ def fetch_impact_context(
             context_type=context_type,
             forecast_days=forecast_days,
             timezone_name=timezone_name,
+            context_llm=context_llm,
         )
         return ImpactContext(
             name=name,
@@ -115,6 +133,7 @@ def store_impact_context(
     context_type: str = "location",
     forecast_days: int = 4,
     timezone_name: str = "UTC",
+    context_llm: str = DEFAULT_CONTEXT_LLM,
 ) -> None:
     """
     Save generated impact context to the filesystem cache.
@@ -125,14 +144,17 @@ def store_impact_context(
         context_type: "location", "area", or "regional".
         forecast_days: Number of days covered.
         timezone_name: Local timezone.
+        context_llm: LLM identifier used to generate this context.
     """
-    cache_path = _cache_path(context_type, name, forecast_days, timezone_name)
+    context_llm = (context_llm or DEFAULT_CONTEXT_LLM).strip()
+    cache_path = _cache_path(context_type, name, forecast_days, timezone_name, context_llm=context_llm)
     payload = {
         "context": content,
         "timestamp": get_local_now(timezone_name).isoformat(),
         "context_type": context_type,
         "name": name,
         "forecast_days": forecast_days,
+        "context_llm": context_llm,
     }
     try:
         cache_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -164,6 +186,7 @@ def _cache_path(
     *,
     date_override: Optional[datetime] = None,
     legacy_suffix: bool = False,
+    context_llm: str = DEFAULT_CONTEXT_LLM,
 ) -> Path:
     """
     Return the cache file path for the given context parameters.
@@ -171,9 +194,12 @@ def _cache_path(
     legacy_suffix=True preserves the older filename scheme that included the forecast_days suffix.
     """
     safe_name = _slugify(name)
+    context_llm = (context_llm or DEFAULT_CONTEXT_LLM).strip()
     local_now = date_override or get_local_now(timezone_name)
     date_str = local_now.strftime("%Y%m%d")
     filename = f"{date_str}_{context_type}_{safe_name}"
+    if context_llm and context_llm.strip().lower() != DEFAULT_CONTEXT_LLM.lower():
+        filename += f"__{_slugify(context_llm)}"
     if legacy_suffix:
         filename += f"_{forecast_days}"
     filename += ".json"
@@ -215,6 +241,8 @@ def _load_recent_cache(
     name: str,
     forecast_days: int,
     timezone_name: str,
+    *,
+    context_llm: str = DEFAULT_CONTEXT_LLM,
 ) -> Tuple[Optional[str], Path]:
     """
     Attempt to load a cached context from the past MAX_CONTEXT_AGE_DAYS (inclusive).
@@ -222,6 +250,7 @@ def _load_recent_cache(
     Returns:
         (context_text_or_None, cache_path_for_today)
     """
+    context_llm = (context_llm or DEFAULT_CONTEXT_LLM).strip()
     local_now = get_local_now(timezone_name)
     for offset in range(MAX_CONTEXT_AGE_DAYS):
         date_candidate = local_now - timedelta(days=offset)
@@ -231,6 +260,7 @@ def _load_recent_cache(
             forecast_days,
             timezone_name,
             date_override=date_candidate,
+            context_llm=context_llm,
         )
         cached = _load_cache(cache_path)
         if cached:
@@ -243,12 +273,46 @@ def _load_recent_cache(
             timezone_name,
             date_override=date_candidate,
             legacy_suffix=True,
+            context_llm=context_llm,
         )
         cached_legacy = _load_cache(legacy_path)
         if cached_legacy:
             return cached_legacy, legacy_path
 
-    today_path = _cache_path(context_type, name, forecast_days, timezone_name, date_override=local_now)
+        # Backwards-compat: the historical cache key didn't include any context_llm suffix.
+        if context_llm.strip().lower() == DEFAULT_CONTEXT_LLM.lower():
+            legacy_no_model = _cache_path(
+                context_type,
+                name,
+                forecast_days,
+                timezone_name,
+                date_override=date_candidate,
+                context_llm=DEFAULT_CONTEXT_LLM,
+            )
+            cached_no_model = _load_cache(legacy_no_model)
+            if cached_no_model:
+                return cached_no_model, legacy_no_model
+            legacy_no_model_suffix = _cache_path(
+                context_type,
+                name,
+                forecast_days,
+                timezone_name,
+                date_override=date_candidate,
+                legacy_suffix=True,
+                context_llm=DEFAULT_CONTEXT_LLM,
+            )
+            cached_no_model_suffix = _load_cache(legacy_no_model_suffix)
+            if cached_no_model_suffix:
+                return cached_no_model_suffix, legacy_no_model_suffix
+
+    today_path = _cache_path(
+        context_type,
+        name,
+        forecast_days,
+        timezone_name,
+        date_override=local_now,
+        context_llm=context_llm,
+    )
     return None, today_path
 
 
@@ -263,14 +327,11 @@ def _generate_context(
     forecast_days: int,
     timezone_name: str,
     secrets: Secrets,
+    *,
+    context_llm: str,
 ) -> Tuple[str, float]:
-    """Call GPT-4o with web search enabled (fallback to chat completions) for context."""
-    api_key = secrets.openai_api_key
-    if not api_key:
-        logger.warning("OPENAI_API_KEY is required to generate impact context.")
-        return "", 0.0
-
-    client = OpenAI(api_key=api_key)
+    """Generate impact context using the requested LLM."""
+    context_llm = (context_llm or DEFAULT_CONTEXT_LLM).strip()
     max_event_days = EVENT_LOOKAHEAD_DAYS
     local_now = get_local_now(timezone_name)
     start_iso = local_now.strftime("%Y-%m-%d")
@@ -313,16 +374,72 @@ Formatting requirements:
 
 IMPORTANT: Provide only the structured context information as plain text. Do NOT include any URLs, web links, or citations. Do not offer to draft the forecast or ask if you should proceed. Just provide the requested contextual information as text only."""
 
+    if _is_gemini_model(context_llm):
+        context_text, cost_cents = _generate_context_gemini_search(
+            prompt,
+            model_name=_normalize_gemini_model_name(context_llm),
+            api_key=secrets.gemini_api_key,
+            name=name,
+        )
+    else:
+        context_text, cost_cents = _generate_context_openai_web_search(
+            prompt,
+            model_name=context_llm,
+            api_key=secrets.openai_api_key,
+            name=name,
+        )
+
+    context_text = _clean_context_text(context_text)
+    if context_text:
+        logger.info("Generated impact context for %s (%s); %d characters", name, context_type, len(context_text))
+    else:
+        cost_cents = 0.0
+    return context_text, cost_cents
+
+
+def _is_gemini_model(model_name: str) -> bool:
+    lowered = (model_name or "").strip().lower()
+    return lowered.startswith("gemini-") or lowered.startswith("google/gemini-")
+
+
+def _normalize_gemini_model_name(model_name: str) -> str:
+    """
+    Accept either:
+    - "gemini-3-flash-preview"
+    - "google/gemini-3-flash-preview"
+    and normalize to the direct Gemini model name for the Google SDK.
+    """
+    raw = (model_name or "").strip()
+    lowered = raw.lower()
+    if lowered.startswith("google/gemini-"):
+        return raw.split("/", 1)[1]
+    return raw
+
+
+def _generate_context_openai_web_search(
+    prompt: str,
+    *,
+    model_name: str,
+    api_key: Optional[str],
+    name: str,
+) -> tuple[str, float]:
+    if not api_key:
+        logger.warning("OPENAI_API_KEY is required to generate impact context.")
+        return "", 0.0
+
+    client = OpenAI(api_key=api_key)
+    model_name = (model_name or DEFAULT_CONTEXT_LLM).strip()
     cost_cents = 0.0
     try:
         response = client.responses.create(
-            model="gpt-4o",
+            model=model_name,
             input=prompt,
             tools=[{"type": "web_search"}],
             timeout=60.0,
         )
-        cost_cents = _log_usage_and_cost("gpt-4o", getattr(response, "usage", None))
+        cost_cents = _log_usage_and_cost(model_name, getattr(response, "usage", None))
         context_text = _extract_response_text(response)
+        return context_text, cost_cents
     except Exception as exc:
         logger.warning(
             "Responses API with web search failed for impact context (%s): %s. Falling back to chat completions.",
@@ -331,7 +448,7 @@ IMPORTANT: Provide only the structured context information as plain text. Do NOT
         )
         try:
             fallback = client.chat.completions.create(
-                model="gpt-4o",
+                model=model_name,
                 messages=[
                     {"role": "system", "content": "You supply concise contextual information for weather impact assessments."},
                     {"role": "user", "content": prompt},
@@ -339,21 +456,196 @@ IMPORTANT: Provide only the structured context information as plain text. Do NOT
                 temperature=0.2,
                 max_tokens=1800,
             )
-            cost_cents = _log_usage_and_cost("gpt-4o", getattr(fallback, "usage", None))
+            cost_cents = _log_usage_and_cost(model_name, getattr(fallback, "usage", None))
             if fallback.choices:
-                context_text = fallback.choices[0].message.content.strip()
-            else:
-                context_text = ""
+                return (fallback.choices[0].message.content or "").strip(), cost_cents
+            return "", 0.0
         except Exception as chat_exc:
             logger.error("Chat completions fallback failed for impact context (%s): %s", name, chat_exc)
             return "", 0.0
 
-    context_text = _clean_context_text(context_text)
-    if context_text:
-        logger.info("Generated impact context for %s (%s); %d characters", name, context_type, len(context_text))
-    else:
-        cost_cents = 0.0
-    return context_text, cost_cents
+
+def _generate_context_gemini_search(
+    prompt: str,
+    *,
+    model_name: str,
+    api_key: Optional[str],
+    name: str,
+) -> tuple[str, float]:
+    if not api_key:
+        logger.warning("GEMINI_API_KEY is required to generate impact context with %s.", model_name)
+        return "", 0.0
+
+    # Lazy import so the rest of the system can run without this optional dependency.
+    import os
+    from contextlib import contextmanager
+
+    from google import genai  # type: ignore[import-not-found]
+    from google.genai import types  # type: ignore[import-not-found]
+
+    @contextmanager
+    def _force_gemini_api_key(key: str):
+        """
+        google-genai will prefer GOOGLE_API_KEY over GEMINI_API_KEY if both are set.
+        This repo uses GOOGLE_API_KEY for Maps/Geocoding, so for Gemini context calls we
+        temporarily hide GOOGLE_API_KEY and force GEMINI_API_KEY.
+        """
+        old_google_api_key = os.environ.get("GOOGLE_API_KEY")
+        old_gemini_api_key = os.environ.get("GEMINI_API_KEY")
+        try:
+            os.environ.pop("GOOGLE_API_KEY", None)
+            os.environ["GEMINI_API_KEY"] = key
+            yield
+        finally:
+            if old_google_api_key is not None:
+                os.environ["GOOGLE_API_KEY"] = old_google_api_key
+            else:
+                os.environ.pop("GOOGLE_API_KEY", None)
+            if old_gemini_api_key is not None:
+                os.environ["GEMINI_API_KEY"] = old_gemini_api_key
+            else:
+                os.environ.pop("GEMINI_API_KEY", None)
+
+    def _is_complete(text: str) -> bool:
+        if not text:
+            return False
+        return all(f"### {heading}" in text for heading in CONTEXT_SECTION_HEADINGS)
+
+    def _looks_truncated(text: str) -> bool:
+        if not text:
+            return False
+        tail = text.strip()[-12:]
+        # Heuristic: if we end on an alphanumeric with no terminal punctuation, assume truncation.
+        if re.search(r"[A-Za-z0-9]$", tail) and not re.search(r"[.!?\)\]\}\"\']$", tail):
+            return True
+        return False
+
+    def _first_missing_heading(text: str) -> Optional[str]:
+        for heading in CONTEXT_SECTION_HEADINGS:
+            marker = f"### {heading}"
+            if marker not in text:
+                return marker
+        return None
+
+    with _force_gemini_api_key(api_key):
+        client = genai.Client(api_key=api_key)
+    tool = types.Tool(google_search=types.GoogleSearch())
+    # Allow a longer response; we enforce structure via post-checks/continuations.
+    config = types.GenerateContentConfig(
+        tools=[tool],
+        temperature=0.2,
+        max_output_tokens=3500,
+    )
+
+    def _call(contents: str) -> tuple[str, float]:
+        try:
+            with _force_gemini_api_key(api_key):
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=contents,
+                    config=config,
+                )
+        except Exception as exc:
+            logger.error("Gemini Google Search grounding failed for impact context (%s): %s", name, exc)
+            return "", 0.0
+        text = (getattr(response, "text", None) or "").strip()
+        usage = getattr(response, "usage_metadata", None)
+        return text, _log_gemini_usage_and_cost(model_name, usage)
+
+    # First pass.
+    combined, cost_cents = _call(prompt)
+    if not combined:
+        return "", 0.0
+
+    # If Gemini returns an incomplete or abruptly-truncated answer, ask it to continue.
+    # This can happen for small locations (sparse results) or when the model hits an internal stop.
+    for _ in range(2):
+        if _is_complete(combined) and not _looks_truncated(combined):
+            break
+        missing = _first_missing_heading(combined)
+        tail = combined[-400:] if len(combined) > 400 else combined
+        continuation = (
+            "You are continuing an incomplete impact-context answer.\n"
+            "Do NOT repeat any headings or bullets already provided.\n"
+            "First complete any unfinished sentence/bullet if the previous text ended abruptly.\n"
+            "Then provide the remaining required sections using EXACT Markdown level-3 headings:\n"
+            "### Existing Vulnerabilities\n"
+            "### Weather Impact Thresholds\n"
+            "### Exposed Populations and Assets\n"
+            "### Upcoming Events\n"
+            "If you cannot find any relevant items for a section, include the heading and write one bullet saying so.\n"
+            "Do NOT include URLs or citations.\n\n"
+            "Already provided (do not repeat):\n"
+            f"{combined}\n\n"
+        )
+        if missing:
+            continuation += f"Start with the next missing heading: {missing}\n"
+        continuation += f"\nLast part of previous output (for continuity):\n{tail}\n"
+        next_text, next_cost = _call(continuation)
+        if not next_text:
+            break
+        cost_cents += next_cost
+        combined = (combined + "\n\n" + next_text).strip()
+
+    return combined, cost_cents
+
+
+def _log_gemini_usage_and_cost(model_name: str, usage_metadata: Any) -> float:
+    """
+    Log Gemini usage and estimated cost (in USD cents) for the impact context call.
+
+    The google-genai SDK exposes usage as `usage_metadata` (prompt/candidates/total token counts).
+    """
+    if not usage_metadata:
+        logger.info(
+            "Impact context LLM usage – model=%s input_tokens=%s cached_input_tokens=%s output_tokens=%s total_tokens=%s cost_usd_cents=%s",
+            model_name,
+            "n/a",
+            "n/a",
+            "n/a",
+            "n/a",
+            "n/a",
+        )
+        return 0.0
+
+    def _get(obj: Any, key: str) -> Any:
+        if hasattr(obj, key):
+            return getattr(obj, key)
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return None
+
+    input_tokens = _get(usage_metadata, "prompt_token_count")
+    output_tokens = _get(usage_metadata, "candidates_token_count")
+    total_tokens = _get(usage_metadata, "total_token_count")
+    try:
+        input_tokens_i = int(input_tokens or 0)
+        output_tokens_i = int(output_tokens or 0)
+        total_tokens_i = int(total_tokens or (input_tokens_i + output_tokens_i))
+    except Exception:
+        input_tokens_i, output_tokens_i, total_tokens_i = 0, 0, 0
+
+    cost_entry = get_model_cost(model_name)
+    cost_display = "n/a"
+    usd = 0.0
+    if cost_entry:
+        usd = cost_entry.cost_for_usage(
+            input_tokens=input_tokens_i,
+            output_tokens=output_tokens_i,
+            cached_input_tokens=0,
+        )
+        cost_display = f"{usd * 100:.2f}"
+
+    logger.info(
+        "Impact context LLM usage – model=%s input_tokens=%s cached_input_tokens=%s output_tokens=%s total_tokens=%s cost_usd_cents=%s",
+        model_name,
+        input_tokens_i,
+        0,
+        output_tokens_i,
+        total_tokens_i,
+        cost_display,
+    )
+    return usd * 100 if cost_entry else 0.0
 
 
 def _extract_response_text(response) -> str:

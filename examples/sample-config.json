@@ -1,6 +1,7 @@
 {
    "model": "det:ecmwf_ifs",
    "llm": "or:openai/gpt-5.1",
+   "context_llm": "gpt-4o",
    "enable_reasoning": "true",
    "translation_llm": "or:openai/gpt-5-mini",
 

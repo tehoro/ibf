@@ -22,10 +22,12 @@ class Secrets(BaseModel):
         openweathermap_api_key: Key for OpenWeatherMap.
         google_api_key: Key for Google Maps/Geocoding.
         openai_api_key: Key for OpenAI.
+        gemini_api_key: Key for the Gemini API (direct Google).
     """
     openweathermap_api_key: Optional[str] = Field(default=None, alias="OPENWEATHERMAP_API_KEY")
     google_api_key: Optional[str] = Field(default=None, alias="GOOGLE_API_KEY")
     openai_api_key: Optional[str] = Field(default=None, alias="OPENAI_API_KEY")
+    gemini_api_key: Optional[str] = Field(default=None, alias="GEMINI_API_KEY")
 
     model_config = {
         "populate_by_name": True,

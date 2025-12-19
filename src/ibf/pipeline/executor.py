@@ -83,7 +83,22 @@ def _log_cost_summary() -> None:
         logger.info("LLM cost summary – no tracked costs this run.")
         return
 
-    header = f"{'Location or Area':<40} {'Context':>12} {'Forecast':>12} {'Translation':>12}"
+    def _clamp_width(value: int, *, min_width: int, max_width: int) -> int:
+        return max(min_width, min(max_width, value))
+
+    def _format_label(label: str, width: int) -> str:
+        if len(label) <= width:
+            return f"{label:<{width}}"
+        if width <= 3:
+            return label[:width]
+        return f"{label[: width - 3]}..."
+
+    # Keep the log readable while ensuring columns align.
+    label_header = "Location or Area"
+    widest_label = max((len(k) for k in _COST_TRACKER.keys()), default=len(label_header))
+    label_width = _clamp_width(max(len(label_header), widest_label), min_width=40, max_width=70)
+
+    header = f"{label_header:<{label_width}} {'Context':>12} {'Forecast':>12} {'Translation':>12}"
     lines = [header, "-" * len(header)]
     total_context = total_forecast = total_translation = 0.0
 
@@ -93,15 +108,15 @@ def _log_cost_summary() -> None:
         total_forecast += entry.forecast_cents
         total_translation += entry.translation_cents
         lines.append(
-            f"{label:<40} {entry.context_cents:>12.1f} {entry.forecast_cents:>12.1f} {entry.translation_cents:>12.1f}"
+            f"{_format_label(label, label_width)} {entry.context_cents:>12.1f} {entry.forecast_cents:>12.1f} {entry.translation_cents:>12.1f}"
         )
 
     lines.append("-" * len(header))
     lines.append(
-        f"{'TOTAL':<40} {total_context:>12.1f} {total_forecast:>12.1f} {total_translation:>12.1f}"
+        f"{'TOTAL':<{label_width}} {total_context:>12.1f} {total_forecast:>12.1f} {total_translation:>12.1f}"
     )
     grand_total = total_context + total_forecast + total_translation
-    lines.append(f"{'Grand total':<40} {grand_total:>12.1f}")
+    lines.append(f"{'Grand total':<{label_width}} {grand_total:>12.1f}")
 
     logger.info("LLM cost summary (USD cents):\n%s", "\n".join(lines))
 
@@ -214,14 +229,16 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
         return None
     geocode = payload.geocode
     timezone_name = geocode.timezone or "UTC"
+    context_llm = (getattr(config, "context_llm", None) or "gpt-4o").strip()
     impact_context = fetch_impact_context(
         name,
         context_type="location",
         forecast_days=forecast_days,
         timezone_name=timezone_name,
+        context_llm=context_llm,
     )
     ibf_context = impact_context.content
-    _record_cost("Location", name, context=impact_context.cost_cents)
+    _record_cost("Location", unique_name, context=impact_context.cost_cents)
     logger.info("Fetched impact context for '%s'", name)
     formatted_dataset = payload.formatted_dataset
     dataset = payload.dataset
@@ -266,7 +283,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
                 llm_settings,
                 reasoning=reasoning_payload,
             )
-            _record_cost("Location", name, forecast=consume_last_cost_cents())
+            _record_cost("Location", unique_name, forecast=consume_last_cost_cents())
         except Exception as exc:
             logger.error("LLM generation failed for %s: %s", name, exc, exc_info=True)
 
@@ -282,7 +299,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
         llm_settings,
     )
     if translated_text is not None:
-        _record_cost("Location", name, translation=consume_last_cost_cents())
+        _record_cost("Location", unique_name, translation=consume_last_cost_cents())
 
     destination = _build_destination_path(config, unique_name)
     logger.info("Writing forecast page for '%s' → %s", unique_name, destination)
@@ -321,11 +338,13 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
         return
 
     area_timezone = payloads[0].geocode.timezone or "UTC"
+    context_llm = (getattr(config, "context_llm", None) or "gpt-4o").strip()
     impact_context = fetch_impact_context(
         area.name,
         context_type="area",
         forecast_days=forecast_days,
         timezone_name=area_timezone,
+        context_llm=context_llm,
     )
     ibf_context = impact_context.content
     _record_cost("Area", area.name, context=impact_context.cost_cents)
@@ -439,11 +458,13 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
         return
 
     area_timezone = payloads[0].geocode.timezone or "UTC"
+    context_llm = (getattr(config, "context_llm", None) or "gpt-4o").strip()
     regional_context = fetch_impact_context(
         area.name,
         context_type="regional",
         forecast_days=forecast_days,
         timezone_name=area_timezone,
+        context_llm=context_llm,
     )
     ibf_context = regional_context.content
     _record_cost("Regional", area.name, context=regional_context.cost_cents)
@@ -1113,7 +1134,9 @@ def _location_translation_language(location: LocationConfig, config: ForecastCon
 
 def _area_translation_language(area: AreaConfig, config: ForecastConfig) -> Optional[str]:
     """Determine the translation language for an area-level forecast."""
-    return area.translation_language or config.translation_language
+    # Areas don't geocode a single point, so `lang` is commonly used as a shorthand
+    # for the desired translation language when `translation_language` is not set.
+    return area.translation_language or area.lang or config.translation_language
 
 
 def _maybe_translate(
