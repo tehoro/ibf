@@ -142,6 +142,7 @@ IBF uses a single JSON file. Start by copying `examples/sample-config.json` to a
 | Field | Meaning | Example |
 | --- | --- | --- |
 | `model` | Default forecast model for all forecasts unless overridden per location/area. Use `ens:<id>` for ensemble models and `det:<id>` for deterministic models. | `"ens:ecmwf_aifs025"` |
+| `snow_levels` | Enable snow-level calculations (default `false`). Only applies to deterministic models; ignored for ensembles. | `false` |
 | `llm` | Primary model ID (OpenRouter: `or:provider/model`, OpenAI: `gpt-4o-mini`, Gemini: `gemini-*`). For OpenRouter names, copy from <https://openrouter.ai/models> and prefix with `or:`. | `"or:openai/gpt-5.1"` |
 | `enable_reasoning` | Whether to allow reasoning tokens if the model supports them. | `"true"` |
 | `web_root` | Where output HTML is written. Relative paths are fine. | `"./outputs/example-site"` |
@@ -168,6 +169,7 @@ Each location can include:
 | --- | --- | --- |
 | `name` | Display name; must match any area references. | `"Otaki, New Zealand"` |
 | `model` | Optional override of the global `model` for this location. Supports `ens:` / `det:` prefixes. | `"det:ecmwf_ifs"` |
+| `snow_levels` | Per-location override of `snow_levels`. Only applies to deterministic models; ignored for ensembles. | `true` |
 | `translation_language` | Per-location translation target; overrides global/default. English output is always produced; this adds a translated copy. | `"es"` |
 | `units.temperature_unit` | Temperature unit. | `"celsius"` |
 | `units.precipitation_unit` | Precipitation unit. | `"mm"` |
@@ -183,6 +185,7 @@ Each area can include:
 | `locations` | List of location names (must match `locations[*].name`). | `["Port of Spain, Trinidad and Tobago", ...]` |
 | `mode` | `"area"` for summary per day; `"regional"` adds sub-sections per location. | `"area"` |
 | `model` | Optional override of the global `model` for this area. Supports `ens:` / `det:` prefixes. | `"ens:gem_global"` |
+| `snow_levels` | Per-area override of `snow_levels` (applied to each location in the area). Per-location overrides still win. Only applies to deterministic models; ignored for ensembles. | `false` |
 | `translation_language` | Per-area translation target. English output is always produced; this adds a translated copy. | `"es"` |
 | `units.temperature_unit` | Temperature unit override. | `"celsius"` |
 | `units.precipitation_unit` | Precipitation unit override. | `"mm"` |
@@ -204,7 +207,7 @@ You may set `model` globally or a `model` field on a specific location/area. Use
 | `gfs025` | 31 | NOAA GFS Ensemble 0.25°. |
 | `icon_seamless` | 40 | DWD ICON seamless ensemble (global + Europe). |
 
-> Snow-level fields are not supported; omit any `snow_level` or `snow_level_enabled` entries in configs.
+> Snow levels: IBF can estimate “snow down to about X m” for some deterministic models when `snow_levels` is enabled. This feature is ignored for ensemble models.\n+>\n+> Important: availability depends on the upstream model. Some models may return `freezing_level_height` and/or pressure-level fields as all `null` (units `\"undefined\"`), in which case snow levels cannot be computed and will be omitted. Models like `icon_seamless` currently provide `freezing_level_height` and pressure-level variables.
 - When you run IBF, it also creates/upgrades a PNG map at `<web_root>/maps/<area-slug>.png`. Maps regenerate only when you change the list of locations for that area (or when you use `--force-maps`).
 
 #### 4.5 Units (overrides per location/area)

@@ -3,7 +3,7 @@
     {
       "name": "Otaki, New Zealand",
       "lang": "Maori",
-      "snow_level": true,
+      "snow_levels": true,
       "model": "ens:ecmwf_aifs025",
       "units": {
         "temperature_unit": "celsius",
@@ -43,7 +43,7 @@
     {
       "name": "Trinidad and Tobago",
       "lang": "Trinidadian Creole English",
-      "snow_level": false,
+      "snow_levels": false,
       "model": "gem_global",
       "locations": [
         "Port of Spain, Trinidad and Tobago",
@@ -71,7 +71,7 @@
   "area_impact_based": "true",
   "area_thin_select": "10",
   "model": "ecmwf_aifs025",
-  "snow_level_enabled": false,
+  "snow_levels": false,
   "enable_reasoning": "true",
   "recent_overwrite_minutes": "0",
   "web_root": "./outputs/example-site",

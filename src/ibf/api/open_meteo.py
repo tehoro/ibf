@@ -45,6 +45,23 @@ HOURLY_FIELDS_DETERMINISTIC = ",".join(
     [
         HOURLY_FIELDS_BASE,
         "precipitation_probability",
+        # Optional per-model; if unsupported by a deterministic model the client will
+        # fall back to the base deterministic fields without it.
+        "freezing_level_height",
+    ]
+)
+
+# Pressure levels used for snow-level estimation when freezing level is unavailable.
+# These correspond to Open-Meteo hourly variable name suffixes like `temperature_850hPa`.
+PRESSURE_LEVELS_SNOW_HPA = (1000, 925, 850, 700, 600, 500)
+
+# Hourly variables required to compute snow level from pressure-level profiles.
+HOURLY_FIELDS_SNOW_PROFILE = ",".join(
+    [
+        "surface_pressure",
+        *[f"temperature_{level}hPa" for level in PRESSURE_LEVELS_SNOW_HPA],
+        *[f"relative_humidity_{level}hPa" for level in PRESSURE_LEVELS_SNOW_HPA],
+        *[f"geopotential_height_{level}hPa" for level in PRESSURE_LEVELS_SNOW_HPA],
     ]
 )
 
@@ -204,6 +221,7 @@ class ForecastRequest:
         precipitation_unit: "mm" or "inch".
         models: Open-Meteo model identifier (default "ecmwf_ifs025").
         model_kind: "ensemble" or "deterministic" (routes to correct endpoint).
+        hourly_fields: Optional explicit hourly field list override.
         cache_ttl_minutes: How long to keep the cache valid (default 60).
         cache_dir: Directory to store cache files.
     """
@@ -216,6 +234,7 @@ class ForecastRequest:
     precipitation_unit: str = "mm"
     models: str = DEFAULT_ENSEMBLE_MODEL
     model_kind: ModelKind = "ensemble"
+    hourly_fields: Optional[str] = None
     cache_ttl_minutes: int = 60
     cache_dir: Path = field(default_factory=lambda: Path("ibf_cache/forecasts"))
 
@@ -329,47 +348,86 @@ def cleanup_forecast_cache(cache_dir: Path, max_age_hours: int = 48) -> None:
 def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
     """Call Open-Meteo with basic retries and validation."""
     base_url = ENSEMBLE_BASE_URL if request.model_kind == "ensemble" else FORECAST_BASE_URL
-    hourly_fields = _hourly_fields_for(request)
-    params = {
-        "latitude": request.latitude,
-        "longitude": request.longitude,
-        "hourly": hourly_fields,
-        "timezone": request.timezone,
-        "forecast_days": request.forecast_days,
-        "temperature_unit": request.temperature_unit,
-        "windspeed_unit": WINDSPEED_CONVERSIONS.get(request.windspeed_unit, request.windspeed_unit),
-        "precipitation_unit": request.precipitation_unit,
-        "models": request.models,
-    }
+    primary_hourly_fields = _hourly_fields_for(request)
+    hourly_candidates = [primary_hourly_fields]
+
+    # Some deterministic models may not expose freezing level. In many cases Open-Meteo
+    # will still return the field but with an all-null series (and units like "undefined"),
+    # which is handled at the pipeline layer by detecting "all nulls" and falling back
+    # to pressure-level diagnostics only when needed.
+    #
+    # Separately, if an API/model combination *does* reject the request (HTTP 400),
+    # fall back to the base deterministic fields without freezing level.
+    if (
+        request.model_kind == "deterministic"
+        and request.hourly_fields is None
+        and "freezing_level_height" in primary_hourly_fields
+    ):
+        reduced = _remove_hourly_field(primary_hourly_fields, "freezing_level_height")
+        if reduced and reduced != primary_hourly_fields:
+            hourly_candidates.append(reduced)
 
     last_error: Optional[str] = None
-    for attempt in range(1, 4):
-        try:
-            response = requests.get(base_url, params=params, timeout=30)
-            response.raise_for_status()
-            data = response.json()
-            _validate_response(data)
-            logger.info("Fetched Open-Meteo forecast (%s)", response.url)
-            return data
-        except requests.RequestException as exc:
-            last_error = f"HTTP error calling Open-Meteo: {exc}"
-            logger.warning("%s (attempt %s/3)", last_error, attempt)
-        except json.JSONDecodeError as exc:
-            last_error = f"Invalid JSON from Open-Meteo: {exc}"
-            logger.warning("%s (attempt %s/3)", last_error, attempt)
-        except ValueError as exc:
-            last_error = str(exc)
-            logger.warning("%s (attempt %s/3)", last_error, attempt)
+    for candidate_idx, hourly_fields in enumerate(hourly_candidates, start=1):
+        params = {
+            "latitude": request.latitude,
+            "longitude": request.longitude,
+            "hourly": hourly_fields,
+            "timezone": request.timezone,
+            "forecast_days": request.forecast_days,
+            "temperature_unit": request.temperature_unit,
+            "windspeed_unit": WINDSPEED_CONVERSIONS.get(request.windspeed_unit, request.windspeed_unit),
+            "precipitation_unit": request.precipitation_unit,
+            "models": request.models,
+        }
 
-        if attempt < 3:
-            time.sleep(2 ** (attempt - 1))
+        for attempt in range(1, 4):
+            try:
+                response = requests.get(base_url, params=params, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+                _validate_response(data)
+                logger.info("Fetched Open-Meteo forecast (%s)", response.url)
+                return data
+            except requests.HTTPError as exc:
+                status = exc.response.status_code if exc.response is not None else None
+                last_error = f"HTTP error calling Open-Meteo: {exc}"
+                if status == 400 and candidate_idx < len(hourly_candidates):
+                    logger.info(
+                        "Open-Meteo rejected hourly field-set (candidate %s/%s); retrying with fallback.",
+                        candidate_idx,
+                        len(hourly_candidates),
+                    )
+                    break
+                logger.warning("%s (attempt %s/3)", last_error, attempt)
+            except requests.RequestException as exc:
+                last_error = f"HTTP error calling Open-Meteo: {exc}"
+                logger.warning("%s (attempt %s/3)", last_error, attempt)
+            except json.JSONDecodeError as exc:
+                last_error = f"Invalid JSON from Open-Meteo: {exc}"
+                logger.warning("%s (attempt %s/3)", last_error, attempt)
+            except ValueError as exc:
+                last_error = str(exc)
+                logger.warning("%s (attempt %s/3)", last_error, attempt)
+
+            if attempt < 3:
+                time.sleep(2 ** (attempt - 1))
 
     raise RuntimeError(last_error or "Failed to fetch Open-Meteo forecast.")
 
 
 def _hourly_fields_for(request: ForecastRequest) -> str:
     """Return the hourly fields string for this request (affects caching)."""
+    if request.hourly_fields:
+        return request.hourly_fields
     return HOURLY_FIELDS_BASE if request.model_kind == "ensemble" else HOURLY_FIELDS_DETERMINISTIC
+
+
+def _remove_hourly_field(fields: str, name: str) -> str:
+    """Remove a single hourly field token from a comma-separated field list."""
+    tokens = [part.strip() for part in (fields or "").split(",") if part.strip()]
+    kept = [tok for tok in tokens if tok != name]
+    return ",".join(kept)
 
 
 def _validate_response(data: Dict[str, object]) -> None:

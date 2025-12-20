@@ -213,11 +213,13 @@ def extract_pressure_profile(
     """
     Extract temperature/RH/geopotential arrays for each pressure level at the given index.
 
-    Returns None if any data is missing.
+    Missing levels are skipped (e.g. some models omit 600 hPa). Returns None only
+    if fewer than 2 valid levels are available.
     """
-    temps: list[Optional[float]] = []
-    rhs: list[Optional[float]] = []
-    geop: list[Optional[float]] = []
+    pressures: list[float] = []
+    temps: list[float] = []
+    rhs: list[float] = []
+    geop: list[float] = []
 
     for level in pressure_levels_hpa:
         temp_key = temperature_prefix.format(level=int(level))
@@ -228,19 +230,28 @@ def extract_pressure_profile(
         rh_series = hourly_data.get(rh_key, [])
         geo_series = hourly_data.get(geo_key, [])
 
-        temps.append(temp_series[index] if index < len(temp_series) else None)
-        rhs.append(rh_series[index] if index < len(rh_series) else None)
-        geop.append(geo_series[index] if index < len(geo_series) else None)
+        t = temp_series[index] if index < len(temp_series) else None
+        r = rh_series[index] if index < len(rh_series) else None
+        z = geo_series[index] if index < len(geo_series) else None
+        if t is None or r is None or z is None:
+            continue
+        try:
+            pressures.append(float(level))
+            temps.append(float(t))
+            rhs.append(float(r))
+            geop.append(float(z))
+        except Exception:
+            continue
 
-    if any(value is None for value in (*temps, *rhs, *geop)):
+    if len(pressures) < 2:
         return None
 
     return {
         "surface_pressure_hpa": surface_pressure_hpa,
-        "pressures_hpa": list(pressure_levels_hpa),
-        "temps_c": [float(v) for v in temps],
-        "rhs_pct": [float(v) for v in rhs],
-        "geop_heights_m": [float(v) for v in geop],
+        "pressures_hpa": pressures,
+        "temps_c": temps,
+        "rhs_pct": rhs,
+        "geop_heights_m": geop,
     }
 
 
@@ -285,8 +296,6 @@ def compute_hourly_snow_level(
     if max_terrain_m is not None:
         terrain_threshold = max_terrain_m - 300.0
         if snow_level_m > terrain_threshold:
-            return -1
-        if snow_level_m > location_elevation_m + 1200.0:
             return -1
 
     if units == "us":

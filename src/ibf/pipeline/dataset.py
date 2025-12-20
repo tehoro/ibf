@@ -13,7 +13,14 @@ from ..util import (
     wmo_weather,
     degrees_to_compass,
     round_windspeed,
-    calculate_wet_bulb,
+)
+from ..util.snow import (
+    compute_hourly_snow_level,
+    extract_pressure_profile,
+    rh_from_T_Td,
+    estimate_snow_level_msl,
+    should_check_snow_level,
+    wet_bulb_dj,
 )
 from ..api.thin import select_members
 
@@ -26,6 +33,9 @@ def build_processed_days(
     windspeed_unit: str = "kph",
     thin_select: int = 16,
     location_altitude: float = 0.0,
+    snow_levels_enabled: bool = False,
+    highest_terrain_m: float | None = None,
+    pressure_levels_hpa: list[float] | None = None,
 ) -> List[dict]:
     """
     Convert raw Open-Meteo data into day/hour structure and thin ensemble members.
@@ -79,6 +89,9 @@ def build_processed_days(
                 precipitation_unit=precipitation_unit,
                 windspeed_unit=windspeed_unit,
                 location_altitude=location_altitude,
+                snow_levels_enabled=snow_levels_enabled,
+                highest_terrain_m=highest_terrain_m,
+                pressure_levels_hpa=pressure_levels_hpa,
             )
             if record:
                 processed[date_key][hour_key][member] = record
@@ -155,6 +168,9 @@ def _build_member_record(
     precipitation_unit: str,
     windspeed_unit: str,
     location_altitude: float,
+    snow_levels_enabled: bool,
+    highest_terrain_m: float | None,
+    pressure_levels_hpa: list[float] | None,
 ) -> Dict[str, Any] | None:
     """Assemble the dictionary of derived values for a single member/hour."""
     base = "" if member == "member00" else f"_{member}"
@@ -181,14 +197,78 @@ def _build_member_record(
     if any(v is None for v in required):
         return None
 
-    snow_level = _estimate_snow_level(
-        temperature,
-        dewpoint,
-        snowfall,
-        precipitation,
-        None,
-        location_altitude,
-    )
+    snow_level: int | None = None
+    snow_level_debug: dict | None = None
+    if snow_levels_enabled:
+        try:
+            wx_code = int(weather_code) if weather_code is not None else 0
+        except Exception:
+            wx_code = 0
+
+        # Avoid expensive or noisy calculations when snow is implausible.
+        if dewpoint is not None and should_check_snow_level(float(precipitation), wx_code, float(temperature)):
+            freezing_level = _safe_get(indexed, f"freezing_level_height{base}", index)
+            if freezing_level is not None:
+                snow_level = _estimate_snow_level(
+                    temperature,
+                    dewpoint,
+                    snowfall,
+                    precipitation,
+                    freezing_level,
+                    location_altitude,
+                    weather_code=wx_code,
+                    max_terrain_m=highest_terrain_m,
+                )
+            elif pressure_levels_hpa:
+                surface_pressure = _safe_get(indexed, f"surface_pressure{base}", index)
+                try:
+                    surface_pressure_hpa = float(surface_pressure) if surface_pressure is not None else None
+                except Exception:
+                    surface_pressure_hpa = None
+
+                if surface_pressure_hpa is not None:
+                    profile = extract_pressure_profile(
+                        indexed,
+                        index,
+                        pressure_levels_hpa=pressure_levels_hpa,
+                        surface_pressure_hpa=surface_pressure_hpa,
+                    )
+                    if profile is not None:
+                        try:
+                            profile_snow = compute_hourly_snow_level(
+                                precipitation_mm=float(precipitation),
+                                weather_code=wx_code,
+                                temperature_c=float(temperature),
+                                dewpoint_c=float(dewpoint) if dewpoint is not None else float("nan"),
+                                location_elevation_m=float(location_altitude),
+                                surface_pressure_hpa=surface_pressure_hpa,
+                                pressure_profile=profile,
+                                units="metric",
+                                max_terrain_m=highest_terrain_m,
+                                precip_adjust=True,
+                            )
+                            snow_level = None if profile_snow < 0 else int(profile_snow)
+                            if snow_level is None:
+                                # Capture a small amount of debug data for downstream logging
+                                # (executor emits a few sample hours when computed_hours=0).
+                                raw_est = estimate_snow_level_msl(
+                                    z_station_m=float(location_altitude),
+                                    p_station_pa=surface_pressure_hpa * 100.0,
+                                    t2m_c=float(temperature),
+                                    td2m_c=float(dewpoint),
+                                    pressures_hpa=profile["pressures_hpa"],
+                                    temps_c=profile["temps_c"],
+                                    rhs_pct=profile["rhs_pct"],
+                                    geop_heights_m=profile["geop_heights_m"],
+                                    precip_rate_mm_per_hr=float(precipitation),
+                                    apply_precip_adjustment=True,
+                                )
+                                snow_level_debug = {
+                                    "method": "profile",
+                                    "raw_estimate_m": float(raw_est) if math.isfinite(raw_est) else None,
+                                }
+                        except Exception:
+                            snow_level = None
 
     record: Dict[str, Any] = {
         "temperature": _round_value(temperature, 1),
@@ -203,6 +283,8 @@ def _build_member_record(
         "wind_gust": round_windspeed(wind_gusts, windspeed_unit) if wind_gusts else 0,
         "snow_level": int(snow_level) if snow_level is not None else None,
     }
+    if snow_level_debug is not None:
+        record["_snow_level_debug"] = snow_level_debug
 
     # Probability of precipitation (POP) is typically available only for deterministic models.
     # If absent or invalid, omit it entirely.
@@ -240,6 +322,9 @@ def _estimate_snow_level(
     precipitation: Any,
     freezing_level: Any,
     location_altitude: float,
+    *,
+    weather_code: int,
+    max_terrain_m: float | None = None,
 ) -> int | None:
     """Estimate snow level altitude based on freezing level and wet-bulb temperature."""
     try:
@@ -247,7 +332,34 @@ def _estimate_snow_level(
     except (TypeError, ValueError):
         fzl = None
 
-    wet_bulb = calculate_wet_bulb(temperature, dewpoint)
+    try:
+        precip = float(precipitation)
+    except (TypeError, ValueError):
+        precip = 0.0
+    try:
+        temp_c = float(temperature)
+    except (TypeError, ValueError):
+        temp_c = float("nan")
+    try:
+        dewpoint_c = float(dewpoint)
+    except (TypeError, ValueError):
+        dewpoint_c = float("nan")
+
+    if not should_check_snow_level(precip, int(weather_code or 0), temp_c):
+        return None
+
+    if math.isnan(dewpoint_c):
+        return None
+
+    # Estimate station pressure from altitude using a standard atmosphere approximation.
+    # This is good enough for snow-level diagnostics and avoids needing another field.
+    try:
+        z = float(location_altitude)
+    except (TypeError, ValueError):
+        z = 0.0
+    p_pa = 101325.0 * math.pow(max(0.0, 1.0 - 2.25577e-5 * z), 5.25588)
+    rh_pct = rh_from_T_Td(temp_c, dewpoint_c)
+    wet_bulb = wet_bulb_dj(temp_c, rh_pct, p_pa)
     if math.isnan(wet_bulb):
         return None
 
@@ -255,15 +367,21 @@ def _estimate_snow_level(
     if alt_diff is None or abs(alt_diff) < 10:
         lapse_rate = 0.0065
     else:
-        lapse_rate = max(0.001, min(0.015, (temperature - wet_bulb) / alt_diff))
+        lapse_rate = max(0.001, min(0.015, (temp_c - wet_bulb) / alt_diff))
     first_guess = (wet_bulb - 1.0) / lapse_rate + location_altitude if lapse_rate > 0 else fzl
 
-    if precipitation == 0 or (fzl is not None and fzl <= location_altitude):
+    if precip == 0 or (fzl is not None and fzl <= location_altitude):
         return None
 
     snow_level = min(first_guess, fzl - 100) if fzl is not None else first_guess
     if snow_level < location_altitude or snow_level > (location_altitude + 3000):
         return None
+
+    if max_terrain_m is not None and math.isfinite(float(max_terrain_m)):
+        terrain_threshold = float(max_terrain_m) - 300.0
+        if snow_level > terrain_threshold:
+            return None
+
     return round(snow_level, -2)
 
 

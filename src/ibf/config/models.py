@@ -30,7 +30,7 @@ class LocationConfig(BaseModel):
     lang: Optional[str] = None
     translation_language: Optional[str] = None
     units: Dict[str, str] = Field(default_factory=dict)
-    snow_level: Optional[bool] = None
+    snow_levels: Optional[bool] = None
     model: Optional[str] = None
 
 
@@ -52,7 +52,7 @@ class AreaConfig(BaseModel):
     translation_language: Optional[str] = None
     mode: Literal["area", "regional"] = "area"
     units: Dict[str, str] = Field(default_factory=dict)
-    snow_level: Optional[bool] = None
+    snow_levels: Optional[bool] = None
     model: Optional[str] = None
 
 
@@ -101,7 +101,7 @@ class ForecastConfig(BaseModel):
     translation_language: Optional[str] = None
     translation_llm: Optional[str] = None
     recent_overwrite_minutes: int = 0
-    snow_level_enabled: bool = False
+    snow_levels: bool = False
     # Global default forecast model. This name matches the per-location/per-area override field.
     # Backwards-compat: configs may still provide "ensemble_model"; it will be mapped into "model".
     model: Optional[str] = None

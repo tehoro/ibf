@@ -25,12 +25,15 @@ from ..api import (
     GeocodeResult,
     ENSEMBLE_MODELS,
     DEFAULT_ENSEMBLE_MODEL,
+    HOURLY_FIELDS_SNOW_PROFILE,
+    PRESSURE_LEVELS_SNOW_HPA,
     ModelSpec,
     resolve_model_spec,
 )
 from ..render import ForecastPage, render_forecast_page
 from ..util import slugify, write_text_file, ensure_directory
 from ..util.elevation import get_highest_point
+from ..util.snow import should_check_snow_level
 from .dataset import build_processed_days
 from ..llm import (
     LLMSettings,
@@ -54,6 +57,8 @@ from ..llm.prompts import UnitInstructions
 logger = logging.getLogger(__name__)
 DATASET_CACHE_DIR = ensure_directory("ibf_cache/processed")
 PROMPT_SNAPSHOT_DIR = ensure_directory("ibf_cache/prompts")
+
+_SNOW_PROFILE_UNSUPPORTED_MODELS: set[str] = set()
 
 
 @dataclass
@@ -151,7 +156,7 @@ class LocationUnits:
     windspeed_primary: str
     windspeed_secondary: Optional[str]
     altitude_m: float
-    snow_level_enabled: bool = False
+    snow_levels_enabled: bool = False
 
 
 @dataclass
@@ -213,9 +218,9 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
     name = location.name
     unique_name = display_name or name
     logger.info("Processing location '%s' (display: '%s')", name, unique_name)
-    snow_feature_enabled = _snow_level_enabled(location, config)
-    units = _resolve_units(location, global_units=config.units, use_snow_level=snow_feature_enabled)
     model_spec = _resolve_model_spec(location, config)
+    snow_feature_enabled = _snow_levels_enabled(location, config, model_spec)
+    units = _resolve_units(location, global_units=config.units, use_snow_levels=snow_feature_enabled)
     forecast_days = _resolve_forecast_days(config.location_forecast_days, 4)
     payload = _collect_location_payload(
         name,
@@ -324,8 +329,12 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
 def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Generate an area-level forecast (single text block) across representative spots."""
     logger.info("Processing area '%s'", area.name)
-    base_units = _resolve_units(area, global_units=config.units, use_snow_level=_snow_level_enabled(area, config))
     area_model_spec = _resolve_model_spec(area, config)
+    base_units = _resolve_units(
+        area,
+        global_units=config.units,
+        use_snow_levels=_snow_levels_enabled(area, config, area_model_spec),
+    )
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
     forecast_days = _resolve_forecast_days(
         config.area_forecast_days or config.location_forecast_days, 4
@@ -445,8 +454,12 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
 def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Produce a regional forecast that is broken down by sub-regions."""
     logger.info("Processing regional area '%s'", area.name)
-    base_units = _resolve_units(area, global_units=config.units, use_snow_level=_snow_level_enabled(area, config))
     area_model_spec = _resolve_model_spec(area, config)
+    base_units = _resolve_units(
+        area,
+        global_units=config.units,
+        use_snow_levels=_snow_levels_enabled(area, config, area_model_spec),
+    )
     thin_select = int(config.area_thin_select or config.location_thin_select or 16)
     forecast_days = _resolve_forecast_days(
         config.area_forecast_days or config.location_forecast_days, 4
@@ -595,7 +608,7 @@ def _collect_location_payload(
     )
 
     highest_terrain: Optional[float] = None
-    if units.snow_level_enabled:
+    if units.snow_levels_enabled:
         highest_val = get_highest_point(geocode.latitude, geocode.longitude, radius_km=50)
         if math.isfinite(highest_val):
             highest_terrain = highest_val
@@ -627,13 +640,84 @@ def _collect_location_payload(
         logger.error("Failed to fetch forecast for %s: %s", name, exc)
         return None
 
+    raw_forecast = forecast.raw
+
+    # Best-available station altitude for snow-level calculations:
+    # - explicit config (`units.altitude_m`) wins
+    # - else geocode altitude (if provided by Google Elevation)
+    # - else Open-Meteo's `elevation` field from the forecast response
+    altitude_for_snow = units.altitude_m
+    if altitude_for_snow <= 0:
+        if isinstance(getattr(geocode, "altitude", None), (int, float)) and float(geocode.altitude) > 0:
+            altitude_for_snow = float(geocode.altitude)
+        else:
+            try:
+                elevation = float(raw_forecast.get("elevation"))  # type: ignore[call-arg]
+            except Exception:
+                elevation = 0.0
+            if elevation > 0:
+                altitude_for_snow = elevation
+
+    if units.snow_levels_enabled and resolved_model.kind == "deterministic":
+        if highest_terrain is not None:
+            logger.info(
+                "Snow levels: enabled; station_altitude=%.0fm; max_terrain_50km=%.0fm",
+                altitude_for_snow,
+                highest_terrain,
+            )
+        else:
+            logger.info(
+                "Snow levels: enabled; station_altitude=%.0fm; max_terrain_50km=unavailable",
+                altitude_for_snow,
+            )
+
+    # Optional second request to fetch pressure-level profiles for snow-level calculations.
+    if units.snow_levels_enabled and resolved_model.kind == "deterministic":
+        if (highest_terrain is not None) and (not _has_any_freezing_level(raw_forecast)):
+            if resolved_model.model_id in _SNOW_PROFILE_UNSUPPORTED_MODELS:
+                logger.info(
+                    "Snow levels: skipping profile fetch (model '%s' has no pressure-level data in this environment)",
+                    resolved_model.model_id,
+                )
+            elif _needs_snow_profile_request(raw_forecast):
+                try:
+                    logger.info("Snow levels: freezing level unavailable; fetching pressure-level profile fields")
+                    profile = fetch_forecast(
+                        ForecastRequest(
+                            latitude=geocode.latitude,
+                            longitude=geocode.longitude,
+                            timezone=geocode.timezone,
+                            forecast_days=request_days,
+                            temperature_unit=_temperature_unit_for_api(units.temperature_primary),
+                            precipitation_unit=_precipitation_unit_for_api(units.precipitation_primary),
+                            windspeed_unit=_windspeed_unit_for_api(units.windspeed_primary),
+                            models=resolved_model.model_id,
+                            model_kind=resolved_model.kind,
+                            hourly_fields=HOURLY_FIELDS_SNOW_PROFILE,
+                        )
+                    )
+                    if _has_any_pressure_level_profile(profile.raw):
+                        raw_forecast = _merge_open_meteo_hourly(raw_forecast, profile.raw)
+                    else:
+                        _SNOW_PROFILE_UNSUPPORTED_MODELS.add(resolved_model.model_id)
+                        logger.info(
+                            "Snow levels: pressure-level variables returned all-null/undefined for model '%s'; "
+                            "disabling profile-based snow levels for this model.",
+                            resolved_model.model_id,
+                        )
+                except Exception as exc:
+                    logger.info("Snow-profile fetch failed for '%s'; continuing without it (%s).", name, exc)
+
     dataset = build_processed_days(
-        forecast.raw,
+        raw_forecast,
         timezone_name=geocode.timezone or "UTC",
         precipitation_unit=units.precipitation_primary,
         windspeed_unit=units.windspeed_primary,
         thin_select=effective_thin,
-        location_altitude=units.altitude_m,
+        location_altitude=altitude_for_snow,
+        snow_levels_enabled=units.snow_levels_enabled,
+        highest_terrain_m=highest_terrain,
+        pressure_levels_hpa=list(PRESSURE_LEVELS_SNOW_HPA),
     )
     dataset = _limit_days(dataset, forecast_days)
     if not dataset:
@@ -643,6 +727,14 @@ def _collect_location_payload(
     cache_slug = cache_label or f"{name}__{resolved_model.kind}__{resolved_model.model_id}"
     dataset_path = _write_dataset_cache(cache_slug, dataset)
     logger.info("Processed %d day(s) for '%s'; dataset cached at %s", len(dataset), name, dataset_path)
+
+    if units.snow_levels_enabled and resolved_model.kind == "deterministic":
+        _log_snow_levels_summary(
+            name,
+            raw_forecast,
+            dataset,
+            timezone_name=geocode.timezone or "UTC",
+        )
     formatted_dataset = format_location_dataset(
         dataset,
         alerts,
@@ -681,16 +773,29 @@ def _collect_area_payloads(
     for location_name in area.locations:
         logger.info("Collecting data for representative location '%s' in area '%s'", location_name, area.name)
         location_units = _find_location_units(config, location_name)
+        location_cfg = _find_location_config(config, location_name)
+        effective_spec = _resolve_model_spec(location_cfg, config) if location_cfg else model_spec
+
+        # Snow levels can be enabled globally, per-area, or per-location, but they only
+        # apply when the effective model is deterministic.
+        if getattr(effective_spec, "kind", None) != "deterministic":
+            effective_snow_levels = False
+        else:
+            if location_cfg is not None and getattr(location_cfg, "snow_levels", None) is not None:
+                effective_snow_levels = bool(location_cfg.snow_levels)
+            elif getattr(area, "snow_levels", None) is not None:
+                effective_snow_levels = bool(area.snow_levels)
+            else:
+                effective_snow_levels = bool(getattr(config, "snow_levels", False))
+
         if location_units:
             units_for_location = replace(
                 base_units,
                 altitude_m=location_units.altitude_m,
-                snow_level_enabled=location_units.snow_level_enabled,
+                snow_levels_enabled=effective_snow_levels,
             )
         else:
-            units_for_location = base_units
-        location_cfg = _find_location_config(config, location_name)
-        effective_spec = _resolve_model_spec(location_cfg, config) if location_cfg else model_spec
+            units_for_location = replace(base_units, snow_levels_enabled=effective_snow_levels)
         slug = f"{area.name}__{location_name}__{effective_spec.kind}__{effective_spec.model_id}"
         payload = _collect_location_payload(
             location_name,
@@ -706,7 +811,12 @@ def _collect_area_payloads(
     return payloads
 
 
-def _resolve_units(config_obj: SupportsUnits, *, global_units: Dict[str, str] | None = None, use_snow_level: bool = False) -> LocationUnits:
+def _resolve_units(
+    config_obj: SupportsUnits,
+    *,
+    global_units: Dict[str, str] | None = None,
+    use_snow_levels: bool = False,
+) -> LocationUnits:
     """Normalize/merge explicit unit overrides with defaults for a config entry."""
     units: Dict[str, str] = {}
     if global_units:
@@ -755,7 +865,7 @@ def _resolve_units(config_obj: SupportsUnits, *, global_units: Dict[str, str] | 
         windspeed_primary=wind_primary,
         windspeed_secondary=wind_secondary,
         altitude_m=altitude_val,
-        snow_level_enabled=use_snow_level,
+        snow_levels_enabled=use_snow_levels,
     )
 
 
@@ -841,11 +951,218 @@ def _generate_unique_location_names(config: ForecastConfig) -> List[str]:
     return result
 
 
-def _snow_level_enabled(entity: SupportsUnits, config: ForecastConfig) -> bool:
-    override = getattr(entity, "snow_level", None)
+def _snow_levels_enabled(entity: SupportsUnits, config: ForecastConfig, model_spec: ModelSpec) -> bool:
+    """
+    Resolve snow-level feature enablement.
+
+    IMPORTANT: Snow levels are only supported for deterministic models.
+    """
+    if getattr(model_spec, "kind", None) != "deterministic":
+        return False
+    override = getattr(entity, "snow_levels", None)
     if override is not None:
         return bool(override)
-    return bool(getattr(config, "snow_level_enabled", False))
+    return bool(getattr(config, "snow_levels", False))
+
+
+def _has_any_freezing_level(forecast_raw: dict) -> bool:
+    """Return True if the payload includes at least one non-null freezing level value."""
+    try:
+        hourly = forecast_raw.get("hourly", {})
+        series = hourly.get("freezing_level_height", [])
+        return any(v is not None for v in series)
+    except Exception:
+        return False
+
+
+def _needs_snow_profile_request(forecast_raw: dict) -> bool:
+    """
+    Decide whether it's worth doing a second request for pressure-level snow diagnostics.
+
+    We only do the extra call when the base data suggests snow might be relevant at all:
+    precip > 0, temp < ~15C, and weather_code not already a snow/freezing type.
+    """
+    try:
+        hourly = forecast_raw.get("hourly", {})
+        temps = hourly.get("temperature_2m", [])
+        precip = hourly.get("precipitation", [])
+        codes = hourly.get("weather_code", [])
+        for t, p, c in zip(temps, precip, codes):
+            if t is None or p is None or c is None:
+                continue
+            try:
+                if should_check_snow_level(float(p), int(c), float(t)):
+                    return True
+            except Exception:
+                continue
+        return False
+    except Exception:
+        return False
+
+
+def _merge_open_meteo_hourly(base_raw: dict, extra_raw: dict) -> dict:
+    """
+    Merge additional hourly arrays/units into a base Open-Meteo payload.
+
+    Requires `hourly.time` to match exactly. If it doesn't, returns base_raw unchanged.
+    """
+    if not isinstance(base_raw, dict) or not isinstance(extra_raw, dict):
+        return base_raw
+
+    base_hourly = base_raw.get("hourly")
+    extra_hourly = extra_raw.get("hourly")
+    if not isinstance(base_hourly, dict) or not isinstance(extra_hourly, dict):
+        return base_raw
+
+    base_times = base_hourly.get("time")
+    extra_times = extra_hourly.get("time")
+    if not isinstance(base_times, list) or not isinstance(extra_times, list) or base_times != extra_times:
+        return base_raw
+
+    # Merge hourly arrays (excluding time which we've validated).
+    for key, value in extra_hourly.items():
+        if key == "time":
+            continue
+        base_hourly[key] = value
+
+    # Merge units too (useful for member detection / completeness).
+    base_units = base_raw.get("hourly_units")
+    extra_units = extra_raw.get("hourly_units")
+    if isinstance(extra_units, dict):
+        if not isinstance(base_units, dict):
+            base_raw["hourly_units"] = dict(extra_units)
+        else:
+            base_units.update(extra_units)
+
+    return base_raw
+
+
+def _has_any_pressure_level_profile(raw: dict) -> bool:
+    """
+    Return True if the Open-Meteo payload contains any non-null pressure-level values
+    required for snow-level diagnostics.
+
+    Open-Meteo may return the requested keys with unit "undefined" and all-null arrays
+    when the model does not support those variables.
+    """
+    try:
+        hourly = raw.get("hourly", {})
+        if not isinstance(hourly, dict):
+            return False
+        # Only check the profile-critical fields (temps/RH/geopotential). Surface pressure
+        # is commonly present even when pressure levels are not.
+        keys = [
+            k
+            for k in hourly.keys()
+            if (
+                (k.startswith("temperature_") and k.endswith("hPa"))
+                or (k.startswith("relative_humidity_") and k.endswith("hPa"))
+                or (k.startswith("geopotential_height_") and k.endswith("hPa"))
+            )
+        ]
+        for key in keys:
+            series = hourly.get(key, [])
+            if isinstance(series, list) and any(v is not None for v in series):
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _log_snow_levels_summary(name: str, raw_forecast: dict, dataset: List[dict], *, timezone_name: str) -> None:
+    """
+    INFO-level debugging summary for snow-level calculations.
+    """
+    try:
+        hourly = raw_forecast.get("hourly", {})
+        times = hourly.get("time", [])
+        temps = hourly.get("temperature_2m", [])
+        precip = hourly.get("precipitation", [])
+        codes = hourly.get("weather_code", [])
+
+        candidates: list[tuple[int, str, float, float, int]] = []
+        for idx, (ts, t, p, c) in enumerate(zip(times, temps, precip, codes)):
+            if ts is None or t is None or p is None or c is None:
+                continue
+            try:
+                t_f = float(t)
+                p_f = float(p)
+                c_i = int(c)
+            except Exception:
+                continue
+            if should_check_snow_level(p_f, c_i, t_f):
+                candidates.append((idx, str(ts), t_f, p_f, c_i))
+
+        # Map dataset snow levels by local date/hour
+        produced: dict[tuple[str, str], int] = {}
+        debug_by_hour: dict[tuple[str, str], dict] = {}
+        for day in dataset:
+            date_key = day.get("date")
+            for hour in day.get("hours", []):
+                hour_key = hour.get("hour")
+                member = (hour.get("ensemble_members", {}) or {}).get("member00") or {}
+                sl = member.get("snow_level")
+                if isinstance(date_key, str) and isinstance(hour_key, str) and isinstance(sl, int) and sl > 0:
+                    produced[(date_key, hour_key)] = sl
+                dbg = member.get("_snow_level_debug")
+                if isinstance(date_key, str) and isinstance(hour_key, str) and isinstance(dbg, dict):
+                    debug_by_hour[(date_key, hour_key)] = dbg
+
+        produced_values = list(produced.values())
+        logger.info(
+            "Snow levels summary for '%s': candidate_hours=%d, computed_hours=%d",
+            name,
+            len(candidates),
+            len(produced_values),
+        )
+        if produced_values:
+            logger.info(
+                "Snow levels summary for '%s': min=%dm max=%dm",
+                name,
+                min(produced_values),
+                max(produced_values),
+            )
+
+        # Print a few sample candidate hours
+        if candidates:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            try:
+                tz = ZoneInfo(timezone_name)
+            except Exception:
+                tz = ZoneInfo("UTC")
+
+            sample = candidates[:5]
+            for _, ts, t_f, p_f, c_i in sample:
+                # Open-Meteo times can be either "YYYY-MM-DDTHH:MM" or include "Z"/offset.
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(tz)
+                    date_key = dt.strftime("%Y-%m-%d")
+                    hour_key = dt.strftime("%H:00")
+                except Exception:
+                    date_key, hour_key = "?", "?"
+                sl = produced.get((date_key, hour_key))
+                dbg = debug_by_hour.get((date_key, hour_key))
+                dbg_txt = ""
+                if isinstance(dbg, dict) and dbg.get("raw_estimate_m") is not None:
+                    try:
+                        dbg_txt = f" raw_est={float(dbg['raw_estimate_m']):.0f}m"
+                    except Exception:
+                        dbg_txt = ""
+                logger.info(
+                    "Snow levels candidate '%s' %s %s: T=%.1fC precip=%.1fmm code=%d snow_level=%s%s",
+                    name,
+                    date_key,
+                    hour_key,
+                    t_f,
+                    p_f,
+                    c_i,
+                    (f"{sl}m" if isinstance(sl, int) else "none"),
+                    dbg_txt,
+                )
+    except Exception as exc:
+        logger.debug("Snow levels summary failed for '%s': %s", name, exc)
 
 
 def _find_location_units(config: ForecastConfig, name: str) -> Optional[LocationUnits]:
@@ -853,7 +1170,12 @@ def _find_location_units(config: ForecastConfig, name: str) -> Optional[Location
     target = name.strip().lower()
     for entry in config.locations:
         if entry.name.strip().lower() == target:
-            return _resolve_units(entry, global_units=config.units, use_snow_level=_snow_level_enabled(entry, config))
+            model_spec = _resolve_model_spec(entry, config)
+            return _resolve_units(
+                entry,
+                global_units=config.units,
+                use_snow_levels=_snow_levels_enabled(entry, config, model_spec),
+            )
     return None
 
 

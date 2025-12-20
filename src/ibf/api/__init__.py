@@ -9,6 +9,8 @@ from .open_meteo import (
     ENSEMBLE_MODELS,
     DEFAULT_ENSEMBLE_MODEL,
     DETERMINISTIC_MODELS,
+    HOURLY_FIELDS_SNOW_PROFILE,
+    PRESSURE_LEVELS_SNOW_HPA,
     ModelSpec,
     resolve_model_spec,
 )
@@ -23,6 +25,8 @@ __all__ = [
     "ENSEMBLE_MODELS",
     "DEFAULT_ENSEMBLE_MODEL",
     "DETERMINISTIC_MODELS",
+    "HOURLY_FIELDS_SNOW_PROFILE",
+    "PRESSURE_LEVELS_SNOW_HPA",
     "ModelSpec",
     "resolve_model_spec",
     "AlertSummary",
