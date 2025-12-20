@@ -16,8 +16,8 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[4]
-DEFAULT_TERRAIN_DB = PACKAGE_ROOT / "ibf" / "assets" / "terrain" / "global_terrain_ultra_compressed.pkl.gz"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_TERRAIN_DB = REPO_ROOT / "assets" / "terrain" / "global_terrain_ultra_compressed.pkl.gz"
 
 
 class TerrainLookup:
@@ -38,7 +38,7 @@ class TerrainLookup:
         if not self.db_path.exists():
             raise FileNotFoundError(
                 f"Terrain database not found at {self.db_path}. "
-                "Please add 'global_terrain_ultra_compressed.pkl.gz' under ibf/assets/terrain."
+                "Please add 'global_terrain_ultra_compressed.pkl.gz' under assets/terrain."
             )
         with gzip.open(self.db_path, "rb") as handle:
             data = pickle.load(handle)
@@ -166,4 +166,3 @@ def _points_in_radius(lat: float, lon: float, radius_km: int) -> List[Tuple[floa
 
 def _approx_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return math.sqrt((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2)
-

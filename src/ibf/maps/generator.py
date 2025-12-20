@@ -338,6 +338,5 @@ def _static_tile_template(tile_set: str) -> str:
     if tile_set == "terrain":
         return "https://tile.opentopomap.org/{z}/{x}/{y}.png"
     if tile_set == "satellite":
-        return "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+        return "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
     return "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-

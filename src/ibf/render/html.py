@@ -5,6 +5,7 @@ Forecast HTML generation utilities.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import html
 from pathlib import Path
 from typing import Optional
 
@@ -31,6 +32,8 @@ def render_forecast_page(page: ForecastPage) -> Path:
     """
     ensure_directory(page.destination.parent)
 
+    display_name = html.escape(page.display_name, quote=True)
+    issue_time = html.escape(page.issue_time, quote=True)
     forecast_html = _markdown_to_html(page.forecast_text)
     translated_html, translation_header = _render_translation_block(
         page.translated_text,
@@ -39,13 +42,14 @@ def render_forecast_page(page: ForecastPage) -> Path:
     ibf_html = _render_ibf_block(page.ibf_context)
 
     body_parts = [
-        f"<h1>Forecast for {page.display_name}</h1>",
-        f"<h3>Issued: {page.issue_time}</h3>",
+        f"<h1>Forecast for {display_name}</h1>",
+        f"<h3>Issued: {issue_time}</h3>",
     ]
 
     if page.map_link:
+        safe_link = html.escape(page.map_link, quote=True)
         body_parts.append(
-            f'<p class="map-link"><a href="{page.map_link}" target="_blank" rel="noopener">Show map for {page.display_name}</a></p>'
+            f'<p class="map-link"><a href="{safe_link}" target="_blank" rel="noopener">Show map for {display_name}</a></p>'
         )
 
     body_parts.append(f'<div id="forecast-content">{forecast_html}</div>')
@@ -57,26 +61,28 @@ def render_forecast_page(page: ForecastPage) -> Path:
     if ibf_html:
         body_parts.append(ibf_html)
 
+    safe_model_label = html.escape(page.model_label, quote=True)
     footer_ack = ""
     if page.model_ack_url:
-        footer_ack = f'  Additional acknowledgement: <a href="{page.model_ack_url}" target="_blank" rel="noopener">open data licence</a>.<br>'
+        safe_ack_url = html.escape(page.model_ack_url, quote=True)
+        footer_ack = f'  Additional acknowledgement: <a href="{safe_ack_url}" target="_blank" rel="noopener">open data licence</a>.<br>'
     body_parts.extend(
         [
             '<p><a href="../index.html">Return to Menu</a></p>',
             f"""<div class="footer-note">
   Forecast produced using <a href="https://github.com/tehoro/ibf" target="_blank" rel="noopener">IBF</a>, developed by <a href="mailto:neil.gordon@hey.com?subject=Comment%20on%20IBF">Neil Gordon</a>.
-  Data courtesy of <a href="https://open-meteo.com/" target="_blank" rel="noopener">open-meteo.com</a> using {page.model_label}.
+  Data courtesy of <a href="https://open-meteo.com/" target="_blank" rel="noopener">open-meteo.com</a> using {safe_model_label}.
 {footer_ack}  If you want to interactively request a forecast for a location, visit the <a href="https://chatgpt.com/g/g-4OgZFHOPA-global-ensemble-weather-forecaster" target="_blank" rel="noopener">Global Ensemble Weather Forecaster</a> (ChatGPT account required).
 </div>""",
         ]
     )
 
-    html = f"""<!DOCTYPE html>
+    html_doc = f"""<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Forecast for {page.display_name}</title>
+  <title>Forecast for {display_name}</title>
   {_STYLE_BLOCK}
 </head>
 <body>
@@ -85,7 +91,7 @@ def render_forecast_page(page: ForecastPage) -> Path:
 </body>
 </html>
 """
-    write_text_file(page.destination, html)
+    write_text_file(page.destination, html_doc)
     return page.destination
 
 
@@ -124,19 +130,20 @@ def _markdown_to_html(text: str) -> str:
             end_list()
         return "\n".join(result)
 
-    html = convert_lists(text)
-    html = re.sub(r"^### (.+)$", r"<h3>\1</h3>", html, flags=re.MULTILINE)
-    html = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html)
-    html = re.sub(r"\*(.+?)\*", r"<em>\1</em>", html)
-    html = html.replace("\n", "<br>")
-    html = re.sub(r"<br>\s*(<h3>)", r"\1", html)
-    html = re.sub(r"(</h3>)\s*<br>", r"\1", html)
-    html = re.sub(r"<br>(\s*<ul>)", r"\1", html)
-    html = re.sub(r"(<ul>)<br>", r"\1", html)
-    html = re.sub(r"</li><br><li>", r"</li><li>", html)
-    html = re.sub(r"</li><br>(\s*</ul>)", r"</li>\1", html)
-    html = re.sub(r"(</ul>)<br>", r"\1", html)
-    return html.strip()
+    safe_text = html.escape(text or "", quote=True)
+    html_output = convert_lists(safe_text)
+    html_output = re.sub(r"^### (.+)$", r"<h3>\1</h3>", html_output, flags=re.MULTILINE)
+    html_output = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html_output)
+    html_output = re.sub(r"\*(.+?)\*", r"<em>\1</em>", html_output)
+    html_output = html_output.replace("\n", "<br>")
+    html_output = re.sub(r"<br>\s*(<h3>)", r"\1", html_output)
+    html_output = re.sub(r"(</h3>)\s*<br>", r"\1", html_output)
+    html_output = re.sub(r"<br>(\s*<ul>)", r"\1", html_output)
+    html_output = re.sub(r"(<ul>)<br>", r"\1", html_output)
+    html_output = re.sub(r"</li><br><li>", r"</li><li>", html_output)
+    html_output = re.sub(r"</li><br>(\s*</ul>)", r"</li>\1", html_output)
+    html_output = re.sub(r"(</ul>)<br>", r"\1", html_output)
+    return html_output.strip()
 
 
 def _render_translation_block(text: Optional[str], language: Optional[str]) -> tuple[Optional[str], Optional[str]]:
@@ -150,7 +157,10 @@ def _render_translation_block(text: Optional[str], language: Optional[str]) -> t
         "de": "German",
     }
     display_name = lang_map.get(language, language)
-    header = f"<h2>Forecast in {display_name}{f' ({language})' if display_name != language else ''}</h2>"
+    safe_display = html.escape(display_name, quote=True)
+    safe_language = html.escape(language, quote=True)
+    suffix = f" ({safe_language})" if display_name != language else ""
+    header = f"<h2>Forecast in {safe_display}{suffix}</h2>"
     return _markdown_to_html(text), header
 
 
@@ -211,4 +221,3 @@ function toggleIbfContext() {
   }
 }
 </script>"""
-

@@ -132,7 +132,7 @@ def test_cli_run_generates_forecasts(
     area_page = web_root / slugify("Sample Area") / "index.html"
     html = area_page.read_text(encoding="utf-8")
     assert "Show map for Sample Area" in html
-    assert "../maps/samplearea.png" in html
+    assert f"../maps/{slugify('Sample Area')}.png" in html
 
     hash_file = web_root / ".ibf_maps_hash"
     assert hash_file.exists()
@@ -149,4 +149,3 @@ def test_cli_run_generates_forecasts(
     assert state["areas"][slugify("Sample Regional")] == expected_area_hash(
         "Sample Regional", ["Test City", "Second City"]
     )
-

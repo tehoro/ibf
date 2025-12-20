@@ -673,7 +673,7 @@ def _collect_location_payload(
 
     # Optional second request to fetch pressure-level profiles for snow-level calculations.
     if units.snow_levels_enabled and resolved_model.kind == "deterministic":
-        if (highest_terrain is not None) and (not _has_any_freezing_level(raw_forecast)):
+        if not _has_any_freezing_level(raw_forecast):
             if resolved_model.model_id in _SNOW_PROFILE_UNSUPPORTED_MODELS:
                 logger.info(
                     "Snow levels: skipping profile fetch (model '%s' has no pressure-level data in this environment)",
@@ -1456,9 +1456,8 @@ def _location_translation_language(location: LocationConfig, config: ForecastCon
 
 def _area_translation_language(area: AreaConfig, config: ForecastConfig) -> Optional[str]:
     """Determine the translation language for an area-level forecast."""
-    # Areas don't geocode a single point, so `lang` is commonly used as a shorthand
-    # for the desired translation language when `translation_language` is not set.
-    return area.translation_language or area.lang or config.translation_language
+    # Translation aliases are normalized in the config model.
+    return area.translation_language or config.translation_language
 
 
 def _maybe_translate(

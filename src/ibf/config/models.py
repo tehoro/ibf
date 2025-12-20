@@ -22,16 +22,29 @@ class LocationConfig(BaseModel):
 
     Attributes:
         name: Display name (e.g., "London, UK").
-        lang: Language code for geocoding (default "en").
         translation_language: Optional target language for translation.
+        lang: Deprecated alias for translation_language.
         units: Dictionary of unit preferences (e.g., {"temperature_unit": "celsius"}).
     """
     name: str
     lang: Optional[str] = None
     translation_language: Optional[str] = None
+    translation_lang: Optional[str] = Field(default=None, exclude=True)
     units: Dict[str, str] = Field(default_factory=dict)
     snow_levels: Optional[bool] = None
     model: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_translation_aliases(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+        if not data.get("translation_language"):
+            legacy = data.get("translation_lang") or data.get("lang")
+            if legacy:
+                data = dict(data)
+                data["translation_language"] = legacy
+        return data
 
 
 class AreaConfig(BaseModel):
@@ -41,8 +54,8 @@ class AreaConfig(BaseModel):
     Attributes:
         name: Display name for the area.
         locations: List of location names that comprise the area.
-        lang: Language code.
         translation_language: Optional target language.
+        lang: Deprecated alias for translation_language.
         mode: "area" (summary) or "regional" (breakdown).
         units: Dictionary of unit preferences.
     """
@@ -50,10 +63,23 @@ class AreaConfig(BaseModel):
     locations: List[str]
     lang: Optional[str] = None
     translation_language: Optional[str] = None
+    translation_lang: Optional[str] = Field(default=None, exclude=True)
     mode: Literal["area", "regional"] = "area"
     units: Dict[str, str] = Field(default_factory=dict)
     snow_levels: Optional[bool] = None
     model: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_translation_aliases(cls, data: Any):
+        if not isinstance(data, dict):
+            return data
+        if not data.get("translation_language"):
+            legacy = data.get("translation_lang") or data.get("lang")
+            if legacy:
+                data = dict(data)
+                data["translation_language"] = legacy
+        return data
 
 
 class ForecastConfig(BaseModel):
@@ -99,6 +125,7 @@ class ForecastConfig(BaseModel):
     llm: Optional[str] = None
     context_llm: Optional[str] = None
     translation_language: Optional[str] = None
+    translation_lang: Optional[str] = Field(default=None, exclude=True)
     translation_llm: Optional[str] = None
     recent_overwrite_minutes: int = 0
     snow_levels: bool = False
@@ -120,6 +147,9 @@ class ForecastConfig(BaseModel):
         if not data.get("model") and data.get("ensemble_model"):
             data = dict(data)
             data["model"] = data.get("ensemble_model")
+        if not data.get("translation_language") and data.get("translation_lang"):
+            data = dict(data)
+            data["translation_language"] = data.get("translation_lang")
         return data
 
     @property
@@ -161,4 +191,3 @@ def load_config(path: Path | str) -> ForecastConfig:
         return ForecastConfig.model_validate(raw_data)
     except ValidationError as exc:
         raise ConfigError(str(exc)) from exc
-

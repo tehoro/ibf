@@ -48,7 +48,7 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
     Resolve a place name into coordinates.
 
     First attempts to use the Open-Meteo Geocoding API. If that fails or returns no results,
-    it falls back to the Google Geocoding API (required). Results are cached.
+    it falls back to the Google Geocoding API when a key is available. Results are cached.
 
     Args:
         name: The place name to search for (e.g., "London, UK").
@@ -58,10 +58,6 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
         A GeocodeResult object if found, otherwise None.
     """
     secrets = get_secrets()
-    if not secrets.google_api_key:
-        raise RuntimeError(
-            "GOOGLE_API_KEY is required for geocoding. Set it in your environment or .env file."
-        )
 
     normalized = name.strip().lower()
     cache = _read_cache()
@@ -106,6 +102,12 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
             )
 
     if result is None:
+        if not secrets.google_api_key:
+            logger.warning(
+                "GOOGLE_API_KEY not set; unable to fall back to Google geocoding for '%s'.",
+                name,
+            )
+            return None
         result = _google_geocode(name, secrets.google_api_key)
         if result is None:
             return None
@@ -196,4 +198,3 @@ def _extract_country_code(result_entry: dict) -> Optional[str]:
         if "country" in component.get("types", []):
             return component.get("short_name")
     return None
-

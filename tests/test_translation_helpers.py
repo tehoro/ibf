@@ -21,3 +21,12 @@ def test_translation_language_precedence() -> None:
     assert _area_translation_language(config.areas[0], config) == "French"
     assert _area_translation_language(config.areas[1], config) == "German"
 
+
+def test_translation_language_aliases() -> None:
+    config = ForecastConfig(translation_lang="Italian")
+    location = LocationConfig(name="Primary", translation_lang="French")
+    area = AreaConfig(name="Area", locations=["Primary"], translation_lang="Spanish")
+
+    assert config.translation_language == "Italian"
+    assert _location_translation_language(location, config) == "French"
+    assert _area_translation_language(area, config) == "Spanish"
