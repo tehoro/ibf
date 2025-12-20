@@ -8,6 +8,7 @@ import gzip
 import logging
 import math
 import pickle
+import sys
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
@@ -16,8 +17,15 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-DEFAULT_TERRAIN_DB = REPO_ROOT / "assets" / "terrain" / "global_terrain_ultra_compressed.pkl.gz"
+def _resolve_assets_root() -> Path:
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    if bundle_root:
+        return Path(bundle_root)
+    return Path(__file__).resolve().parents[3]
+
+
+ASSETS_ROOT = _resolve_assets_root()
+DEFAULT_TERRAIN_DB = ASSETS_ROOT / "assets" / "terrain" / "global_terrain_ultra_compressed.pkl.gz"
 
 
 class TerrainLookup:

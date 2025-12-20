@@ -48,6 +48,30 @@ If you hit PEP 668 “externally-managed-environment” errors, always use the u
 
 ---
 
+## Standalone macOS CLI (Apple silicon)
+If you prefer a standalone binary (no Python/uv needed), download the latest macOS arm64 release from GitHub and run it directly.
+
+1) **Download the release ZIP** from the GitHub Releases page.
+2) **Unzip and run**:
+   ```bash
+   ./ibf run --config /path/to/config.json
+   ```
+3) **Set API keys** in `~/.config/ibf/.env` (or set `IBF_ENV_PATH` to a custom .env file):
+   ```bash
+   mkdir -p ~/.config/ibf
+   cat <<'EOF' > ~/.config/ibf/.env
+   GOOGLE_API_KEY=
+   OPENWEATHERMAP_API_KEY=
+   OPENAI_API_KEY=
+   OPENROUTER_API_KEY=
+   GEMINI_API_KEY=
+   EOF
+   ```
+
+If macOS blocks the binary on first run, open **System Settings → Privacy & Security** and allow it.
+
+---
+
 ### Step 1 – Download the toolkit
 
 1. Visit <https://github.com/tehoro/ibf>.
@@ -312,4 +336,3 @@ Because `ibf_cache/` is git-ignored, blowing it away is the fastest way to guara
   `PYTHONUNBUFFERED=1 uv run ibf run --log-level debug --config path/to/config.json`.
 
 Once you have `.env` and `config.json` dialed in, you can schedule `uv run ibf run --config ...` with cron, Windows Task Scheduler, or any automation tool. The program automatically refreshes web scaffolding, map images, forecasts, translations, and impact context every time it runs.
-

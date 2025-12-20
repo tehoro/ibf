@@ -5,13 +5,29 @@ Settings/secret loading helpers.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from functools import lru_cache
 from typing import Optional
 
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
-load_dotenv()
+
+def _load_dotenv() -> None:
+    env_path = os.getenv("IBF_ENV_PATH")
+    if env_path:
+        load_dotenv(dotenv_path=env_path, override=False)
+        return
+
+    user_env = Path("~/.config/ibf/.env").expanduser()
+    if user_env.exists():
+        load_dotenv(dotenv_path=user_env, override=False)
+        return
+
+    load_dotenv()
+
+
+_load_dotenv()
 
 
 class Secrets(BaseModel):
@@ -44,4 +60,3 @@ def get_secrets() -> Secrets:
     """
     values = {field.alias: os.getenv(field.alias) for field in Secrets.model_fields.values()}
     return Secrets(**values)
-
