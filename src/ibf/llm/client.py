@@ -9,7 +9,6 @@ import re
 import json
 from typing import Any, Optional, Tuple
 
-import google.generativeai as genai
 from openai import OpenAI
 
 from .settings import LLMSettings
@@ -108,21 +107,50 @@ def _call_openai_compatible(
 
 def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
     """Invoke the Google Gemini SDK and return cleaned text."""
-    genai.configure(api_key=settings.api_key)
-    model = genai.GenerativeModel(
-        model_name=settings.model,
-        generation_config={
-            "temperature": settings.temperature,
-            "max_output_tokens": settings.max_tokens,
-        },
+    from google import genai
+    from google.genai import types
+
+    client = genai.Client(api_key=settings.api_key)
+    config = types.GenerateContentConfig(
+        temperature=settings.temperature,
+        max_output_tokens=settings.max_tokens,
         system_instruction=system_prompt,
     )
-    response = model.generate_content(prompt, stream=False)
-    if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
-        text = response.candidates[0].content.parts[0].text
-    else:
-        raise RuntimeError(f"Gemini response was empty or blocked: {getattr(response.prompt_feedback, 'block_reason', 'unknown')}")
-    return _clean_llm_output(text or "")
+    try:
+        response = client.models.generate_content(
+            model=settings.model,
+            contents=prompt,
+            config=config,
+        )
+    except Exception as exc:
+        logger.warning("Gemini request failed with system instruction; retrying (%s)", exc)
+        fallback_config = types.GenerateContentConfig(
+            temperature=settings.temperature,
+            max_output_tokens=settings.max_tokens,
+        )
+        response = client.models.generate_content(
+            model=settings.model,
+            contents=f"{system_prompt}\n\n{prompt}",
+            config=fallback_config,
+        )
+
+    text = (getattr(response, "text", None) or "").strip()
+    if text:
+        return _clean_llm_output(text)
+
+    candidates = getattr(response, "candidates", None)
+    if candidates:
+        candidate = candidates[0]
+        content = getattr(candidate, "content", None)
+        parts = getattr(content, "parts", None) if content is not None else None
+        if parts:
+            text_value = getattr(parts[0], "text", None)
+            if text_value:
+                return _clean_llm_output(text_value)
+
+    raise RuntimeError(
+        f"Gemini response was empty or blocked: {getattr(response, 'prompt_feedback', None)}"
+    )
 
 
 def _clean_llm_output(text: str) -> str:
@@ -276,4 +304,3 @@ def consume_last_cost_cents() -> float:
     value = _LAST_COST_CENTS
     _LAST_COST_CENTS = 0.0
     return value
-
