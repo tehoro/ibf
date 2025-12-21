@@ -74,7 +74,8 @@ If you prefer a standalone binary (no Python/uv needed), download the latest rel
 
 If you prefer, you can also place a `.env` file in the current directory. Cache files are created under `./ibf_cache` wherever you run the binary.
 
-If macOS blocks the binary on first run, open **System Settings → Privacy & Security** and allow it.
+If macOS blocks the binary on first run, open **System Settings → Privacy & Security** and allow apps from identified developers.
+Windows builds are unsigned; SmartScreen may warn. Use **More info → Run anyway** after verifying the SHA256 if needed.
 
 ---
 
