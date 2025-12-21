@@ -49,12 +49,16 @@ If you hit PEP 668 “externally-managed-environment” errors, always use the u
 ---
 
 ## Standalone macOS CLI (Apple silicon)
-If you prefer a standalone binary (no Python/uv needed), download the latest macOS release for your machine (arm64 for Apple Silicon, x86_64 for Intel) and run it directly.
+If you prefer a standalone binary (no Python/uv needed), download the latest release for your machine (macOS arm64, macOS x86_64, or Windows x86_64) and run it directly.
 
 1) **Download the release ZIP** from the GitHub Releases page.
 2) **Unzip and run**:
    ```bash
    ./ibf run --config /path/to/config.json
+   ```
+   Windows users can run:
+   ```powershell
+   .\ibf.exe run --config C:\path\to\config.json
    ```
 3) **Set API keys** in `~/.config/ibf/.env` (or set `IBF_ENV_PATH` to a custom .env file):
    ```bash
