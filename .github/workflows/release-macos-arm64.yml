@@ -34,12 +34,17 @@ jobs:
 
       - name: Import signing certificate
         id: codesign
-        if: ${{ secrets.MACOS_SIGNING_CERT_BASE64 != '' && secrets.MACOS_SIGNING_CERT_PASSWORD != '' && secrets.MACOS_SIGNING_IDENTITY != '' }}
         env:
           MACOS_SIGNING_CERT_BASE64: ${{ secrets.MACOS_SIGNING_CERT_BASE64 }}
           MACOS_SIGNING_CERT_PASSWORD: ${{ secrets.MACOS_SIGNING_CERT_PASSWORD }}
           MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
         run: |
+          if [ -z "$MACOS_SIGNING_CERT_BASE64" ] || [ -z "$MACOS_SIGNING_CERT_PASSWORD" ] || [ -z "$MACOS_SIGNING_IDENTITY" ]; then
+            echo "Signing secrets missing; skipping codesign."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          set -euo pipefail
           KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
           CERT_PATH="$RUNNER_TEMP/ibf_signing.p12"
           echo "$MACOS_SIGNING_CERT_BASE64" | base64 -D > "$CERT_PATH"
@@ -54,12 +59,17 @@ jobs:
           echo "signed=true" >> "$GITHUB_OUTPUT"
 
       - name: Notarize binary
-        if: ${{ steps.codesign.outputs.signed == 'true' && secrets.APPLE_ID != '' && secrets.APPLE_TEAM_ID != '' && secrets.APPLE_APP_PASSWORD != '' }}
+        if: ${{ steps.codesign.outputs.signed == 'true' }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
+          if [ -z "$APPLE_ID" ] || [ -z "$APPLE_TEAM_ID" ] || [ -z "$APPLE_APP_PASSWORD" ]; then
+            echo "Notarization secrets missing; skipping notarization."
+            exit 0
+          fi
+          set -euo pipefail
           ditto -c -k --sequesterRsrc --keepParent dist/ibf "$RUNNER_TEMP/ibf-notarize.zip"
           xcrun notarytool submit "$RUNNER_TEMP/ibf-notarize.zip" \
             --apple-id "$APPLE_ID" \
