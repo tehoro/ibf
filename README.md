@@ -68,6 +68,8 @@ If you prefer a standalone binary (no Python/uv needed), download the latest mac
    EOF
    ```
 
+If you prefer, you can also place a `.env` file in the current directory. Cache files are created under `./ibf_cache` wherever you run the binary.
+
 If macOS blocks the binary on first run, open **System Settings → Privacy & Security** and allow it.
 
 ---
