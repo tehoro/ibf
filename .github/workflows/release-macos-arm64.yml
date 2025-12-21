@@ -76,7 +76,8 @@ jobs:
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --wait
-          xcrun stapler staple dist/ibf
+          echo "Notarization accepted; skipping stapling for standalone CLI binary."
+          spctl -a -vv --type execute dist/ibf || true
 
       - name: Package release
         run: |
