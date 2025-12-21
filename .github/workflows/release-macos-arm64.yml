@@ -192,9 +192,7 @@ jobs:
 
       - name: Build binary
         run: |
-          python -m PyInstaller --clean --onefile --name ibf ^
-            --add-data "assets/terrain/global_terrain_ultra_compressed.pkl.gz;assets/terrain" ^
-            packaging/ibf_entrypoint.py
+          python -m PyInstaller --clean --onefile --name ibf --add-data "assets/terrain/global_terrain_ultra_compressed.pkl.gz;assets/terrain" packaging/ibf_entrypoint.py
 
       - name: Smoke test
         run: .\dist\ibf.exe --version
