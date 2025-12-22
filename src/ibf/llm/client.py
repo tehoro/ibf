@@ -114,30 +114,27 @@ def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
 
     logging.getLogger("google_genai.models").setLevel(logging.WARNING)
 
+    global _LAST_COST_CENTS
+    _LAST_COST_CENTS = 0.0
+
     with _force_gemini_api_key(settings.api_key):
         client = genai.Client(api_key=settings.api_key)
         config = _build_gemini_config(types, system_prompt, settings)
-        try:
-            response = client.models.generate_content(
-                model=settings.model,
-                contents=prompt,
-                config=config,
-            )
-        except Exception as exc:
-            logger.warning("Gemini request failed with system instruction; retrying (%s)", exc)
-            fallback_config = types.GenerateContentConfig(
-                temperature=settings.temperature,
-                max_output_tokens=settings.max_tokens,
-            )
-            response = client.models.generate_content(
-                model=settings.model,
-                contents=f"{system_prompt}\n\n{prompt}",
-                config=fallback_config,
-            )
+        response = _call_gemini_once(client, settings.model, prompt, config, system_prompt, settings)
+        _LAST_COST_CENTS += _log_gemini_usage_and_cost(settings.model, getattr(response, "usage_metadata", None))
 
     text = (getattr(response, "text", None) or "").strip()
     if text:
-        return _clean_llm_output(text)
+        cleaned = _clean_llm_output(text)
+        final_text = _maybe_continue_gemini(
+            client,
+            types,
+            settings,
+            system_prompt,
+            cleaned,
+            response,
+        )
+        return final_text
 
     candidates = getattr(response, "candidates", None)
     if candidates:
@@ -147,7 +144,16 @@ def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
         if parts:
             text_value = getattr(parts[0], "text", None)
             if text_value:
-                return _clean_llm_output(text_value)
+                cleaned = _clean_llm_output(text_value)
+                final_text = _maybe_continue_gemini(
+                    client,
+                    types,
+                    settings,
+                    system_prompt,
+                    cleaned,
+                    response,
+                )
+                return final_text
 
     raise RuntimeError(
         f"Gemini response was empty or blocked: {getattr(response, 'prompt_feedback', None)}"
@@ -178,6 +184,131 @@ def _build_gemini_config(types_module, system_prompt: str, settings: LLMSettings
                 except TypeError:
                     continue
     return types_module.GenerateContentConfig(**config_kwargs)
+
+
+def _call_gemini_once(client, model_name: str, prompt: str, config, system_prompt: str, settings: LLMSettings):
+    """Single Gemini call with a fallback that inlines the system prompt."""
+    try:
+        return client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=config,
+        )
+    except Exception as exc:
+        logger.warning("Gemini request failed with system instruction; retrying (%s)", exc)
+        fallback_config = type(config)(
+            temperature=settings.temperature,
+            max_output_tokens=settings.max_tokens,
+        )
+        return client.models.generate_content(
+            model=model_name,
+            contents=f"{system_prompt}\n\n{prompt}",
+            config=fallback_config,
+        )
+
+
+def _maybe_continue_gemini(client, types_module, settings: LLMSettings, system_prompt: str, text: str, response):
+    """Attempt to continue if Gemini hit the max output limit."""
+    if not _gemini_finished_by_limit(response):
+        return text
+
+    combined = text
+    config = _build_gemini_config(types_module, system_prompt, settings)
+    for _ in range(2):
+        continuation_prompt = (
+            "You are continuing a response that was cut off.\n"
+            "Do NOT repeat any text already provided.\n"
+            "Finish the cut-off sentence if needed, then continue with the remaining content.\n\n"
+            f"Previous response:\n{combined}\n\n"
+            "Continue:"
+        )
+        next_response = _call_gemini_once(
+            client,
+            settings.model,
+            continuation_prompt,
+            config,
+            system_prompt,
+            settings,
+        )
+        global _LAST_COST_CENTS
+        _LAST_COST_CENTS += _log_gemini_usage_and_cost(settings.model, getattr(next_response, "usage_metadata", None))
+        next_text = (getattr(next_response, "text", None) or "").strip()
+        if not next_text:
+            break
+        combined = (combined.rstrip() + "\n" + _clean_llm_output(next_text).lstrip()).strip()
+        if not _gemini_finished_by_limit(next_response):
+            break
+    return combined
+
+
+def _gemini_finished_by_limit(response) -> bool:
+    """Return True if Gemini indicates output was cut off by token limit."""
+    candidates = getattr(response, "candidates", None)
+    if not candidates:
+        return False
+    reason = getattr(candidates[0], "finish_reason", None)
+    if reason is None:
+        return False
+    if isinstance(reason, str):
+        reason_name = reason
+    else:
+        reason_name = getattr(reason, "name", str(reason))
+    return reason_name.upper() in {"MAX_TOKENS", "MAX_TOKEN", "LENGTH", "TOKEN_LIMIT"}
+
+
+def _log_gemini_usage_and_cost(model_name: str, usage_metadata: Any) -> float:
+    """Log Gemini usage and return estimated cost in USD cents."""
+    if not usage_metadata:
+        logger.info(
+            "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
+            model_name,
+            "n/a",
+            "n/a",
+            "n/a",
+            "n/a",
+            "n/a",
+        )
+        return 0.0
+
+    def _get(obj: Any, key: str) -> Any:
+        if hasattr(obj, key):
+            return getattr(obj, key)
+        if isinstance(obj, dict):
+            return obj.get(key)
+        return None
+
+    prompt_tokens = _get(usage_metadata, "prompt_token_count")
+    completion_tokens = _get(usage_metadata, "candidates_token_count")
+    total_tokens = _get(usage_metadata, "total_token_count")
+    try:
+        prompt_tokens_i = int(prompt_tokens or 0)
+        completion_tokens_i = int(completion_tokens or 0)
+        total_tokens_i = int(total_tokens or (prompt_tokens_i + completion_tokens_i))
+    except Exception:
+        prompt_tokens_i, completion_tokens_i, total_tokens_i = 0, 0, 0
+
+    cost_entry = get_model_cost(model_name)
+    cost_display = "n/a"
+    cost_cents = 0.0
+    if cost_entry:
+        usd = cost_entry.cost_for_usage(
+            input_tokens=prompt_tokens_i,
+            output_tokens=completion_tokens_i,
+            cached_input_tokens=0,
+        )
+        cost_cents = usd * 100
+        cost_display = f"{cost_cents:.2f}"
+
+    logger.info(
+        "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
+        model_name,
+        prompt_tokens_i,
+        0,
+        completion_tokens_i,
+        total_tokens_i,
+        cost_display,
+    )
+    return cost_cents
 
 
 @contextmanager

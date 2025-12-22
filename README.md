@@ -249,6 +249,7 @@ Notes:
 - Impact context uses Gemini search when `context_llm` is a Gemini model (the default).
 - If `context_llm` is set to a non-Gemini model, impact context uses OpenAI web search and requires `OPENAI_API_KEY`.
 - If a model string is unrecognized, IBF falls back to an OpenRouter model and will require `OPENROUTER_API_KEY`.
+- Keep `GOOGLE_API_KEY` (Geocoding/Elevation) and `GEMINI_API_KEY` (Gemini) separate; they are issued in different consoles and are not interchangeable.
 
 Google Geocoding API key (step-by-step)
 ---------------------------------------
