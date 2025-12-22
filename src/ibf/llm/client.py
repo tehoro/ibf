@@ -26,6 +26,7 @@ def generate_forecast_text(
     settings: LLMSettings,
     *,
     reasoning: Optional[dict] = None,
+    thinking_level: Optional[str] = None,
 ) -> str:
     """
     Execute the LLM request and return the cleaned forecast text.
@@ -42,7 +43,7 @@ def generate_forecast_text(
         The generated forecast text, cleaned of any "thinking" artifacts.
     """
     if settings.is_google:
-        return _call_gemini(prompt, system_prompt, settings)
+        return _call_gemini(prompt, system_prompt, settings, thinking_level=thinking_level)
     return _call_openai_compatible(prompt, system_prompt, settings, reasoning=reasoning)
 
 
@@ -107,7 +108,13 @@ def _call_openai_compatible(
     return cleaned
 
 
-def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
+def _call_gemini(
+    prompt: str,
+    system_prompt: str,
+    settings: LLMSettings,
+    *,
+    thinking_level: Optional[str] = None,
+) -> str:
     """Invoke the Google Gemini SDK and return cleaned text."""
     from google import genai
     from google.genai import types
@@ -119,7 +126,7 @@ def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
 
     with _force_gemini_api_key(settings.api_key):
         client = genai.Client(api_key=settings.api_key)
-        config = _build_gemini_config(types, system_prompt, settings)
+        config = _build_gemini_config(types, system_prompt, settings, thinking_level=thinking_level)
         response = _call_gemini_once(client, settings.model, prompt, config, system_prompt, settings)
         _LAST_COST_CENTS += _log_gemini_usage_and_cost(settings.model, getattr(response, "usage_metadata", None))
 
@@ -133,6 +140,7 @@ def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
             system_prompt,
             cleaned,
             response,
+            thinking_level=thinking_level,
         )
         return final_text
 
@@ -152,6 +160,7 @@ def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
                     system_prompt,
                     cleaned,
                     response,
+                    thinking_level=thinking_level,
                 )
                 return final_text
 
@@ -160,13 +169,34 @@ def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
     )
 
 
-def _build_gemini_config(types_module, system_prompt: str, settings: LLMSettings):
+def _build_gemini_config(
+    types_module,
+    system_prompt: str,
+    settings: LLMSettings,
+    *,
+    thinking_level: Optional[str] = None,
+):
     """Build a Gemini GenerateContentConfig, disabling AFC when supported."""
     config_kwargs = {
         "temperature": settings.temperature,
         "max_output_tokens": settings.max_tokens,
         "system_instruction": system_prompt,
     }
+    if thinking_level:
+        thinking_cls = getattr(types_module, "ThinkingConfig", None)
+        if thinking_cls:
+            try:
+                thinking_config = thinking_cls(thinking_level=thinking_level)
+                for key in ("thinking_config", "thinkingConfig"):
+                    try:
+                        types_module.GenerateContentConfig(**{**config_kwargs, key: thinking_config})
+                    except TypeError:
+                        continue
+                    else:
+                        config_kwargs[key] = thinking_config
+                        break
+            except TypeError:
+                pass
     afc_cls = getattr(types_module, "AutomaticFunctionCallingConfig", None)
     if afc_cls:
         afc_value = None
@@ -180,9 +210,12 @@ def _build_gemini_config(types_module, system_prompt: str, settings: LLMSettings
         if afc_value is not None:
             for key in ("automatic_function_calling", "automatic_function_calling_config"):
                 try:
-                    return types_module.GenerateContentConfig(**{**config_kwargs, key: afc_value})
+                    types_module.GenerateContentConfig(**{**config_kwargs, key: afc_value})
                 except TypeError:
                     continue
+                else:
+                    config_kwargs[key] = afc_value
+                    break
     return types_module.GenerateContentConfig(**config_kwargs)
 
 
@@ -207,13 +240,27 @@ def _call_gemini_once(client, model_name: str, prompt: str, config, system_promp
         )
 
 
-def _maybe_continue_gemini(client, types_module, settings: LLMSettings, system_prompt: str, text: str, response):
+def _maybe_continue_gemini(
+    client,
+    types_module,
+    settings: LLMSettings,
+    system_prompt: str,
+    text: str,
+    response,
+    *,
+    thinking_level: Optional[str] = None,
+):
     """Attempt to continue if Gemini hit the max output limit."""
     if not _gemini_finished_by_limit(response):
         return text
 
     combined = text
-    config = _build_gemini_config(types_module, system_prompt, settings)
+    config = _build_gemini_config(
+        types_module,
+        system_prompt,
+        settings,
+        thinking_level=thinking_level,
+    )
     for _ in range(2):
         continuation_prompt = (
             "You are continuing a response that was cut off.\n"

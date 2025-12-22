@@ -274,7 +274,7 @@ Global settings:
 | `translation_language` | Default translation language. | English output is always produced; translations are additional. |
 | `translation_lang` | Legacy alias for `translation_language`. | Backwards compatible. |
 | `enable_reasoning` | Enable model reasoning when supported. | Boolean; defaults to true. |
-| `location_reasoning` | Reasoning level for location forecasts. | `low`, `medium`, `high`, `auto`, or `off`. |
+| `location_reasoning` | Reasoning level for location forecasts. | `off`/`minimal`, `low`, `medium`, `high`, or `auto`. |
 | `area_reasoning` | Reasoning level for area forecasts. | Same values as above. |
 | `location_forecast_days` | Days of forecast for locations. | Defaults to 4 when unset. |
 | `area_forecast_days` | Days of forecast for areas. | Defaults to location days or 4. |
@@ -372,6 +372,12 @@ Provider naming:
 
 Impact context is separate: it uses Gemini search by default (`context_llm = gemini-3-flash-preview`),
 or OpenAI web search when `context_llm` is a non-Gemini model.
+
+Reasoning levels (forecast text):
+- The reasoning settings apply to direct OpenAI and direct Gemini models only (OpenRouter calls ignore them).
+- OpenAI reasoning models use `reasoning.effort` with `low`/`medium`/`high`; `minimal` maps to `low`, and `off` disables the reasoning payload.
+- Gemini 3 Flash uses `thinkingLevel` with `minimal`/`low`/`medium`/`high`; `off` maps to `minimal` (Gemini does not fully disable thinking).
+- `auto` lets the provider choose its default (dynamic) behavior.
 
 Cache behavior (technical)
 --------------------------

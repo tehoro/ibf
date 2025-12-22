@@ -276,12 +276,16 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
                 impact_context=ibf_context or "",
             )
             logger.info("Requesting LLM forecast for '%s' using model %s", name, llm_settings.model)
+            reasoning_enabled = _as_bool(config.enable_reasoning)
+            reasoning_level = getattr(config, "location_reasoning", None)
             reasoning_payload = (
-                _reasoning_payload(
-                    _as_bool(config.enable_reasoning),
-                    getattr(config, "location_reasoning", None),
-                )
+                _reasoning_payload(reasoning_enabled, reasoning_level)
                 if _supports_reasoning(llm_settings)
+                else None
+            )
+            thinking_level = (
+                _gemini_thinking_level(reasoning_enabled, reasoning_level)
+                if llm_settings and llm_settings.is_google
                 else None
             )
             _snapshot_prompt("location", name, llm_settings.model, system_prompt, prompt)
@@ -290,6 +294,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
                 system_prompt,
                 llm_settings,
                 reasoning=reasoning_payload,
+                thinking_level=thinking_level,
             )
             _record_cost("Location", unique_name, forecast=consume_last_cost_cents())
         except Exception as exc:
@@ -405,12 +410,16 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
                 impact_instruction=impact_instr if ibf_context else "",
                 impact_context=ibf_context or "",
             )
+            reasoning_enabled = _as_bool(config.enable_reasoning)
+            reasoning_level = getattr(config, "area_reasoning", None)
             reasoning_payload = (
-                _reasoning_payload(
-                    _as_bool(config.enable_reasoning),
-                    getattr(config, "area_reasoning", None),
-                )
+                _reasoning_payload(reasoning_enabled, reasoning_level)
                 if _supports_reasoning(llm_settings)
+                else None
+            )
+            thinking_level = (
+                _gemini_thinking_level(reasoning_enabled, reasoning_level)
+                if llm_settings and llm_settings.is_google
                 else None
             )
             _snapshot_prompt("area", area.name, llm_settings.model, system_prompt, prompt)
@@ -419,6 +428,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
                 system_prompt,
                 llm_settings,
                 reasoning=reasoning_payload,
+                thinking_level=thinking_level,
             )
             _record_cost("Area", area.name, forecast=consume_last_cost_cents())
             logger.info("Requesting area LLM forecast for '%s' using model %s", area.name, llm_settings.model)
@@ -536,12 +546,16 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
                 impact_instruction=impact_instr if ibf_context else "",
                 impact_context=ibf_context or "",
             )
+            reasoning_enabled = _as_bool(config.enable_reasoning)
+            reasoning_level = getattr(config, "area_reasoning", None)
             reasoning_payload = (
-                _reasoning_payload(
-                    _as_bool(config.enable_reasoning),
-                    getattr(config, "area_reasoning", None),
-                )
+                _reasoning_payload(reasoning_enabled, reasoning_level)
                 if _supports_reasoning(llm_settings)
+                else None
+            )
+            thinking_level = (
+                _gemini_thinking_level(reasoning_enabled, reasoning_level)
+                if llm_settings and llm_settings.is_google
                 else None
             )
             _snapshot_prompt(
@@ -556,6 +570,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
                 system_prompt,
                 llm_settings,
                 reasoning=reasoning_payload,
+                thinking_level=thinking_level,
             )
             logger.info("Requesting regional LLM forecast for '%s' using model %s", area.name, llm_settings.model)
             _record_cost("Regional", area.name, forecast=consume_last_cost_cents())
@@ -1570,7 +1585,7 @@ def _windspeed_unit_for_api(value: str) -> str:
 
 
 _REASONING_DISABLE = {"off", "disable", "disabled", "none", "false"}
-_REASONING_LEVELS = {"low", "medium", "high", "auto"}
+_REASONING_LEVELS = {"minimal", "low", "medium", "high", "auto"}
 _REASONING_MODEL_KEYWORDS = ("o1", "o3", "o4", "gpt-4.1", "gpt-5")
 
 
@@ -1583,7 +1598,7 @@ def _reasoning_payload(enabled: bool, level: Optional[str]) -> Optional[dict]:
     effort, max_tokens, disable_override = _parse_reasoning_setting(level)
     if disable_override:
         return None
-    resolved_effort = effort or "medium"
+    resolved_effort = "low" if effort == "minimal" else (effort or "medium")
     payload: dict[str, object] = {"reasoning": {"effort": resolved_effort}}
     if max_tokens:
         payload["max_output_tokens"] = max_tokens
@@ -1620,3 +1635,19 @@ def _supports_reasoning(settings: Optional[LLMSettings]) -> bool:
         return False
     model_name = (settings.model or "").lower()
     return any(keyword in model_name for keyword in _REASONING_MODEL_KEYWORDS)
+
+
+def _gemini_thinking_level(enabled: bool, level: Optional[str]) -> Optional[str]:
+    """
+    Map reasoning settings to Gemini thinking levels.
+
+    Gemini 3 Flash does not support full thinking-off; "off"/"false" is mapped to "minimal".
+    """
+    effort, _, disable_override = _parse_reasoning_setting(level)
+    if not enabled or disable_override:
+        return "minimal"
+    if not effort or effort == "auto":
+        return None
+    if effort in {"minimal", "low", "medium", "high"}:
+        return effort
+    return None
