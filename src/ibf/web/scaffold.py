@@ -167,7 +167,7 @@ def _resolve_model_spec_for_location(location, config: ForecastConfig):
     """Helper to resolve model spec for a location (similar to executor's version)."""
     candidate = getattr(location, "model", None)
     if not candidate:
-        candidate = getattr(config, "model", None) or getattr(config, "ensemble_model", None)
+        candidate = getattr(config, "model", None)
     if not candidate:
         candidate = f"ens:{DEFAULT_ENSEMBLE_MODEL}"
     return resolve_model_spec(str(candidate))
@@ -284,4 +284,3 @@ def generate_site_structure(config: ForecastConfig, *, force: bool = False) -> S
     report.menu_written = True
 
     return report
-

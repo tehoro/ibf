@@ -132,6 +132,8 @@ IBF uses a single JSON file. It has three sections:
 - locations
 - areas
 
+Use proper JSON types for numbers and booleans (e.g., `4` and `true`), and reserve strings for model names or labels.
+
 At least one location or area is required. If web_root is omitted, output defaults to outputs/forecasts.
 
 Minimal example:
@@ -264,13 +266,11 @@ Global settings:
 | Field | Meaning | Notes |
 | --- | --- | --- |
 | `model` | Default forecast model for all locations/areas. | Use `ens:<id>` or `det:<id>`. Defaults to `ens:ecmwf_ifs025`. |
-| `ensemble_model` | Legacy alias for `model`. | Backwards compatible. |
 | `snow_levels` | Enable snow-level estimates. | Only applies to deterministic models. |
 | `llm` | Model used for forecast text. | Supports OpenRouter, OpenAI, and Gemini naming. |
 | `context_llm` | Model used for impact context. | Defaults to `gemini-3-flash-preview` if omitted. |
 | `translation_llm` | Optional model used for translations only. | Used only if translation is enabled. |
 | `translation_language` | Default translation language. | English output is always produced; translations are additional. |
-| `translation_lang` | Legacy alias for `translation_language`. | Backwards compatible. |
 | `enable_reasoning` | Enable model reasoning when supported. | Boolean; defaults to true. |
 | `location_reasoning` | Reasoning level for location forecasts. | `off`/`minimal`, `low`, `medium`, `high`, or `auto`. |
 | `area_reasoning` | Reasoning level for area forecasts. | Same values as above. |
@@ -294,7 +294,6 @@ Locations:
 | `model` | Override the global model. | Use `ens:` or `det:`. |
 | `snow_levels` | Override global `snow_levels`. | Deterministic only. |
 | `translation_language` | Per-location translation language. | Overrides global. |
-| `translation_lang` / `lang` | Legacy alias for translation language. | Backwards compatible. |
 | `units` | Per-location unit overrides. | See Units section. |
 
 Areas:
@@ -307,7 +306,6 @@ Areas:
 | `model` | Override the global model. | Use `ens:` or `det:`. |
 | `snow_levels` | Override global `snow_levels`. | Deterministic only. |
 | `translation_language` | Per-area translation language. | Overrides global. |
-| `translation_lang` / `lang` | Legacy alias for translation language. | Backwards compatible. |
 | `units` | Per-area unit overrides. | See Units section. |
 
 Units

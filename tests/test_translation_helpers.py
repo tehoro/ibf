@@ -10,7 +10,7 @@ def test_translation_language_precedence() -> None:
             LocationConfig(name="Fallback"),
         ],
         areas=[
-            AreaConfig(name="Area", locations=["Primary"], lang="French"),
+            AreaConfig(name="Area", locations=["Primary"], translation_language="French"),
             AreaConfig(name="DefaultArea", locations=["Fallback"]),
         ],
     )
@@ -22,11 +22,10 @@ def test_translation_language_precedence() -> None:
     assert _area_translation_language(config.areas[1], config) == "German"
 
 
-def test_translation_language_aliases() -> None:
-    config = ForecastConfig(translation_lang="Italian")
-    location = LocationConfig(name="Primary", translation_lang="French")
-    area = AreaConfig(name="Area", locations=["Primary"], translation_lang="Spanish")
+def test_translation_language_defaults() -> None:
+    config = ForecastConfig()
+    location = LocationConfig(name="Primary")
+    area = AreaConfig(name="Area", locations=["Primary"])
 
-    assert config.translation_language == "Italian"
-    assert _location_translation_language(location, config) == "French"
-    assert _area_translation_language(area, config) == "Spanish"
+    assert _location_translation_language(location, config) is None
+    assert _area_translation_language(area, config) is None

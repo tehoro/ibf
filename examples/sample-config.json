@@ -2,21 +2,21 @@
    "model": "det:ecmwf_ifs",
    "llm": "or:openai/gpt-5.1",
    "context_llm": "gpt-4o",
-   "enable_reasoning": "true",
+   "enable_reasoning": true,
    "translation_llm": "or:openai/gpt-5-mini",
 
 
-  "location_forecast_days": "4",
+  "location_forecast_days": 4,
   "location_wordiness": "normal",
   "location_reasoning": "medium",
-  "location_impact_based": "true",
-  "location_thin_select": "10",
+  "location_impact_based": true,
+  "location_thin_select": 10,
 
-  "area_forecast_days": "2",
+  "area_forecast_days": 2,
   "area_wordiness": "normal",
   "area_reasoning": "medium",
-  "area_impact_based": "true",
-  "area_thin_select": "10",
+  "area_impact_based": true,
+  "area_thin_select": 10,
 
   "units": {
     "temperature_unit": "celsius",
@@ -25,7 +25,7 @@
   },
 
   "web_root": "./outputs/example-site",
-  "recent_overwrite_minutes": "0",
+  "recent_overwrite_minutes": 0,
 
 
 

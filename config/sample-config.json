@@ -1,33 +1,30 @@
 {
-   "model": "ens:ecmwf_aifs025",
-   "llm": "or:openai/gpt-5.1",
-   "context_llm": "gpt-4o",
-   "web_root": "./outputs/example-site",
+  "model": "ens:ecmwf_aifs025",
+  "llm": "or:openai/gpt-5.1",
+  "context_llm": "gpt-4o",
+  "web_root": "./outputs/example-site",
 
-  "location_forecast_days": "4",
+  "location_forecast_days": 4,
   "location_wordiness": "normal",
   "location_reasoning": "high",
-  "location_impact_based": "true",
-  "location_thin_select": "10",
+  "location_impact_based": true,
+  "location_thin_select": 10,
 
-  "area_forecast_days": "2",
+  "area_forecast_days": 2,
   "area_wordiness": "normal",
   "area_reasoning": "high",
-  "area_impact_based": "true",
-  "area_thin_select": "10",
+  "area_impact_based": true,
+  "area_thin_select": 10,
 
   "snow_levels": false,
-  "enable_reasoning": "true",
-  "recent_overwrite_minutes": "0",
-
-
-
+  "enable_reasoning": true,
+  "recent_overwrite_minutes": 0,
 
   "locations": [
     {
       "name": "Otaki, New Zealand",
       "model": "ens:ecmwf_aifs025",
-      "lang": "Maori",
+      "translation_language": "Maori",
 
       "units": {
         "temperature_unit": "celsius",
@@ -55,7 +52,7 @@
     },
     {
       "name": "Kingston, Jamaica",
-      "lang": "jam",
+      "translation_language": "jam",
       "model": "ens:icon_seamless",
       "units": {
         "windspeed_unit": "mph",
@@ -66,7 +63,7 @@
   "areas": [
     {
       "name": "Trinidad and Tobago",
-      "lang": "Trinidadian Creole English",
+      "translation_language": "Trinidadian Creole English",
       "snow_levels": false,
       "model": "ens:gem_global",
       "locations": [
@@ -83,6 +80,5 @@
         "Roxborough, Trinidad and Tobago"
       ]
     }
-  ],
- 
+  ]
 }

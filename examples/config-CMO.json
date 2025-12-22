@@ -2,22 +2,22 @@
    "model": "ens:ecmwf_ifs025",
    "llm 5.1": "or:openai/gpt-5.1",
    "llm" : "or:nex-agi/deepseek-v3.1-nex-n1:free",
-   "enable_reasoning": "true",
+   "enable_reasoning": true,
    "translation_llm_usual": "or:openai/gpt-5-mini",
     "translation_llm" : "or:nex-agi/deepseek-v3.1-nex-n1:free",
 
 
-  "location_forecast_days": "5",
+  "location_forecast_days": 5,
   "location_wordiness": "detailed",
   "location_reasoning": "high",
-  "location_impact_based": "true",
-  "location_thin_select": "10",
+  "location_impact_based": true,
+  "location_thin_select": 10,
 
-  "area_forecast_days": "2",
+  "area_forecast_days": 2,
   "area_wordiness": "detailed",
   "area_reasoning": "high",
-  "area_impact_based": "true",
-  "area_thin_select": "10",
+  "area_impact_based": true,
+  "area_thin_select": 10,
 
   "units": {
     "temperature_unit": "celsius",
@@ -26,7 +26,7 @@
   },
 
   "web_root": "./outputs/example-site/CMOens",
-  "recent_overwrite_minutes": "0",
+  "recent_overwrite_minutes": 0,
 
 
     "locations": [

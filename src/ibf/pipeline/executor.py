@@ -31,7 +31,7 @@ from ..api import (
     resolve_model_spec,
 )
 from ..render import ForecastPage, render_forecast_page
-from ..util import slugify, write_text_file, ensure_directory
+from ..util import slugify, write_text_file, ensure_directory, utc_now
 from ..util.elevation import get_highest_point
 from ..util.snow import should_check_snow_level
 from .dataset import build_processed_days
@@ -221,6 +221,8 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
     name = location.name
     unique_name = display_name or name
     logger.info("Processing location '%s' (display: '%s')", name, unique_name)
+    if _should_skip_recent_output(config, unique_name, context="location"):
+        return None
     model_spec = _resolve_model_spec(location, config)
     snow_feature_enabled = _snow_levels_enabled(location, config, model_spec)
     units = _resolve_units(location, global_units=config.units, use_snow_levels=snow_feature_enabled)
@@ -344,6 +346,8 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
 def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Generate an area-level forecast (single text block) across representative spots."""
     logger.info("Processing area '%s'", area.name)
+    if _should_skip_recent_output(config, area.name, context="area"):
+        return
     area_model_spec = _resolve_model_spec(area, config)
     base_units = _resolve_units(
         area,
@@ -481,6 +485,8 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
 def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Produce a regional forecast that is broken down by sub-regions."""
     logger.info("Processing regional area '%s'", area.name)
+    if _should_skip_recent_output(config, area.name, context="regional"):
+        return
     area_model_spec = _resolve_model_spec(area, config)
     base_units = _resolve_units(
         area,
@@ -920,8 +926,7 @@ def _resolve_model_spec(config_obj: object, config: ForecastConfig) -> ModelSpec
     if config_obj is not None:
         candidate = getattr(config_obj, "model", None)
     if not candidate:
-        # Prefer the unified global name ("model"), but accept legacy "ensemble_model".
-        candidate = getattr(config, "model", None) or getattr(config, "ensemble_model", None)
+        candidate = getattr(config, "model", None)
     if not candidate:
         candidate = f"ens:{DEFAULT_ENSEMBLE_MODEL}"
     return resolve_model_spec(str(candidate))
@@ -1483,6 +1488,34 @@ def _resolve_forecast_days(raw_value, fallback: int) -> int:
     if parsed <= 0:
         return 1
     return parsed
+
+
+def _should_skip_recent_output(config: ForecastConfig, name: str, *, context: str) -> bool:
+    """Skip regeneration if the existing output is newer than recent_overwrite_minutes."""
+    try:
+        max_age_minutes = int(config.recent_overwrite_minutes or 0)
+    except (TypeError, ValueError):
+        max_age_minutes = 0
+    if max_age_minutes <= 0:
+        return False
+    destination = _build_destination_path(config, name)
+    if not destination.exists():
+        return False
+    try:
+        age_seconds = utc_now().timestamp() - destination.stat().st_mtime
+    except OSError:
+        return False
+    age_minutes = max(age_seconds / 60.0, 0.0)
+    if age_minutes < max_age_minutes:
+        logger.info(
+            "Skipping %s forecast for '%s' (output updated %.1f minutes ago; recent_overwrite_minutes=%s).",
+            context,
+            name,
+            age_minutes,
+            max_age_minutes,
+        )
+        return True
+    return False
 
 
 def _build_destination_path(config: ForecastConfig, name: str) -> Path:
