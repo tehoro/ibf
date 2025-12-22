@@ -192,14 +192,11 @@ Deterministic model examples
 Maps (optional)
 --------------
 If areas are defined, IBF can generate maps:
-- Default engine: static
-- Optional engine: folium (requires Chrome + chromedriver for PNG output)
 
 Use:
 ```text
 --maps / --no-maps
 --map-tiles osm|terrain|satellite
---map-engine static|folium
 ```
 
 Advanced: Install from source (technical option)
@@ -405,7 +402,6 @@ Common `run` options:
 - `--maps/--no-maps` toggles automatic map generation.
 - `--force-maps` regenerates maps even if the hash is unchanged.
 - `--map-tiles osm|terrain|satellite` selects tile set.
-- `--map-engine static|folium` selects the renderer.
 
 Troubleshooting (technical)
 ---------------------------
