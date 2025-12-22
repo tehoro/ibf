@@ -1,351 +1,427 @@
-Unified impact-based forecast CLI and service.
+Impact-Based Forecast (IBF) Toolkit
+==================================
 
-## Impact-Based Forecast (IBF) Toolkit
+IBF is a command-line tool that turns weather model data into clear, impact-based forecast text and publishes it as simple HTML pages.
 
-IBF is a single command-line program that reads a `config.json` file, pulls the latest ensemble weather data, asks your preferred LLM to write impact-focused forecast text (plus optional translations), and publishes ready-to-share HTML pages (with optional maps) to a folder of your choice. This guide walks you through every step with the assumption that you are setting it up for the first time.
+History
+-------
+IBF was developed by Neil Gordon starting in late 2022 after the release of the first version of ChatGPT. It reflects extensive experimentation in converting numerical model output into readable, useful forecast text for public communication.
 
-### Preferred citation
+What IBF Does
+------------
+- Reads a JSON configuration file (locations, areas, output folder, model choices).
+- Pulls the latest model data from Open-Meteo (ensemble or deterministic).
+- Optionally adds alerts (OpenWeatherMap) and impact context (LLM search).
+- Uses an LLM to write plain-language forecasts (plus optional translations).
+- Publishes simple HTML pages that can be viewed locally or hosted on a web server.
+
+Quick Start (Recommended)
+------------------------
+
+Step 1: Download the latest release
+- Go to the GitHub Releases page and download the build for your machine:
+  - macOS arm64 (Apple Silicon)
+  - macOS x86_64 (Intel)
+  - Windows x86_64
+
+Step 2: Create a working folder
+Create a folder where you will keep the binary, config files, and outputs. For example:
+
+```text
+ibf/
+  ibf
+  config/
+  outputs/
+  ibf_cache/
+```
+
+The cache folders are created automatically the first time you run IBF.
+On Windows the binary is named ibf.exe.
+
+Step 3: Set up your .env file
+Create a .env file in your working folder (or use ~/.config/ibf/.env). Example:
+
+```text
+GOOGLE_API_KEY=
+OPENWEATHERMAP_API_KEY=
+GEMINI_API_KEY=
+OPENROUTER_API_KEY=
+OPENAI_API_KEY=
+```
+
+Notes:
+- IBF looks for ~/.config/ibf/.env first, then a .env file in the current directory.
+- You can also set IBF_ENV_PATH to point to a specific .env file.
+
+Step 4: Create a config file
+Create a JSON config file in your config folder. You can name it anything; it just needs
+to be valid JSON.
+
+Options:
+- Download examples/sample-config.json from the GitHub repo and edit it, or
+- Start from the minimal example in the Configuration File Guide below.
+
+Step 5: Run IBF
+
+macOS or Linux:
+```text
+./ibf run --config config/my-config.json
+```
+
+Windows:
+```text
+.\ibf.exe run --config config\my-config.json
+```
+
+Outputs will be written to the web_root specified in the config.
+
+API Keys (Simple Guidance)
+--------------------------
+
+Minimal setup for most users:
+- GOOGLE_API_KEY (recommended for reliable geocoding and elevation lookups).
+- GEMINI_API_KEY (to use Gemini models for forecasts and context).
+- OPENWEATHERMAP_API_KEY (for official alert feeds in many countries).
+
+Optional:
+- OPENROUTER_API_KEY (if you want access to many models via OpenRouter).
+- OPENAI_API_KEY (if you want to use OpenAI models directly, or for context_llm).
+
+If you do not need alerts, you can omit OPENWEATHERMAP_API_KEY.
+
+Impact context note:
+- IBF always attempts to fetch impact context. If no context LLM key is set, IBF will continue but without extra context.
+
+Recommended LLM choices
+-----------------------
+For most users, this is a good default for all three LLM uses (context, forecast, translation):
+
+- gemini-3-flash-preview
+
+Suggested config snippet:
+
+```json
+{
+  "llm": "gemini-3-flash-preview",
+  "context_llm": "gemini-3-flash-preview",
+  "translation_llm": "gemini-3-flash-preview"
+}
+```
+
+Outputs and File Structure
+--------------------------
+
+Outputs:
+- The web_root folder contains a menu page plus one subfolder per location or area.
+- Each location/area has its own index.html.
+- These files are simple static pages you can view locally or host on any web server.
+
+Caches (created automatically under ./ibf_cache):
+- forecasts: raw Open-Meteo responses
+- processed: processed datasets used for prompts
+- impact: cached impact context text
+- prompts: snapshots of LLM prompts (auto-cleaned)
+- geocode: geocoding and country lookup caches
+
+It is safe to delete the ibf_cache folder; IBF will rebuild it as needed.
+
+Configuration File Guide
+------------------------
+
+IBF uses a single JSON file. It has three sections:
+- global settings
+- locations
+- areas
+
+At least one location or area is required. If web_root is omitted, output defaults to outputs/forecasts.
+
+Minimal example:
+
+```json
+{
+  "web_root": "./outputs/example-site",
+  "llm": "gemini-3-flash-preview",
+  "context_llm": "gemini-3-flash-preview",
+  "locations": [
+    { "name": "Otaki Beach, New Zealand" }
+  ],
+  "areas": []
+}
+```
+
+Global settings (common ones)
+- model: Default forecast model. Use ens:<id> or det:<id>.
+- web_root: Output directory.
+- location_forecast_days / area_forecast_days: Days of forecast.
+- location_wordiness / area_wordiness: brief, normal, detailed.
+- location_impact_based / area_impact_based: include impact context.
+- location_thin_select / area_thin_select: reduce ensemble members for cost.
+- translation_language / translation_llm: optional translation settings.
+- units: global default units (temperature, precipitation, wind, snowfall).
+
+Locations
+Each location entry supports:
+- name (required)
+- model (override global)
+- snow_levels (only for deterministic models)
+- translation_language
+- units (temperature_unit, precipitation_unit, windspeed_unit, snowfall_unit)
+
+Areas
+Each area entry supports:
+- name (required)
+- locations (list of location names)
+- mode: "area" or "regional"
+- model (override global)
+- snow_levels (only for deterministic models)
+- translation_language
+- units (same as locations)
+
+Available ensemble models
+- ens:ecmwf_ifs025
+- ens:ecmwf_aifs025
+- ens:gem_global
+- ens:ukmo_global_ensemble_20km
+- ens:ukmo_uk_ensemble_2km
+- ens:gfs025
+- ens:icon_seamless
+
+Deterministic model examples
+- det:ecmwf_ifs
+
+Maps (optional)
+--------------
+If areas are defined, IBF can generate maps:
+- Default engine: static
+- Optional engine: folium (requires Chrome + chromedriver for PNG output)
+
+Use:
+```text
+--maps / --no-maps
+--map-tiles osm|terrain|satellite
+--map-engine static|folium
+```
+
+Advanced: Install from source (technical option)
+-----------------------------------------------
+
+If you prefer running from source:
+
+1) Install Python 3.11 or 3.12
+2) Install uv
+3) From the repo folder:
+```text
+uv venv .venv
+source .venv/bin/activate
+uv pip install -e .
+```
+
+Then run:
+```text
+uv run ibf run --config /path/to/config.json
+```
+
+Security prompts
+----------------
+macOS: If the binary is blocked on first run, open System Settings > Privacy & Security and allow apps from identified developers.
+Windows: The binary is unsigned, so SmartScreen may warn. Use More info > Run anyway after verifying the SHA256 checksum.
+
+Technical Reference (Detailed)
+------------------------------
+
+API keys and provider mapping
+-----------------------------
+
+Environment variables:
+
+| Variable | Used for | Required when |
+| --- | --- | --- |
+| `GOOGLE_API_KEY` | Geocoding and optional elevation lookup. Also used for reverse geocoding when resolving alert country codes. | Recommended for reliable geocoding/elevation. |
+| `OPENWEATHERMAP_API_KEY` | Alerts (OpenWeatherMap One Call) and fallback reverse geocoding. | Required for alerts, otherwise optional. |
+| `OPENROUTER_API_KEY` | Any model name with an `or:` prefix or unknown model names (OpenRouter). | Required for OpenRouter usage. |
+| `OPENAI_API_KEY` | OpenAI models such as `gpt-4o-mini` or `gpt-4o-latest`. | Required if using OpenAI models. |
+| `GEMINI_API_KEY` | Direct Gemini SDK usage (`gemini-*` or `google/gemini-*`). | Required if using direct Gemini models. |
+| `IBF_DEFAULT_LLM` | Optional env override for the default model when config omits `llm`. | Optional. |
+| `IBF_ENV_PATH` | Overrides the .env path. | Optional. |
+
+Notes:
+- If `GOOGLE_API_KEY` is not set, IBF will still attempt Open-Meteo geocoding first.
+- Impact context uses OpenAI web search unless `context_llm` is a Gemini model. That path requires `OPENAI_API_KEY`.
+- If `context_llm` is set to a Gemini model, the Gemini API key is required for impact context.
+- If a model string is unrecognized, IBF falls back to an OpenRouter model and will require `OPENROUTER_API_KEY`.
+
+Google Geocoding API key (step-by-step)
+---------------------------------------
+1) Go to <https://console.cloud.google.com/> and sign in.
+2) Create a new project (or select an existing one).
+3) Enable the Geocoding API (and the Elevation API if you want elevation lookups).
+4) Add billing (required by Google even for free tier).
+5) Create an API key under APIs & Services -> Credentials.
+6) Restrict the key to Geocoding (and Elevation if enabled).
+7) Paste the key into your .env as `GOOGLE_API_KEY=...`.
+
+Configuration reference (technical)
+-----------------------------------
+
+Global settings:
+
+| Field | Meaning | Notes |
+| --- | --- | --- |
+| `model` | Default forecast model for all locations/areas. | Use `ens:<id>` or `det:<id>`. Defaults to `ens:ecmwf_ifs025`. |
+| `ensemble_model` | Legacy alias for `model`. | Backwards compatible. |
+| `snow_levels` | Enable snow-level estimates. | Only applies to deterministic models. |
+| `llm` | Model used for forecast text. | Supports OpenRouter, OpenAI, and Gemini naming. |
+| `context_llm` | Model used for impact context. | Defaults to `gpt-4o` if omitted. |
+| `translation_llm` | Optional model used for translations only. | Used only if translation is enabled. |
+| `translation_language` | Default translation language. | English output is always produced; translations are additional. |
+| `translation_lang` | Legacy alias for `translation_language`. | Backwards compatible. |
+| `enable_reasoning` | Enable model reasoning when supported. | Boolean; defaults to true. |
+| `location_reasoning` | Reasoning level for location forecasts. | `low`, `medium`, `high`, `auto`, or `off`. |
+| `area_reasoning` | Reasoning level for area forecasts. | Same values as above. |
+| `location_forecast_days` | Days of forecast for locations. | Defaults to 4 when unset. |
+| `area_forecast_days` | Days of forecast for areas. | Defaults to location days or 4. |
+| `location_wordiness` | `brief`, `normal`, or `detailed`. | Default is `normal`. |
+| `area_wordiness` | `brief`, `normal`, or `detailed`. | Default is `normal`. |
+| `location_impact_based` | Include impact context for locations. | Boolean. |
+| `area_impact_based` | Include impact context for areas. | Boolean. |
+| `location_thin_select` | Thin ensemble members for locations. | Caps to model member count. |
+| `area_thin_select` | Thin ensemble members for areas. | Caps to model member count. |
+| `recent_overwrite_minutes` | Skip rewriting outputs younger than this. | Useful for cron. |
+| `web_root` | Output directory for HTML. | Defaults to `outputs/forecasts`. |
+| `units` | Global unit defaults. | See Units section below. |
+
+Locations:
+
+| Field | Meaning | Notes |
+| --- | --- | --- |
+| `name` | Display name for the location. | Required. |
+| `model` | Override the global model. | Use `ens:` or `det:`. |
+| `snow_levels` | Override global `snow_levels`. | Deterministic only. |
+| `translation_language` | Per-location translation language. | Overrides global. |
+| `translation_lang` / `lang` | Legacy alias for translation language. | Backwards compatible. |
+| `units` | Per-location unit overrides. | See Units section. |
+
+Areas:
+
+| Field | Meaning | Notes |
+| --- | --- | --- |
+| `name` | Area display name. | Required. |
+| `locations` | Location names included in the area. | Must match `locations[*].name`. |
+| `mode` | `area` (summary) or `regional` (per-location breakdown). | Default is `area`. |
+| `model` | Override the global model. | Use `ens:` or `det:`. |
+| `snow_levels` | Override global `snow_levels`. | Deterministic only. |
+| `translation_language` | Per-area translation language. | Overrides global. |
+| `translation_lang` / `lang` | Legacy alias for translation language. | Backwards compatible. |
+| `units` | Per-area unit overrides. | See Units section. |
+
+Units
+-----
+
+Units are set globally under `units` and can be overridden per location/area. You can add
+secondary units in parentheses, for example: `"windspeed_unit": "mph (kph)"`.
+
+Supported keys and values:
+- `temperature_unit`: `celsius` or `fahrenheit`
+- `precipitation_unit`: `mm` or `inch` (also accepts `in`, `inches`)
+- `snowfall_unit`: `cm` or `inch` (defaults to `cm`, or `inch` if precipitation is in inches)
+- `windspeed_unit`: `kph`, `mph`, `mps`, `kt` (accepts `kmh`, `km/h`, `ms`, `kn`, `knots`)
+- `altitude_m`: numeric override for station altitude (meters), used for snow levels
+
+Models
+------
+
+Model strings:
+- `ens:<id>` selects ensemble models.
+- `det:<id>` selects deterministic models.
+- For backwards compatibility, bare ensemble IDs (e.g., `ecmwf_ifs025`) are treated as ensemble.
+
+Ensemble models:
+
+| ID | Members | Description |
+| --- | --- | --- |
+| `ecmwf_ifs025` | 51 | ECMWF IFS 0.25 deg ensemble |
+| `ecmwf_aifs025` | 51 | ECMWF AIFS 0.25 deg ensemble |
+| `gem_global` | 21 | ECCC GEM Global ensemble |
+| `ukmo_global_ensemble_20km` | 21 | UKMO MOGREPS-G 20 km ensemble |
+| `ukmo_uk_ensemble_2km` | 3 | UKMO MOGREPS-UK 2 km ensemble |
+| `gfs025` | 31 | NOAA GFS 0.25 deg ensemble |
+| `icon_seamless` | 40 | DWD ICON seamless ensemble |
+
+Deterministic models:
+
+| ID | Description |
+| --- | --- |
+| `ecmwf_ifs` | ECMWF IFS HRES 9 km deterministic |
+
+Snow levels:
+- Snow levels are only computed for deterministic models when `snow_levels` is enabled.
+- Some models may return freezing-level or pressure-level fields as all null; in that case
+  snow-level output is omitted for that model.
+
+Forecast/translation LLM selection rules
+---------------------------------------
+
+Resolution order (highest to lowest):
+1) Explicit override (e.g., `translation_llm` for translation calls)
+2) `llm` from config
+3) `IBF_DEFAULT_LLM` environment variable
+4) Default OpenRouter fallback (`google/gemini-2.5-pro-exp-03-25`)
+
+Provider naming:
+- OpenRouter: `or:provider/model` (requires `OPENROUTER_API_KEY`)
+- OpenAI: `gpt-4o-mini`, `gpt-4o-latest` (requires `OPENAI_API_KEY`)
+- Gemini direct: `gemini-3-flash-preview` or `google/gemini-3-flash-preview` (requires `GEMINI_API_KEY`)
+
+Impact context is separate: it uses OpenAI web search by default (`context_llm = gpt-4o`), or
+Gemini search when `context_llm` starts with `gemini-`.
+
+Cache behavior (technical)
+--------------------------
+
+IBF writes lightweight caches under `ibf_cache/` so repeated runs are faster. It is always
+safe to delete the entire folder.
+
+| Cache | Location | Purpose | Expiration |
+| --- | --- | --- | --- |
+| Forecast downloads | `ibf_cache/forecasts/*.json` | Raw Open-Meteo responses keyed by request parameters. | TTL default 60 minutes; files older than 48 hours are cleaned when a new request runs. |
+| Processed datasets | `ibf_cache/processed/*.json` | Pre-processed dataset used for prompts and fallback text. | Overwritten on next run for the same location. |
+| Geocode cache | `ibf_cache/geocode/search_cache.json` | Place name -> lat/lon/timezone cache. | No TTL; delete to refresh. |
+| Country cache | `ibf_cache/geocode/country_cache.json` | Lat/lon -> country code for alert routing. | No TTL; delete to refresh. |
+| Impact context | `ibf_cache/impact/*.json` | Impact context text and metadata. | Reused for up to 3 local days. |
+| Prompt snapshots | `ibf_cache/prompts/*.txt` | Prompt snapshots for debugging. | Older than 3 days are cleaned; a small number are retained. |
+
+CLI commands and options
+------------------------
+
+Commands:
+- `ibf run --config path/to/config.json` runs the full pipeline.
+- `ibf scaffold --config ...` refreshes the web root structure and menu.
+- `ibf maps --config ...` regenerates area maps (supports `--area`, `--tiles`, `--engine`).
+- `ibf config-hash --config ...` prints the deterministic config hash.
+
+Common `run` options:
+- `--dry-run` validates config without writing outputs.
+- `--maps/--no-maps` toggles automatic map generation.
+- `--force-maps` regenerates maps even if the hash is unchanged.
+- `--map-tiles osm|terrain|satellite` selects tile set.
+- `--map-engine static|folium` selects the renderer.
+
+Troubleshooting (technical)
+---------------------------
+
+- Missing API key errors: verify `.env` and rerun with the same working directory.
+- Geocoding failures: ensure the Google Geocoding API is enabled and billing is active.
+- LLM errors: confirm the model string matches the provider and that the correct API key is set.
+- Outputs not updating: check `recent_overwrite_minutes` or delete the target HTML.
+- Maps not regenerating: use `--force-maps` or delete `<web_root>/.ibf_maps_hash`.
+
+License
+-------
+Apache-2.0. See LICENSE and NOTICE.
+
+Preferred citation
+------------------
 If you use this toolkit in research or a product, please cite:
 
 Neil Gordon. IBF (Impact-Based Forecast Toolkit): LLM-ready impact-based forecast generation. 2025. GitHub repository.
 https://github.com/tehoro/ibf
-
----
-
-## Quick start (simplest path)
-1) **Install uv** (recommended):  
-   `curl -LsSf https://astral.sh/uv/install.sh | sh`
-
-2) **Get the code**: clone or unzip the repo into a project folder (often named `ibf`).
-
-3) **Set up the virtual env (from inside the project folder)**:
-   ```bash
-   uv venv .venv
-   source .venv/bin/activate
-   uv pip install -e .   # or: uv sync
-   ```
-
-4) **Create your secrets file with required API keys**:
-   ```bash
-   # Create a file named ".env" in this folder and paste your keys, e.g.:
-   cat <<'EOF' > .env
-   GOOGLE_API_KEY=
-   OPENWEATHERMAP_API_KEY=
-   OPENAI_API_KEY=
-   # Optional (only if you use these providers):
-   OPENROUTER_API_KEY=
-   GEMINI_API_KEY=
-   EOF
-   ```
-
-5) **Create a config** (JSON):  
-   ```bash
-   cp examples/sample-config.json /path/to/config.json   # place it anywhere you like
-   # edit that file to match your locations/areas/web_root/etc.
-   ```
-
-6) **Run IBF**:
-   ```bash
-   uv run ibf run --config /path/to/config.json
-   ```
-   Outputs go under the `web_root` you set in the config. If you enable folium/Chrome screenshots for maps, ensure Chrome + chromedriver are installed locally.
-
-If you hit PEP 668 “externally-managed-environment” errors, always use the uv venv + `uv pip` shown above instead of system `pip`.
-
----
-
-## Standalone macOS CLI (Apple silicon)
-If you prefer a standalone binary (no Python/uv needed), download the latest release for your machine (macOS arm64, macOS x86_64, or Windows x86_64) and run it directly.
-
-1) **Download the release ZIP** from the GitHub Releases page.
-2) **Unzip and run**:
-   ```bash
-   ./ibf run --config /path/to/config.json
-   ```
-   Windows users can run:
-   ```powershell
-   .\ibf.exe run --config C:\path\to\config.json
-   ```
-3) **Set API keys** in `~/.config/ibf/.env` (or set `IBF_ENV_PATH` to a custom .env file):
-   ```bash
-   mkdir -p ~/.config/ibf
-   cat <<'EOF' > ~/.config/ibf/.env
-   GOOGLE_API_KEY=
-   OPENWEATHERMAP_API_KEY=
-   OPENAI_API_KEY=
-   OPENROUTER_API_KEY=
-   GEMINI_API_KEY=
-   EOF
-   ```
-
-If you prefer, you can also place a `.env` file in the current directory. Cache files are created under `./ibf_cache` wherever you run the binary.
-
-If macOS blocks the binary on first run, open **System Settings → Privacy & Security** and allow apps from identified developers.
-Windows builds are unsigned; SmartScreen may warn. Use **More info → Run anyway** after verifying the SHA256 if needed.
-
----
-
-### Step 1 – Download the toolkit
-
-1. Visit <https://github.com/tehoro/ibf>.
-2. Click **Code → Download ZIP** (or run `git clone https://github.com/tehoro/ibf.git` if you use Git).
-3. Unzip or open the `ibf` folder somewhere easy to find (e.g., `Documents/IBF`).
-
-All instructions below assume you are inside that project directory (the folder you cloned/unzipped).
-
----
-
-### Step 2 – Install prerequisites
-
-1. Install Python **3.11 or 3.12**:
-   - macOS: `brew install python@3.12`
-   - Windows: download from <https://www.python.org/downloads/>.
-   - Linux: use your package manager (e.g., `sudo apt install python3.12`).
-2. Install **uv** (the tool that manages the virtual environment and dependencies):
-
-   ```bash
-   curl -LsSf https://astral.sh/uv/install.sh | sh
-   ```
-
-   Windows PowerShell users can run:
-
-   ```powershell
-   irm https://astral.sh/uv/install.ps1 | iex
-   ```
-
-3. Open a terminal/PowerShell, change to the project folder, and download the Python dependencies:
-
-   ```bash
-   cd path/to/ibf
-   uv sync
-   ```
-
----
-
-### Step 3 – Prepare your `.env` file (API keys & secrets)
-
-1. Create a file named `.env` in the project folder (same folder as `pyproject.toml`).
-2. Open `.env` in any text editor and fill in the keys below.
-
-| Variable | What it’s for | Where to get it |
-| --- | --- | --- |
-| `GOOGLE_API_KEY` *(required)* | All geocoding + optional elevation lookup | See [How to get a Google Maps Geocoding API key](#how-to-get-a-google-maps-geocoding-api-key) |
-| `OPENWEATHERMAP_API_KEY` *(required for alerts)* | Official weather alerts in most countries | <https://openweathermap.org/api> – create free account, enable **One Call** |
-| `OPENAI_API_KEY` *(required for impact context)* | Impact-context LLM calls (OpenAI-hosted) | <https://platform.openai.com/> → create API key |
-| `OPENROUTER_API_KEY` | LLMs via OpenRouter (`or:provider/model`) | <https://openrouter.ai/> → Account → API Keys |
-| `GEMINI_API_KEY` | Google Gemini models (optional) | <https://aistudio.google.com/app/apikey> |
-
-Tips:
-
-- If you only plan to use one LLM provider, you can leave the others blank.
-- API keys stay private: `.env` is already excluded from Git.
-
-#### How to get a Google Maps Geocoding API key
-
-1. **Go to the Google Cloud Console**  
-   - Visit <https://console.cloud.google.com/> and sign in with your Google account.
-
-2. **Create (or select) a project**  
-   - Use the top project selector → **New Project**. Name it something like “IBF Geocoding” and click **Create**, then switch into that project once it’s ready.
-
-3. **Enable the Geocoding API**  
-   - In the left menu choose **APIs & Services → Library**.  
-   - Search for “Geocoding API”, open it, and click **Enable**. (Enable “Elevation API” as well if you want the optional elevation data we request.)
-
-4. **Set up billing** *(required even for free tier)*  
-   - Go to **Billing** in the left menu, click **Set up billing**, and add a payment method. Google provides generous free credits and you can configure usage alerts afterwards.
-
-5. **Create an API key**  
-   - Navigate to **APIs & Services → Credentials**.  
-   - Click **+ Create credentials → API key**. Copy the generated key.
-
-6. **Restrict the key to geocoding only (recommended)**  
-   - On the Credentials list, click the pencil icon next to the new key.  
-   - Under **API restrictions**, choose **Restrict key** and tick **Geocoding API** (plus **Elevation API** if enabled). Save.
-
-7. **Add it to IBF**  
-   - Paste the key into your `.env` as `GOOGLE_API_KEY=...`. Runs will fail fast with a clear error if the key is missing.
-
-That’s it—after this setup, IBF can geocode any location globally without additional provider keys.
-
----
-
-### Step 4 – Understand the configuration file (JSON)
-
-IBF uses a single JSON file. Start by copying `examples/sample-config.json` to a convenient location (it does not have to live inside `ibf`; e.g., `/path/to/config.json`). The config has three parts: **global settings**, **locations**, and **areas**.
-
-#### 4.1 Global settings (order used in the example)
-
-| Field | Meaning | Example |
-| --- | --- | --- |
-| `model` | Default forecast model for all forecasts unless overridden per location/area. Use `ens:<id>` for ensemble models and `det:<id>` for deterministic models. | `"ens:ecmwf_aifs025"` |
-| `snow_levels` | Enable snow-level calculations (default `false`). Only applies to deterministic models; ignored for ensembles. | `false` |
-| `llm` | Primary model ID (OpenRouter: `or:provider/model`, OpenAI: `gpt-4o-mini`, Gemini: `gemini-*`). For OpenRouter names, copy from <https://openrouter.ai/models> and prefix with `or:`. | `"or:openai/gpt-5.1"` |
-| `enable_reasoning` | Whether to allow reasoning tokens if the model supports them. | `"true"` |
-| `web_root` | Where output HTML is written. Relative paths are fine. | `"./outputs/example-site"` |
-| `location_forecast_days` | Days per location forecast (stay ≤7). | `"4"` |
-| `location_wordiness` | Length guidance for locations: `normal`, `brief`, or `detailed`. | `"normal"` |
-| `location_reasoning` | Reasoning hint for locations: `low`, `medium`, or `high`. Balance quality vs cost. | `"high"` |
-| `location_impact_based` | Include impact context for locations. | `"true"` |
-| `location_thin_select` | Thin ensemble members to this count for locations (e.g., from 51 ECMWF members to 10) to save LLM cost. IBF caps at available members. | `"10"` |
-| `area_forecast_days` | Days per area/regional forecast (stay ≤7). | `"2"` |
-| `area_wordiness` | Length guidance for areas: `normal`, `brief`, or `detailed`. | `"normal"` |
-| `area_reasoning` | Reasoning hint for areas: `low`, `medium`, or `high`. | `"high"` |
-| `area_impact_based` | Include impact context for areas. | `"true"` |
-| `area_thin_select` | Thin ensemble members to this count for areas. | `"10"` |
-| `recent_overwrite_minutes` | Skip overwriting outputs newer than this many minutes. | `"0"` |
-| *(optional)* `units.*` | Global unit defaults; can be overridden per location/area. | e.g., `{"temperature_unit": "fahrenheit"}` |
-| *(optional)* `translation_llm` | Alternate model for translations only. | `""` |
-| *(optional)* `translation_language` | Default translation language if locations/areas omit one (English output is always produced; translations are additional). | `""` |
-
-#### 4.2 Locations (array of objects)
-
-Each location can include:
-
-| Field | Meaning | Example |
-| --- | --- | --- |
-| `name` | Display name; must match any area references. | `"Otaki, New Zealand"` |
-| `model` | Optional override of the global `model` for this location. Supports `ens:` / `det:` prefixes. | `"det:ecmwf_ifs"` |
-| `snow_levels` | Per-location override of `snow_levels`. Only applies to deterministic models; ignored for ensembles. | `true` |
-| `translation_language` | Per-location translation target; overrides global/default. English output is always produced; this adds a translated copy. | `"es"` |
-| `units.temperature_unit` | Temperature unit. | `"celsius"` |
-| `units.precipitation_unit` | Precipitation unit. | `"mm"` |
-| `units.windspeed_unit` | Wind unit. | `"kph"` |
-
-#### 4.3 Areas (or regional areas; array of objects)
-
-Each area can include:
-
-| Field | Meaning | Example |
-| --- | --- | --- |
-| `name` | Area display name. | `"Trinidad and Tobago"` |
-| `locations` | List of location names (must match `locations[*].name`). | `["Port of Spain, Trinidad and Tobago", ...]` |
-| `mode` | `"area"` for summary per day; `"regional"` adds sub-sections per location. | `"area"` |
-| `model` | Optional override of the global `model` for this area. Supports `ens:` / `det:` prefixes. | `"ens:gem_global"` |
-| `snow_levels` | Per-area override of `snow_levels` (applied to each location in the area). Per-location overrides still win. Only applies to deterministic models; ignored for ensembles. | `false` |
-| `translation_language` | Per-area translation target. English output is always produced; this adds a translated copy. | `"es"` |
-| `units.temperature_unit` | Temperature unit override. | `"celsius"` |
-| `units.precipitation_unit` | Precipitation unit override. | `"mm"` |
-| `units.windspeed_unit` | Wind unit override. | `"kph"` |
-
-#### 4.4 Available ensemble models
-
-You may set `model` globally or a `model` field on a specific location/area. Use `ens:` for ensembles and `det:` for deterministic models. IBF validates known ensemble IDs and automatically limits thinning to the number of members each model exposes.
-
-> Backwards compatibility: older configs using `ensemble_model` still work; they are treated as `model`.
-
-| Model ID | Members | Description |
-| --- | --- | --- |
-| `ecmwf_ifs025` | 51 | ECMWF IFS 0.25° (default). |
-| `ecmwf_aifs025` | 51 | ECMWF AIFS 0.25°. |
-| `gem_global` | 21 | Environment Canada GEM Global 25 km. |
-| `ukmo_global_ensemble_20km` | 21 | UKMO MOGREPS-G 20 km global. |
-| `ukmo_uk_ensemble_2km` | 3 | UKMO MOGREPS-UK 2 km (≈5‑day range). |
-| `gfs025` | 31 | NOAA GFS Ensemble 0.25°. |
-| `icon_seamless` | 40 | DWD ICON seamless ensemble (global + Europe). |
-
-> Snow levels: IBF can estimate “snow down to about X m” for some deterministic models when `snow_levels` is enabled. This feature is ignored for ensemble models.\n+>\n+> Important: availability depends on the upstream model. Some models may return `freezing_level_height` and/or pressure-level fields as all `null` (units `\"undefined\"`), in which case snow levels cannot be computed and will be omitted. Models like `icon_seamless` currently provide `freezing_level_height` and pressure-level variables.
-- When you run IBF, it also creates/upgrades a PNG map at `<web_root>/maps/<area-slug>.png`. Maps regenerate only when you change the list of locations for that area (or when you use `--force-maps`).
-
-#### 4.5 Units (overrides per location/area)
-
-- Global defaults are `celsius`, `mm`, `kph`. You can set `units.*` globally and override per location/area.
-- `temperature_unit`: `celsius` (default) or `fahrenheit`.
-- `precipitation_unit`: `mm` (default) or `in` (snow follows precip unit; default snow shown in cm when using mm).
-- `windspeed_unit`: `kph` (default), `mph`, `kn` (knots), or `mps` (meters per second).
-- Dual units are supported by writing the secondary in parentheses, e.g., `"mph (kph)"` or `"celsius (fahrenheit)"`. The first is primary; the second is shown alongside.
-
-#### 4.4 Full example
-
-```json
-{
-  "web_root": "outputs/example-site",
-  "llm": "openai/gpt-4o-mini",
-  "translation_llm": "or:openai/gpt-5-mini",
-  "location_forecast_days": 4,
-  "area_forecast_days": 3,
-  "locations": [
-    { "name": "London, United Kingdom", "translation_language": "fr" },
-    { "name": "Kingston, Jamaica", "translation_language": "jam" }
-  ],
-  "areas": [
-    {
-      "name": "United Kingdom Overview",
-      "locations": ["London, United Kingdom"],
-      "mode": "area"
-    },
-    {
-      "name": "Jamaica Regional Outlook",
-      "locations": ["Kingston, Jamaica"],
-      "mode": "regional"
-    }
-  ]
-}
-```
-
----
-
-### Step 5 – Run the toolkit
-
-From the project directory:
-
-```bash
-uv run ibf run --config path/to/config.json
-```
-
-Helpful options:
-
-- `--log-level debug` for extra detail.
-- `--dry-run` to validate the config without touching files.
-- `--no-maps` if you temporarily want to skip map generation.
-
-IBF logs every major step (“Reading config…”, “Fetching forecast…”, “Requesting LLM…”) so you know what it’s doing. If an LLM request fails, the program falls back to a dataset summary and keeps going.
-
----
-
-### Step 6 – Find your output
-
-- Everything lands under the `web_root` folder you set (example: `outputs/example-site`).
-  - Each location has its own subfolder with an `index.html`.
-  - Each area/regional area also gets its own subfolder and includes a “Show map” link.
-  - `maps/` holds PNG snapshots of each area.
-- `ibf_cache/` (in the project root) stores API responses and processed datasets so reruns are faster.
-- If you’re publishing to another web server, simply upload the contents of `web_root`.
-
----
-
-### Technical reference – cache behavior
-
-IBF writes several lightweight caches under `ibf_cache/` so it does not keep hitting slow or rate-limited APIs. Removing this directory at any time is safe; it will be recreated on the next run.
-
-| Cache | Location | Purpose | When it’s read | Expiration / deletion |
-| --- | --- | --- | --- | --- |
-| Forecast downloads | `ibf_cache/forecasts/<lat_lon>.json` | Raw Open-Meteo ensemble responses keyed by latitude, longitude, units, and day count. | `ibf.api.open_meteo.fetch_forecast()` reads this file before making a network call. | Used only while the file is newer than `cache_ttl_minutes` (default 60). Anything older than 48 hours is automatically deleted the next time any forecast cache is checked. Set `cache_ttl_minutes=0` in a `ForecastRequest` to skip caching altogether. |
-| Processed datasets | `ibf_cache/processed/<slug>.json` | The post-processed dataset that feeds the LLM plus the fallback “dataset preview” text. | Only written; IBF does not re-read it during the same run. | Overwritten the next time the same location/area slug runs. Safe to delete anytime for disk cleanup. |
-| Geocode search results | `ibf_cache/geocode/search_cache.json` | A normalized place-name lookup table so repeated runs don’t call Open-Meteo (or Google) again. | `ibf.api.geocode.geocode_name()` loads this map before making HTTP requests. | No TTL—delete the file to force fresh coordinates or timezone data. |
-| Reverse country lookups | `ibf_cache/geocode/country_cache.json` | Latitude/longitude → ISO country code pairs for alert provider selection. | `ibf.api.alerts._resolve_country_code()` checks here before calling Google reverse geocoding (falls back to OpenWeatherMap if available). | No automatic expiry. Remove the file if country-routing logic needs to refresh. |
-| Impact context | `ibf_cache/impact/YYYYMMDD_<type>_<slug>_<days>.json` | The structured “Impact-Based Forecast Context” text and metadata for each location/area. | `ibf.api.impact.fetch_impact_context()` will reuse the most recent file from the past three local days before asking an LLM. | Cached files older than three local days are discarded automatically when new requests run. |
-
-Because `ibf_cache/` is git-ignored, blowing it away is the fastest way to guarantee a full re-fetch of every upstream resource.
-
----
-
-### Optional commands
-
-| Command | When to use it |
-| --- | --- |
-| `uv run ibf scaffold --config ...` | Rebuild the directory/menu structure without running forecasts. Useful after adding lots of locations. |
-| `uv run ibf config-hash --config ...` | Prints a SHA-256 hash of your config. Great for cron jobs so you only run when the config changed. |
-| `uv run ibf maps --config ...` | Manually regenerate maps. Use `--area "Belize"` to limit the run, `--tiles satellite`, or `--engine folium` if you want the legacy HTML+browser capture mode. |
-
----
-
-### Troubleshooting tips
-
-- **“Missing API key” errors** – double-check `.env` and ensure you ran the commands via `uv run` so the environment file loads automatically.
-- **Geocoding failures** – confirm `GOOGLE_API_KEY` is present, the Geocoding API is enabled in the selected Google Cloud project, and billing is active (Google requires it even for free-tier usage). Restricting keys to Geocoding/Elevation only is fine.
-- **LLM model errors** – verify the `llm` name matches what your provider supports. For OpenRouter models, prefix with `or:` (e.g., `or:google/gemini-2.0-pro-exp`).
-- **Stuck or slow runs** – add `PYTHONUNBUFFERED=1` before the command to flush logs immediately:  
-  `PYTHONUNBUFFERED=1 uv run ibf run --log-level debug --config path/to/config.json`.
-
-Once you have `.env` and `config.json` dialed in, you can schedule `uv run ibf run --config ...` with cron, Windows Task Scheduler, or any automation tool. The program automatically refreshes web scaffolding, map images, forecasts, translations, and impact context every time it runs.
