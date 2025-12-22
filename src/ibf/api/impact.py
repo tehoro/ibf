@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = ensure_directory("ibf_cache/impact")
 MAX_CONTEXT_AGE_DAYS = 3
 EVENT_LOOKAHEAD_DAYS = 10
-DEFAULT_CONTEXT_LLM = "gpt-4o"
+DEFAULT_CONTEXT_LLM = "gemini-3.0-flash-preview"
 CONTEXT_SECTION_HEADINGS = [
     "Existing Vulnerabilities",
     "Weather Impact Thresholds",
@@ -405,8 +405,8 @@ def _is_gemini_model(model_name: str) -> bool:
 def _normalize_gemini_model_name(model_name: str) -> str:
     """
     Accept either:
-    - "gemini-3-flash-preview"
-    - "google/gemini-3-flash-preview"
+    - "gemini-3.0-flash-preview"
+    - "google/gemini-3.0-flash-preview"
     and normalize to the direct Gemini model name for the Google SDK.
     """
     raw = (model_name or "").strip()
@@ -793,4 +793,3 @@ def _normalize_usage(usage: Any) -> tuple[int, int, int, int]:
         return input_tokens, 0, output_tokens, total_tokens
 
     raise ValueError("Unsupported usage payload structure")
-

@@ -234,7 +234,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
         return None
     geocode = payload.geocode
     timezone_name = geocode.timezone or "UTC"
-    context_llm = (getattr(config, "context_llm", None) or "gpt-4o").strip()
+    context_llm = (getattr(config, "context_llm", None) or "gemini-3.0-flash-preview").strip()
     impact_context = fetch_impact_context(
         name,
         context_type="location",
@@ -347,7 +347,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
         return
 
     area_timezone = payloads[0].geocode.timezone or "UTC"
-    context_llm = (getattr(config, "context_llm", None) or "gpt-4o").strip()
+    context_llm = (getattr(config, "context_llm", None) or "gemini-3.0-flash-preview").strip()
     impact_context = fetch_impact_context(
         area.name,
         context_type="area",
@@ -471,7 +471,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
         return
 
     area_timezone = payloads[0].geocode.timezone or "UTC"
-    context_llm = (getattr(config, "context_llm", None) or "gpt-4o").strip()
+    context_llm = (getattr(config, "context_llm", None) or "gemini-3.0-flash-preview").strip()
     regional_context = fetch_impact_context(
         area.name,
         context_type="regional",

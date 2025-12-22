@@ -94,7 +94,17 @@ MODEL_COSTS: Dict[str, ModelCost] = {
         cached_input_per_million=0.35,
         output_per_million=3.00,
     ),
+    "gemini-3.0-flash-preview": ModelCost(
+        input_per_million=0.50,
+        cached_input_per_million=0.35,
+        output_per_million=3.00,
+    ),
     "google/gemini-3-flash-preview": ModelCost(
+        input_per_million=0.50,
+        cached_input_per_million=0.35,
+        output_per_million=3.00,
+    ),
+    "google/gemini-3.0-flash-preview": ModelCost(
         input_per_million=0.50,
         cached_input_per_million=0.35,
         output_per_million=3.00,

@@ -85,7 +85,7 @@ Minimal setup for most users:
 
 Optional:
 - OPENROUTER_API_KEY (if you want access to many models via OpenRouter).
-- OPENAI_API_KEY (if you want to use OpenAI models directly, or for context_llm).
+- OPENAI_API_KEY (if you want to use OpenAI models directly, or for impact context when context_llm is an OpenAI model).
 
 If you do not need alerts, you can omit OPENWEATHERMAP_API_KEY.
 
@@ -96,15 +96,15 @@ Recommended LLM choices
 -----------------------
 For most users, this is a good default for all three LLM uses (context, forecast, translation):
 
-- gemini-3-flash-preview
+- gemini-3.0-flash-preview
 
 Suggested config snippet:
 
 ```json
 {
-  "llm": "gemini-3-flash-preview",
-  "context_llm": "gemini-3-flash-preview",
-  "translation_llm": "gemini-3-flash-preview"
+  "llm": "gemini-3.0-flash-preview",
+  "context_llm": "gemini-3.0-flash-preview",
+  "translation_llm": "gemini-3.0-flash-preview"
 }
 ```
 
@@ -140,8 +140,8 @@ Minimal example:
 ```json
 {
   "web_root": "./outputs/example-site",
-  "llm": "gemini-3-flash-preview",
-  "context_llm": "gemini-3-flash-preview",
+  "llm": "gemini-3.0-flash-preview",
+  "context_llm": "gemini-3.0-flash-preview",
   "locations": [
     { "name": "Otaki Beach, New Zealand" }
   ],
@@ -246,8 +246,8 @@ Environment variables:
 
 Notes:
 - If `GOOGLE_API_KEY` is not set, IBF will still attempt Open-Meteo geocoding first.
-- Impact context uses OpenAI web search unless `context_llm` is a Gemini model. That path requires `OPENAI_API_KEY`.
-- If `context_llm` is set to a Gemini model, the Gemini API key is required for impact context.
+- Impact context uses Gemini search when `context_llm` is a Gemini model (the default).
+- If `context_llm` is set to a non-Gemini model, impact context uses OpenAI web search and requires `OPENAI_API_KEY`.
 - If a model string is unrecognized, IBF falls back to an OpenRouter model and will require `OPENROUTER_API_KEY`.
 
 Google Geocoding API key (step-by-step)
@@ -271,7 +271,7 @@ Global settings:
 | `ensemble_model` | Legacy alias for `model`. | Backwards compatible. |
 | `snow_levels` | Enable snow-level estimates. | Only applies to deterministic models. |
 | `llm` | Model used for forecast text. | Supports OpenRouter, OpenAI, and Gemini naming. |
-| `context_llm` | Model used for impact context. | Defaults to `gpt-4o` if omitted. |
+| `context_llm` | Model used for impact context. | Defaults to `gemini-3.0-flash-preview` if omitted. |
 | `translation_llm` | Optional model used for translations only. | Used only if translation is enabled. |
 | `translation_language` | Default translation language. | English output is always produced; translations are additional. |
 | `translation_lang` | Legacy alias for `translation_language`. | Backwards compatible. |
@@ -365,15 +365,15 @@ Resolution order (highest to lowest):
 1) Explicit override (e.g., `translation_llm` for translation calls)
 2) `llm` from config
 3) `IBF_DEFAULT_LLM` environment variable
-4) Default OpenRouter fallback (`google/gemini-2.5-pro-exp-03-25`)
+4) Default fallback (`gemini-3.0-flash-preview`)
 
 Provider naming:
 - OpenRouter: `or:provider/model` (requires `OPENROUTER_API_KEY`)
 - OpenAI: `gpt-4o-mini`, `gpt-4o-latest` (requires `OPENAI_API_KEY`)
-- Gemini direct: `gemini-3-flash-preview` or `google/gemini-3-flash-preview` (requires `GEMINI_API_KEY`)
+- Gemini direct: `gemini-3.0-flash-preview` or `google/gemini-3.0-flash-preview` (requires `GEMINI_API_KEY`)
 
-Impact context is separate: it uses OpenAI web search by default (`context_llm = gpt-4o`), or
-Gemini search when `context_llm` starts with `gemini-`.
+Impact context is separate: it uses Gemini search by default (`context_llm = gemini-3.0-flash-preview`),
+or OpenAI web search when `context_llm` is a non-Gemini model.
 
 Cache behavior (technical)
 --------------------------

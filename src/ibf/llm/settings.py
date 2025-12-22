@@ -55,7 +55,7 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
         override_choice
         or config.llm
         or os.environ.get("IBF_DEFAULT_LLM")
-        or "or:google/gemini-2.5-pro-exp-03-25:free"
+        or "gemini-3.0-flash-preview"
     )
     choice = base_choice.strip()
     choice_lower = choice.lower()
@@ -119,4 +119,3 @@ def _require_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"Environment variable {name} is required for the selected LLM.")
     return value
-
