@@ -96,15 +96,15 @@ Recommended LLM choices
 -----------------------
 For most users, this is a good default for all three LLM uses (context, forecast, translation):
 
-- gemini-3.0-flash-preview
+- gemini-3-flash-preview
 
 Suggested config snippet:
 
 ```json
 {
-  "llm": "gemini-3.0-flash-preview",
-  "context_llm": "gemini-3.0-flash-preview",
-  "translation_llm": "gemini-3.0-flash-preview"
+  "llm": "gemini-3-flash-preview",
+  "context_llm": "gemini-3-flash-preview",
+  "translation_llm": "gemini-3-flash-preview"
 }
 ```
 
@@ -140,8 +140,8 @@ Minimal example:
 ```json
 {
   "web_root": "./outputs/example-site",
-  "llm": "gemini-3.0-flash-preview",
-  "context_llm": "gemini-3.0-flash-preview",
+  "llm": "gemini-3-flash-preview",
+  "context_llm": "gemini-3-flash-preview",
   "locations": [
     { "name": "Otaki Beach, New Zealand" }
   ],
@@ -271,7 +271,7 @@ Global settings:
 | `ensemble_model` | Legacy alias for `model`. | Backwards compatible. |
 | `snow_levels` | Enable snow-level estimates. | Only applies to deterministic models. |
 | `llm` | Model used for forecast text. | Supports OpenRouter, OpenAI, and Gemini naming. |
-| `context_llm` | Model used for impact context. | Defaults to `gemini-3.0-flash-preview` if omitted. |
+| `context_llm` | Model used for impact context. | Defaults to `gemini-3-flash-preview` if omitted. |
 | `translation_llm` | Optional model used for translations only. | Used only if translation is enabled. |
 | `translation_language` | Default translation language. | English output is always produced; translations are additional. |
 | `translation_lang` | Legacy alias for `translation_language`. | Backwards compatible. |
@@ -365,14 +365,14 @@ Resolution order (highest to lowest):
 1) Explicit override (e.g., `translation_llm` for translation calls)
 2) `llm` from config
 3) `IBF_DEFAULT_LLM` environment variable
-4) Default fallback (`gemini-3.0-flash-preview`)
+4) Default fallback (`gemini-3-flash-preview`)
 
 Provider naming:
 - OpenRouter: `or:provider/model` (requires `OPENROUTER_API_KEY`)
 - OpenAI: `gpt-4o-mini`, `gpt-4o-latest` (requires `OPENAI_API_KEY`)
-- Gemini direct: `gemini-3.0-flash-preview` or `google/gemini-3.0-flash-preview` (requires `GEMINI_API_KEY`)
+- Gemini direct: `gemini-3-flash-preview` or `google/gemini-3-flash-preview` (requires `GEMINI_API_KEY`)
 
-Impact context is separate: it uses Gemini search by default (`context_llm = gemini-3.0-flash-preview`),
+Impact context is separate: it uses Gemini search by default (`context_llm = gemini-3-flash-preview`),
 or OpenAI web search when `context_llm` is a non-Gemini model.
 
 Cache behavior (technical)

@@ -55,7 +55,7 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
         override_choice
         or config.llm
         or os.environ.get("IBF_DEFAULT_LLM")
-        or "gemini-3.0-flash-preview"
+        or "gemini-3-flash-preview"
     )
     choice = base_choice.strip()
     choice_lower = choice.lower()

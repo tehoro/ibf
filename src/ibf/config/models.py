@@ -101,8 +101,8 @@ class ForecastConfig(BaseModel):
         area_impact_based: Enable impact-based context for areas.
         location_thin_select: Number of ensemble members to select for locations.
         area_thin_select: Number of ensemble members to select for areas.
-        llm: LLM model identifier (e.g., "gemini-3.0-flash-preview").
-        context_llm: LLM model identifier to use for impact-context web search (default "gemini-3.0-flash-preview").
+        llm: LLM model identifier (e.g., "gemini-3-flash-preview").
+        context_llm: LLM model identifier to use for impact-context web search (default "gemini-3-flash-preview").
         translation_language: Global default translation language.
         translation_llm: Specific LLM to use for translation.
         recent_overwrite_minutes: Prevent overwriting fresh forecasts if < N minutes old.
