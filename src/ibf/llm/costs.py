@@ -11,8 +11,16 @@ Edit `MODEL_COSTS` directly to customise or add new models.
 
 from __future__ import annotations
 
+import json
+import logging
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Dict, Optional
+
+logger = logging.getLogger(__name__)
+
+_EXTERNAL_COSTS_PATH = Path("llm_costs.json")
 
 
 @dataclass(frozen=True)
@@ -116,4 +124,38 @@ def get_model_cost(model_name: str, *, registry: Optional[Dict[str, ModelCost]] 
         registry: Optional override mapping; defaults to MODEL_COSTS.
     """
     lookup = registry or MODEL_COSTS
+    external = _load_external_costs()
+    if external and model_name in external:
+        return external[model_name]
     return lookup.get(model_name)
+
+
+@lru_cache(maxsize=1)
+def _load_external_costs() -> Optional[Dict[str, ModelCost]]:
+    if not _EXTERNAL_COSTS_PATH.exists():
+        return None
+    try:
+        payload = json.loads(_EXTERNAL_COSTS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to read llm_costs.json (%s). Ignoring override.", exc)
+        return None
+    if isinstance(payload, dict) and isinstance(payload.get("models"), dict):
+        payload = payload["models"]
+    if not isinstance(payload, dict):
+        logger.warning("Invalid llm_costs.json format; expected object of model costs.")
+        return None
+
+    parsed: Dict[str, ModelCost] = {}
+    for name, values in payload.items():
+        if not isinstance(values, dict):
+            continue
+        try:
+            parsed[name] = ModelCost(
+                input_per_million=float(values["input_per_million"]),
+                cached_input_per_million=float(values.get("cached_input_per_million", values["input_per_million"])),
+                output_per_million=float(values["output_per_million"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            logger.warning("Skipping invalid cost entry for model %s in llm_costs.json.", name)
+            continue
+    return parsed or None

@@ -14,17 +14,9 @@ from dotenv import load_dotenv
 
 
 def _load_dotenv() -> None:
-    env_path = os.getenv("IBF_ENV_PATH")
-    if env_path:
-        load_dotenv(dotenv_path=env_path, override=False)
-        return
-
-    user_env = Path("~/.config/ibf/.env").expanduser()
-    if user_env.exists():
-        load_dotenv(dotenv_path=user_env, override=False)
-        return
-
-    load_dotenv()
+    cwd_env = Path.cwd() / ".env"
+    if cwd_env.exists():
+        load_dotenv(dotenv_path=cwd_env, override=True)
 
 
 _load_dotenv()

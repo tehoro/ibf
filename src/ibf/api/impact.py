@@ -365,6 +365,8 @@ For each item, add 1–2 sentences explaining why it is relevant for an impact-b
 Formatting requirements:
 
     • Begin immediately with the first heading. Do NOT include any introduction, preamble, concluding remarks, summaries, or sign-offs.
+    • You MUST include all four headings below, even if you have no items for a section.
+    • If a section has no relevant items, still include the heading and add a single bullet: "• No relevant items found."
     • Use Markdown level-3 headings in the exact form:
         ### Existing Vulnerabilities
         ### Weather Impact Thresholds
@@ -509,7 +511,8 @@ def _generate_context_gemini_search(
     def _is_complete(text: str) -> bool:
         if not text:
             return False
-        return all(f"### {heading}" in text for heading in CONTEXT_SECTION_HEADINGS)
+        normalized = _standardize_context_headings(text)
+        return all(f"### {heading}" in normalized for heading in CONTEXT_SECTION_HEADINGS)
 
     def _looks_truncated(text: str) -> bool:
         if not text:
@@ -534,7 +537,7 @@ def _generate_context_gemini_search(
     config = types.GenerateContentConfig(
         tools=[tool],
         temperature=0.2,
-        max_output_tokens=3500,
+        max_output_tokens=6000,
     )
 
     def _call(contents: str) -> tuple[str, float]:

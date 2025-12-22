@@ -369,9 +369,11 @@ def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
 
     last_error: Optional[str] = None
     for candidate_idx, hourly_fields in enumerate(hourly_candidates, start=1):
+        latitude = round(request.latitude, 2)
+        longitude = round(request.longitude, 2)
         params = {
-            "latitude": request.latitude,
-            "longitude": request.longitude,
+            "latitude": latitude,
+            "longitude": longitude,
             "hourly": hourly_fields,
             "timezone": request.timezone,
             "forecast_days": request.forecast_days,
@@ -437,4 +439,3 @@ def _validate_response(data: Dict[str, object]) -> None:
     hourly = data.get("hourly")
     if not isinstance(hourly, dict) or "time" not in hourly:
         raise ValueError("Open-Meteo response missing 'hourly.time' data.")
-

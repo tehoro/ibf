@@ -1477,9 +1477,12 @@ def _resolve_forecast_days(raw_value, fallback: int) -> int:
     if raw_value in (None, ""):
         return fallback
     try:
-        return max(0, int(raw_value))
+        parsed = int(raw_value)
     except (TypeError, ValueError):
         return fallback
+    if parsed <= 0:
+        return 1
+    return parsed
 
 
 def _build_destination_path(config: ForecastConfig, name: str) -> Path:

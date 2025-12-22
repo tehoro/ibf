@@ -39,7 +39,7 @@ The cache folders are created automatically the first time you run IBF.
 On Windows the binary is named ibf.exe.
 
 Step 3: Set up your .env file
-Create a .env file in your working folder (or use ~/.config/ibf/.env). Example:
+Create a .env file in your working folder. Example:
 
 ```text
 GOOGLE_API_KEY=
@@ -50,8 +50,7 @@ OPENAI_API_KEY=
 ```
 
 Notes:
-- IBF looks for ~/.config/ibf/.env first, then a .env file in the current directory.
-- You can also set IBF_ENV_PATH to point to a specific .env file.
+- IBF reads `.env` from the current working directory.
 
 Step 4: Create a config file
 Create a JSON config file in your config folder. You can name it anything; it just needs
@@ -239,7 +238,6 @@ Environment variables:
 | `OPENAI_API_KEY` | OpenAI models such as `gpt-4o-mini` or `gpt-4o-latest`. | Required if using OpenAI models. |
 | `GEMINI_API_KEY` | Direct Gemini SDK usage (`gemini-*` or `google/gemini-*`). | Required if using direct Gemini models. |
 | `IBF_DEFAULT_LLM` | Optional env override for the default model when config omits `llm`. | Optional. |
-| `IBF_ENV_PATH` | Overrides the .env path. | Optional. |
 
 Notes:
 - If `GOOGLE_API_KEY` is not set, IBF will still attempt Open-Meteo geocoding first.
@@ -378,6 +376,19 @@ Reasoning levels (forecast text):
 - OpenRouter supports reasoning for select models (currently OpenAI o1/o3/GPT-5 and Grok). Other OpenRouter models ignore the reasoning settings.
 - Gemini 3 Flash uses `thinkingLevel` with `minimal`/`low`/`medium`/`high`; `off` maps to `minimal` (Gemini does not fully disable thinking).
 - `auto` lets the provider choose its default (dynamic) behavior.
+
+LLM cost overrides (optional):
+- If `llm_costs.json` exists in the working directory, IBF uses it to override cost estimates in logs.
+- Format (either top-level mapping or nested under `"models"`):
+  ```json
+  {
+    "gemini-3-flash-preview": {
+      "input_per_million": 0.50,
+      "cached_input_per_million": 0.35,
+      "output_per_million": 3.00
+    }
+  }
+  ```
 
 Cache behavior (technical)
 --------------------------
