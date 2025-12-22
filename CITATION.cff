@@ -1,0 +1,9 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "IBF (Impact-Based Forecast Toolkit)"
+authors:
+  - family-names: "Gordon"
+    given-names: "Neil"
+version: "0.2.9"
+date-released: "2025-12-22"
+url: "https://github.com/tehoro/ibf"

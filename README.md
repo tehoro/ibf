@@ -4,6 +4,12 @@ Unified impact-based forecast CLI and service.
 
 IBF is a single command-line program that reads a `config.json` file, pulls the latest ensemble weather data, asks your preferred LLM to write impact-focused forecast text (plus optional translations), and publishes ready-to-share HTML pages (with optional maps) to a folder of your choice. This guide walks you through every step with the assumption that you are setting it up for the first time.
 
+### Preferred citation
+If you use this toolkit in research or a product, please cite:
+
+Neil Gordon. IBF (Impact-Based Forecast Toolkit): LLM-ready impact-based forecast generation. 2025. GitHub repository.
+https://github.com/tehoro/ibf
+
 ---
 
 ## Quick start (simplest path)
