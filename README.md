@@ -374,8 +374,8 @@ Impact context is separate: it uses Gemini search by default (`context_llm = gem
 or OpenAI web search when `context_llm` is a non-Gemini model.
 
 Reasoning levels (forecast text):
-- The reasoning settings apply to direct OpenAI and direct Gemini models only (OpenRouter calls ignore them).
-- OpenAI reasoning models use `reasoning.effort` with `low`/`medium`/`high`; `minimal` maps to `low`, and `off` disables the reasoning payload.
+- OpenAI reasoning models (direct or via OpenRouter) use `reasoning.effort` with `low`/`medium`/`high`; `minimal` maps to `low`, and `off` disables the reasoning payload.
+- OpenRouter supports reasoning for select models (currently OpenAI o1/o3/GPT-5 and Grok). Other OpenRouter models ignore the reasoning settings.
 - Gemini 3 Flash uses `thinkingLevel` with `minimal`/`low`/`medium`/`high`; `off` maps to `minimal` (Gemini does not fully disable thinking).
 - `auto` lets the provider choose its default (dynamic) behavior.
 

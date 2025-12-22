@@ -1586,7 +1586,8 @@ def _windspeed_unit_for_api(value: str) -> str:
 
 _REASONING_DISABLE = {"off", "disable", "disabled", "none", "false"}
 _REASONING_LEVELS = {"minimal", "low", "medium", "high", "auto"}
-_REASONING_MODEL_KEYWORDS = ("o1", "o3", "o4", "gpt-4.1", "gpt-5")
+_OPENAI_REASONING_MODEL_KEYWORDS = ("o1", "o3", "o4", "gpt-4.1", "gpt-5")
+_OPENROUTER_REASONING_MODEL_KEYWORDS = ("o1", "o3", "gpt-5", "grok")
 
 
 def _reasoning_payload(enabled: bool, level: Optional[str]) -> Optional[dict]:
@@ -1631,10 +1632,14 @@ def _supports_reasoning(settings: Optional[LLMSettings]) -> bool:
     """Return True if the active LLM can accept OpenAI-style reasoning arguments."""
     if not settings or settings.is_google:
         return False
-    if settings.provider != "openai":
+    if settings.provider == "openai":
+        keywords = _OPENAI_REASONING_MODEL_KEYWORDS
+    elif settings.provider == "openrouter":
+        keywords = _OPENROUTER_REASONING_MODEL_KEYWORDS
+    else:
         return False
     model_name = (settings.model or "").lower()
-    return any(keyword in model_name for keyword in _REASONING_MODEL_KEYWORDS)
+    return any(keyword in model_name for keyword in keywords)
 
 
 def _gemini_thinking_level(enabled: bool, level: Optional[str]) -> Optional[str]:
