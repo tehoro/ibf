@@ -363,6 +363,9 @@ def _clean_llm_output(text: str) -> str:
     text = re.sub(r"Let'?s [^\n]+\n", "", text)
     text = re.sub(r"The instruction says[^\n]+\n", "", text)
 
+    # Normalize degree symbol spacing (e.g., "18 °C" -> "18°C").
+    text = re.sub(r"(-?\d+(?:\.\d+)?)\s+°\s*([CF])", r"\1°\2", text)
+
     return text.strip()
 
 
