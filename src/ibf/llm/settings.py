@@ -73,7 +73,7 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
             api_key=api_key,
             provider="gemini",
             is_google=True,
-            max_tokens=6000,
+            max_tokens=10000,
         )
 
     if choice_lower == "gpt-4o-mini":
