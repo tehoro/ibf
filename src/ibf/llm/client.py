@@ -5,9 +5,11 @@ Wrappers around OpenAI-compatible APIs and Google Gemini.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import json
 from typing import Any, Optional, Tuple
+from contextlib import contextmanager
 
 from openai import OpenAI
 
@@ -110,29 +112,28 @@ def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
     from google import genai
     from google.genai import types
 
-    client = genai.Client(api_key=settings.api_key)
-    config = types.GenerateContentConfig(
-        temperature=settings.temperature,
-        max_output_tokens=settings.max_tokens,
-        system_instruction=system_prompt,
-    )
-    try:
-        response = client.models.generate_content(
-            model=settings.model,
-            contents=prompt,
-            config=config,
-        )
-    except Exception as exc:
-        logger.warning("Gemini request failed with system instruction; retrying (%s)", exc)
-        fallback_config = types.GenerateContentConfig(
-            temperature=settings.temperature,
-            max_output_tokens=settings.max_tokens,
-        )
-        response = client.models.generate_content(
-            model=settings.model,
-            contents=f"{system_prompt}\n\n{prompt}",
-            config=fallback_config,
-        )
+    logging.getLogger("google_genai.models").setLevel(logging.WARNING)
+
+    with _force_gemini_api_key(settings.api_key):
+        client = genai.Client(api_key=settings.api_key)
+        config = _build_gemini_config(types, system_prompt, settings)
+        try:
+            response = client.models.generate_content(
+                model=settings.model,
+                contents=prompt,
+                config=config,
+            )
+        except Exception as exc:
+            logger.warning("Gemini request failed with system instruction; retrying (%s)", exc)
+            fallback_config = types.GenerateContentConfig(
+                temperature=settings.temperature,
+                max_output_tokens=settings.max_tokens,
+            )
+            response = client.models.generate_content(
+                model=settings.model,
+                contents=f"{system_prompt}\n\n{prompt}",
+                config=fallback_config,
+            )
 
     text = (getattr(response, "text", None) or "").strip()
     if text:
@@ -151,6 +152,56 @@ def _call_gemini(prompt: str, system_prompt: str, settings: LLMSettings) -> str:
     raise RuntimeError(
         f"Gemini response was empty or blocked: {getattr(response, 'prompt_feedback', None)}"
     )
+
+
+def _build_gemini_config(types_module, system_prompt: str, settings: LLMSettings):
+    """Build a Gemini GenerateContentConfig, disabling AFC when supported."""
+    config_kwargs = {
+        "temperature": settings.temperature,
+        "max_output_tokens": settings.max_tokens,
+        "system_instruction": system_prompt,
+    }
+    afc_cls = getattr(types_module, "AutomaticFunctionCallingConfig", None)
+    if afc_cls:
+        afc_value = None
+        try:
+            afc_value = afc_cls(disable=True)
+        except TypeError:
+            try:
+                afc_value = afc_cls(enabled=False)
+            except TypeError:
+                afc_value = None
+        if afc_value is not None:
+            for key in ("automatic_function_calling", "automatic_function_calling_config"):
+                try:
+                    return types_module.GenerateContentConfig(**{**config_kwargs, key: afc_value})
+                except TypeError:
+                    continue
+    return types_module.GenerateContentConfig(**config_kwargs)
+
+
+@contextmanager
+def _force_gemini_api_key(api_key: str):
+    """
+    Temporarily hide GOOGLE_API_KEY so the Gemini SDK honors GEMINI_API_KEY.
+    """
+    old_google_api_key = os.environ.get("GOOGLE_API_KEY")
+    old_gemini_api_key = os.environ.get("GEMINI_API_KEY")
+    if api_key:
+        os.environ["GEMINI_API_KEY"] = api_key
+    if "GOOGLE_API_KEY" in os.environ:
+        os.environ.pop("GOOGLE_API_KEY", None)
+    try:
+        yield
+    finally:
+        if old_gemini_api_key is not None:
+            os.environ["GEMINI_API_KEY"] = old_gemini_api_key
+        else:
+            os.environ.pop("GEMINI_API_KEY", None)
+        if old_google_api_key is not None:
+            os.environ["GOOGLE_API_KEY"] = old_google_api_key
+        else:
+            os.environ.pop("GOOGLE_API_KEY", None)
 
 
 def _clean_llm_output(text: str) -> str:
