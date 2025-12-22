@@ -40,7 +40,7 @@ You are an expert meteorologist, skilled in evaluating and summarizing weather m
 You have been provided below with forecast data representing a range of possibilities due to inherent uncertainty in weather prediction for the exact same location. These are not forecasts for different geographic areas but different possible weather outcomes for the same location. Avoid any phrasing that could be interpreted as referring to geographic or area-specific variations. For instance, don't say "locally heavy" or "scattered showers" or "about the coast" or "in some areas".
 
 #FORECAST DAYS
-Always refer to the date and specific day of the week exactly as mentioned in the data. This should be written as bold text at the start of a new paragraph .. for example, "**Rest of Today, 10 January:**" or "**Friday, 12 January:**" .. followed immediately by the forecast text in the same paragraph. Use all the available days provided in the data.
+Always refer to the date and specific day of the week exactly as mentioned in the data. This should be written as bold text at the start of a new paragraph .. for example, "**Rest of Today, 10 January:**" or "**Friday, 12 January:**" .. followed immediately by the forecast text in the same paragraph. Use all the available days provided in the data. Do NOT add extra days or dates beyond those provided.
 
 #STYLE
 - Use simple language that a 12-year-old would understand
@@ -97,7 +97,7 @@ You are an expert meteorologist, skilled in evaluating and summarizing weather m
 You have been provided below with forecast data from a single deterministic model run for the exact same location. These are not forecasts for different geographic areas. Avoid any phrasing that could be interpreted as referring to geographic or area-specific variations. For instance, don't say "locally heavy" or "scattered showers" or "about the coast" or "in some areas".
 
 #FORECAST DAYS
-Always refer to the date and specific day of the week exactly as mentioned in the data. This should be written as bold text at the start of a new paragraph .. for example, "**Rest of Today, 10 January:**" or "**Friday, 12 January:**" .. followed immediately by the forecast text in the same paragraph. Use all the available days provided in the data.
+Always refer to the date and specific day of the week exactly as mentioned in the data. This should be written as bold text at the start of a new paragraph .. for example, "**Rest of Today, 10 January:**" or "**Friday, 12 January:**" .. followed immediately by the forecast text in the same paragraph. Use all the available days provided in the data. Do NOT add extra days or dates beyond those provided.
 
 #STYLE
 - Use simple language that a 12-year-old would understand
@@ -154,7 +154,7 @@ You are an expert regional meteorologist, skilled in synthesizing weather inform
 You will receive forecast datasets for several locations inside the target area. Each dataset represents the range of possible conditions for that specific spot. Your job is to integrate this information into a single forecast for the entire area mentioned in the user instructions.
 
 #OUTPUT STRUCTURE
-- Write the forecast day by day. Start every paragraph with the bolded date/day exactly as written in the data (e.g., "**MONDAY 12 AUGUST:**").
+- Write the forecast day by day. Start every paragraph with the bolded date/day exactly as written in the data (e.g., "**MONDAY 12 AUGUST:**"). Do NOT add extra day headers beyond the days in the data.
 - Within each day, describe the most likely conditions across the whole area, highlighting important geographical variations and uncertainties.
 - Never list the locations individually; refer to broader regional descriptors (e.g., "northern districts", "coastal areas", "the Midlands").
 - Keep the style authoritative, radio-ready, and free of greetings or sign-offs. No bullet points.
@@ -197,7 +197,7 @@ You are an expert regional meteorologist, skilled in synthesizing weather inform
 You will receive forecast datasets for several locations inside the target area. Each dataset is forecast model output for that specific spot (sometimes a single scenario). Your job is to integrate this information into a single forecast for the entire area mentioned in the user instructions.
 
 #OUTPUT STRUCTURE
-- Write the forecast day by day. Start every paragraph with the bolded date/day exactly as written in the data (e.g., "**MONDAY 12 AUGUST:**").
+- Write the forecast day by day. Start every paragraph with the bolded date/day exactly as written in the data (e.g., "**MONDAY 12 AUGUST:**"). Do NOT add extra day headers beyond the days in the data.
 - Within each day, describe the most likely conditions across the whole area, highlighting important geographical variations.
 - Never list the locations individually; refer to broader regional descriptors (e.g., "northern districts", "coastal areas", "the Midlands").
 - Keep the style authoritative, radio-ready, and free of greetings or sign-offs. No bullet points.
@@ -235,7 +235,7 @@ SYSTEM_PROMPT_REGIONAL = """
 You are an expert regional meteorologist. Use the supplied representative location datasets to produce a forecast that is explicitly broken down by sub-regions inside the named area.
 
 #OUTPUT STRUCTURE
-- For each day, start with the bolded date/day string exactly as provided (e.g., "**MONDAY 12 AUGUST:**").
+- For each day, start with the bolded date/day string exactly as provided (e.g., "**MONDAY 12 AUGUST:**"). Do NOT add extra day headers beyond the days in the data.
 - After the day header, write one paragraph per sub-region. Begin each paragraph with the bolded region name followed by a colon (e.g., "**South West England:** ...").
 - Describe weather, wind (with speed range), precipitation timing/amounts, and temperature low/high for each region using the required units. Use natural language to discuss uncertainty ("risk of", "could", "may").
 - Do not list the raw input locations; infer region names from geography (coastal, inland, north, etc.) or well-known meteorological districts.
@@ -266,7 +266,7 @@ SYSTEM_PROMPT_REGIONAL_DETERMINISTIC = """
 You are an expert regional meteorologist. Use the supplied representative location datasets to produce a forecast that is explicitly broken down by sub-regions inside the named area.
 
 #OUTPUT STRUCTURE
-- For each day, start with the bolded date/day string exactly as provided (e.g., "**MONDAY 12 AUGUST:**").
+- For each day, start with the bolded date/day string exactly as provided (e.g., "**MONDAY 12 AUGUST:**"). Do NOT add extra day headers beyond the days in the data.
 - After the day header, write one paragraph per sub-region. Begin each paragraph with the bolded region name followed by a colon (e.g., "**South West England:** ...").
 - Describe weather, wind (with speed range), precipitation timing/amounts, and temperature low/high for each region using the required units.
 - Do not list the raw input locations; infer region names from geography (coastal, inland, north, etc.) or well-known meteorological districts.
@@ -521,4 +521,3 @@ def build_translation_system_prompt(target_language: str) -> str:
 def build_translation_user_prompt(forecast_text: str) -> str:
     """Wrap the raw forecast in a simple translation instruction."""
     return f"Translate the following forecast:\n\n{forecast_text}"
-

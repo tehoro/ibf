@@ -59,6 +59,9 @@ DATASET_CACHE_DIR = ensure_directory("ibf_cache/processed")
 PROMPT_SNAPSHOT_DIR = ensure_directory("ibf_cache/prompts")
 
 _SNOW_PROFILE_UNSUPPORTED_MODELS: set[str] = set()
+_DAY_HEADER_RE = re.compile(
+    r"(?im)^(?!date:)(?:\*\*\s*)?(?:rest of the evening|this evening|this afternoon and evening|rest of today|today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)[^\n]*?\b\d{1,2}\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)[^\n]*?:"
+)
 
 
 @dataclass
@@ -295,6 +298,13 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
     if not forecast_text:
         logger.info("LLM unavailable for '%s'; using dataset summary fallback", name)
         forecast_text = _dataset_summary(dataset, alerts, dataset_path)
+    if forecast_text and dataset:
+        forecast_text = _trim_extra_days(
+            forecast_text,
+            len(dataset),
+            context="location",
+            name=unique_name,
+        )
 
     translation_target = _location_translation_language(location, config)
     translated_text = _maybe_translate(
@@ -418,6 +428,13 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     if not forecast_text:
         logger.info("Area '%s' fell back to dataset summary", area.name)
         forecast_text = _area_dataset_summary(area.name, payloads)
+    if forecast_text:
+        forecast_text = _trim_extra_days(
+            forecast_text,
+            forecast_days,
+            context="area",
+            name=area.name,
+        )
 
     translation_target = _area_translation_language(area, config)
     translated_text = _maybe_translate(
@@ -550,6 +567,13 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     if not forecast_text:
         logger.info("Regional area '%s' fell back to dataset summary", area.name)
         forecast_text = _area_dataset_summary(area.name, payloads)
+    if forecast_text:
+        forecast_text = _trim_extra_days(
+            forecast_text,
+            forecast_days,
+            context="regional",
+            name=area.name,
+        )
 
     translation_target = _area_translation_language(area, config)
     translated_text = _maybe_translate(
@@ -1252,6 +1276,25 @@ def _impact_instruction(enabled: bool) -> str:
         "upcoming events, or thresholds only when the forecast meets or exceeds them. "
         "If conditions stay below thresholds, omit references to those impacts."
     )
+
+
+def _trim_extra_days(text: str, max_days: int, *, context: str, name: str) -> str:
+    """Trim forecast output to the expected number of day headers."""
+    if not text or max_days <= 0:
+        return text
+    matches = list(_DAY_HEADER_RE.finditer(text))
+    if len(matches) <= max_days:
+        return text
+    cutoff = matches[max_days].start()
+    trimmed = text[:cutoff].rstrip()
+    logger.warning(
+        "Trimmed %s forecast for '%s' from %d to %d day(s).",
+        context,
+        name,
+        len(matches),
+        max_days,
+    )
+    return trimmed
 
 
 def _as_bool(value: Optional[bool | str]) -> bool:
