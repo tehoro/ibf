@@ -3,10 +3,6 @@ Impact-Based Forecast (IBF) Toolkit
 
 IBF is a command-line tool that turns weather model data into clear, impact-based forecast text and publishes it as simple HTML pages.
 
-History
--------
-IBF was developed by Neil Gordon starting in late 2022 after the release of the first version of ChatGPT. It reflects extensive experimentation in converting numerical model output into readable, useful forecast text for public communication.
-
 What IBF Does
 ------------
  - Reads a TOML configuration file (locations, areas, output folder, model choices).
@@ -57,7 +53,7 @@ Create a TOML config file in your config folder. You can name it anything; it ju
 to be valid TOML.
 
 Options:
-- Download examples/sample-config.toml from the GitHub repo and edit it, or
+- Download config_examples/sample-config.toml from the GitHub repo and edit it, or
 - Start from the minimal example in the Configuration File Guide below.
 
 Step 5: Run IBF
@@ -131,7 +127,7 @@ IBF uses a single TOML file. It has three sections:
 - one or more [[area]] blocks
 
 TOML supports comments with `#`, and uses native types for numbers and booleans.
-IBF expects TOML config files; JSON configs are no longer supported.
+IBF expects TOML config files.
 Unit keys must be specified inline (no `[units]`, `[location.units]`, or `[area.units]` tables).
 
 At least one location or area is required. If web_root is omitted, output defaults to outputs/forecasts.
@@ -183,9 +179,13 @@ Available ensemble models
 - ens:ukmo_uk_ensemble_2km
 - ens:gfs025
 - ens:icon_seamless
+See the full list and details: https://open-meteo.com/en/docs/ensemble-api
 
 Deterministic model examples
 - det:ecmwf_ifs
+- det:icon_seamless
+- det:open-meteo (auto-selects best deterministic model for the location)
+More deterministic models: https://open-meteo.com/en/docs
 
 Maps (optional)
 --------------
@@ -346,12 +346,16 @@ Ensemble models:
 | `ukmo_uk_ensemble_2km` | 3 | UKMO MOGREPS-UK 2 km ensemble |
 | `gfs025` | 31 | NOAA GFS 0.25 deg ensemble |
 | `icon_seamless` | 40 | DWD ICON seamless ensemble |
+See https://open-meteo.com/en/docs/ensemble-api for the full list.
 
 Deterministic models:
 
 | ID | Description |
 | --- | --- |
 | `ecmwf_ifs` | ECMWF IFS HRES 9 km deterministic |
+| `icon_seamless` | DWD ICON seamless deterministic |
+| `open-meteo` | Open-Meteo auto-selects the best deterministic model |
+See https://open-meteo.com/en/docs for more deterministic model IDs.
 
 Snow levels:
 - Snow levels are only computed for deterministic models when `snow_levels` is enabled.

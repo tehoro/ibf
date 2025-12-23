@@ -1,0 +1,203 @@
+# Sample Configration for Carribean Meteorological Oragnisation
+
+# Language Models to use
+llm = "gemini-3-flash-preview"
+context_llm = "gemini-3-flash-preview"
+translation_llm = "gemini-3-flash-preview"
+enable_reasoning = true   # use reasoning or thjnking where supported
+
+# Default NWP model unless over-ridden - standard ECMWF ensemble at 0.25 degree resolution
+model = "ens:ecmwf_ifs025"
+
+
+# Location specific settings
+location_forecast_days = 4
+location_wordiness = "normal"
+location_reasoning = "low"
+location_impact_based = true
+location_thin_select = 10   # thin ensemble members down to a representative 10
+
+# Area specific settings
+area_forecast_days = 2
+area_wordiness = "brief"
+area_reasoning = "low"
+area_impact_based = true
+area_thin_select = 10
+
+# These are the default global units settings anyway, but given here for the avoidance of doubt
+temperature_unit = "celsius"  
+windspeed_unit = "kph"
+precipitation_unit = "mm"
+
+# The base index.html file is written to this location
+web_root = "./output/cmo"
+
+# If 0 this is ignored, but if greater than zero then we don't overwrite any forecasts
+# which were produced within this last number of minutes
+# Useful for testing
+
+recent_overwrite_minutes = 60
+
+
+# A list of locations with their specific settings
+
+[[location]]
+name = "St John's, Antigua and Barbuda"
+translation_language = "Antiguan and Barbudan Creole English"
+temperature_unit = "celsius(fahrenheit)"    # main unit is celsius but fahrenheit given in parentheses
+windspeed_unit = "mph(kph)"
+precipitation_unit = "inch(mm)"
+
+[[location]]
+name = "Bridgetown, Barbados"
+translation_language = "Bajan (Barbadian Creole English)"
+windspeed_unit = "kph(mph)"
+
+[[location]]
+name = "Belmopan, Belize"
+translation_language = "Belizean Kriol English"
+temperature_unit = "fahrenheit(celsius)"
+windspeed_unit = "mph"
+precipitation_unit = "inch(mm)"
+
+[[location]]
+name = "Roseau, Dominica"
+translation_language = "Dominican Creole French (Kwéyòl)"
+temperature_unit = "celsius(fahrenheit)"
+
+[[location]]
+name = "St. George’s, Grenada"
+translation_language = "Grenadian Creole English"
+windspeed_unit = "mph"
+precipitation_unit = "inch"
+
+[[location]]
+name = "Georgetown, Guyana"
+translation_language = "Guyanese Creole English"
+
+[[location]]
+name = "Kingston, Jamaica"
+translation_language = "Jamaican Patois (Jamaican Creole)"
+windspeed_unit = "mph"
+precipitation_unit = "inch"
+
+[[location]]
+name = "Brades, Montserrat"
+translation_language = "Montserrat Creole English"
+temperature_unit = "celsius(fahrenheit)"
+windspeed_unit = "mph(kph)"
+precipitation_unit = "inch(mm)"
+
+[[location]]
+name = "Basseterre, Saint Kitts and Nevis"
+translation_language = "Kittitian Creole English"
+temperature_unit = "celsius(fahrenheit)"
+windspeed_unit = "mph(kph)"
+precipitation_unit = "inch(mm)"
+
+[[location]]
+name = "Castries, Saint Lucia"
+translation_language = "Saint Lucian Creole (Kwéyòl)"
+windspeed_unit = "mph(kph)"
+
+[[location]]
+name = "Kingstown, Saint Vincent and the Grenadines"
+translation_language = "Vincentian Creole English"
+windspeed_unit = "kph(mph)"
+
+
+[[location]]
+name = "Port of Spain, Trinidad and Tobago"
+translation_language = "Trinidadian Creole English"
+
+[[location]]
+name = "The Valley, Anguilla"
+translation_language = "Anguillian Creole English"
+temperature_unit = "celsius(fahrenheit)"
+windspeed_unit = "kph(mph)"
+precipitation_unit = "inch(mm)"
+
+[[location]]
+name = "Road Town, British Virgin Islands"
+translation_language = "Virgin Islands Creole English"
+temperature_unit = "celsius(fahrenheit)"
+windspeed_unit = "kph(mph)"
+
+[[location]]
+name = "George Town, Cayman Islands"
+translation_language = "Cayman Creole English"
+temperature_unit = "fahrenheit(celsius)"
+windspeed_unit = "kt"
+precipitation_unit = "mm(inch)"
+
+[[location]]
+name = "Cockburn Town, Turks and Caicos Islands"
+translation_language = "Turks and Caicos Creole English"
+windspeed_unit = "mph"
+precipitation_unit = "inch"
+
+## Areas
+
+[[area]]
+name = "Jamaica"
+translation_language = "Jamaican Patois (Jamaican Creole)"
+locations = [
+  "Negril, Jamaica",
+  "Savanna-la-Mar, Jamaica",
+  "Montego Bay, Jamaica",
+  "Falmouth, Jamaica",
+  "Ocho Rios, Jamaica",
+  "Port Maria, Jamaica",
+  "Buff Bay, Jamaica",
+  "Port Antonio, Jamaica",
+  "Linstead, Jamaica",
+  "Kingston, Jamaica",
+  "Old Harbour, Jamaica",
+  "May Pen, Jamaica",
+  "Mandeville, Jamaica",
+  "Treasure Beach, Jamaica",
+  "Morant Bay, Jamaica"
+]
+windspeed_unit = "mph"
+precipitation_unit = "inch"
+
+[[area]]
+name = "Belize"
+translation_language = "Belizean Kriol English"
+locations = [
+  "Belize City, Belize",
+  "San Pedro, Belize",
+  "Corozal Town, Belize",
+  "Orange Walk Town, Belize",
+  "Blue Creek (Orange Walk), Belize",
+  "Crooked Tree, Belize",
+  "Belmopan, Belize",
+  "San Ignacio, Belize",
+  "Sarteneja, Belize",
+  "Dangriga, Belize",
+  "Placencia, Belize",
+  "Bella Vista (Toledo), Belize",
+  "Punta Gorda, Belize",
+  "San Antonio (Toledo), Belize",
+  "La Democracia, Belize"
+]
+temperature_unit = "fahrenheit(celsius)"
+windspeed_unit = "mph"
+precipitation_unit = "inch(mm)"
+
+[[area]]
+name = "Trinidad and Tobago"
+translation_language = "Trinidadian Creole English"
+locations = [
+  "Port of Spain, Trinidad and Tobago",
+  "Arima, Trinidad and Tobago",
+  "Toco, Trinidad and Tobago",
+  "Manzanilla, Trinidad and Tobago",
+  "Mayaro, Trinidad and Tobago",
+  "San Fernando, Trinidad and Tobago",
+  "Point Fortin, Trinidad and Tobago",
+  "Cedros, Trinidad and Tobago",
+  "Moruga, Trinidad and Tobago",
+  "Crown Point, Trinidad and Tobago",
+  "Roxborough, Trinidad and Tobago"
+]

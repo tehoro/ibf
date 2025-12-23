@@ -115,7 +115,18 @@ DETERMINISTIC_MODELS: Dict[str, Dict[str, Any]] = {
     "ecmwf_ifs": {
         "name": "ECMWF IFS HRES 9 km (deterministic)",
         "ack_url": "https://apps.ecmwf.int/datasets/licences/general/",
-    }
+    },
+    # Open-Meteo DWD ICON seamless deterministic
+    # https://open-meteo.com/en/docs/dwd-api
+    "icon_seamless": {
+        "name": "DWD ICON seamless (deterministic)",
+        "provider": "Deutscher Wetterdienst",
+    },
+    # Open-Meteo auto-select deterministic model (omit the models param).
+    "open-meteo": {
+        "name": "Open-Meteo auto (best available deterministic)",
+        "provider": "Open-Meteo",
+    },
 }
 
 
@@ -219,7 +230,7 @@ class ForecastRequest:
         temperature_unit: "celsius" or "fahrenheit".
         windspeed_unit: "kph", "mph", "ms", or "kn".
         precipitation_unit: "mm" or "inch".
-        models: Open-Meteo model identifier (default "ecmwf_ifs025").
+        models: Open-Meteo model identifier (default "ecmwf_ifs025"). Use None to omit.
         model_kind: "ensemble" or "deterministic" (routes to correct endpoint).
         hourly_fields: Optional explicit hourly field list override.
         cache_ttl_minutes: How long to keep the cache valid (default 60).
@@ -232,7 +243,7 @@ class ForecastRequest:
     temperature_unit: str = "celsius"
     windspeed_unit: str = "kph"
     precipitation_unit: str = "mm"
-    models: str = DEFAULT_ENSEMBLE_MODEL
+    models: Optional[str] = DEFAULT_ENSEMBLE_MODEL
     model_kind: ModelKind = "ensemble"
     hourly_fields: Optional[str] = None
     cache_ttl_minutes: int = 60
@@ -293,7 +304,7 @@ def _cache_key(request: ForecastRequest) -> str:
     lon_suffix = "E" if request.longitude >= 0 else "W"
     hourly_fields = _hourly_fields_for(request)
     fields_sig = hashlib.sha1(hourly_fields.encode("utf-8")).hexdigest()[:8]
-    model_token = (request.models or "").strip().lower().replace(",", "+")
+    model_token = (request.models or "auto").strip().lower().replace(",", "+")
     kind_token = "ens" if request.model_kind == "ensemble" else "det"
     return (
         f"{abs(round(request.latitude, 2))}{lat_suffix}_"
@@ -380,8 +391,9 @@ def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
             "temperature_unit": request.temperature_unit,
             "windspeed_unit": WINDSPEED_CONVERSIONS.get(request.windspeed_unit, request.windspeed_unit),
             "precipitation_unit": request.precipitation_unit,
-            "models": request.models,
         }
+        if request.models:
+            params["models"] = request.models
 
         for attempt in range(1, 4):
             try:

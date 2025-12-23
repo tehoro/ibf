@@ -677,7 +677,7 @@ def _collect_location_payload(
                 temperature_unit=_temperature_unit_for_api(units.temperature_primary),
                 precipitation_unit=_precipitation_unit_for_api(units.precipitation_primary),
                 windspeed_unit=_windspeed_unit_for_api(units.windspeed_primary),
-                models=resolved_model.model_id,
+                models=_open_meteo_model_param(resolved_model),
                 model_kind=resolved_model.kind,
             )
         )
@@ -688,8 +688,7 @@ def _collect_location_payload(
     raw_forecast = forecast.raw
 
     # Best-available station altitude for snow-level calculations:
-    # - explicit config (`units.altitude_m`) wins
-    # - else geocode altitude (if provided by Google Elevation)
+    # - geocode altitude (if provided by Google Elevation)
     # - else Open-Meteo's `elevation` field from the forecast response
     altitude_for_snow = units.altitude_m
     if altitude_for_snow <= 0:
@@ -736,7 +735,7 @@ def _collect_location_payload(
                             temperature_unit=_temperature_unit_for_api(units.temperature_primary),
                             precipitation_unit=_precipitation_unit_for_api(units.precipitation_primary),
                             windspeed_unit=_windspeed_unit_for_api(units.windspeed_primary),
-                            models=resolved_model.model_id,
+                            models=_open_meteo_model_param(resolved_model),
                             model_kind=resolved_model.kind,
                             hourly_fields=HOURLY_FIELDS_SNOW_PROFILE,
                         )
@@ -921,6 +920,15 @@ def _resolve_model_spec(config_obj: object, config: ForecastConfig) -> ModelSpec
     if not candidate:
         candidate = f"ens:{DEFAULT_ENSEMBLE_MODEL}"
     return resolve_model_spec(str(candidate))
+
+
+def _open_meteo_model_param(model_spec: ModelSpec) -> Optional[str]:
+    """Return the Open-Meteo model param or None for auto-detect."""
+    if model_spec.kind != "deterministic":
+        return model_spec.model_id
+    if model_spec.model_id in {"open-meteo", "openmeteo", "open_meteo"}:
+        return None
+    return model_spec.model_id
 
 
 def _generate_unique_location_names(config: ForecastConfig) -> List[str]:
