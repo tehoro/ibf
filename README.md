@@ -75,14 +75,19 @@ API Keys (Simple Guidance)
 
 Minimal setup for most users:
 - GOOGLE_API_KEY (recommended for reliable geocoding and elevation lookups).
-- GEMINI_API_KEY (to use Gemini models for forecasts and context).
 - OPENWEATHERMAP_API_KEY (for official alert feeds in many countries).
+- GEMINI_API_KEY (to use Gemini models for forecasts and context).
 
 Optional:
 - OPENROUTER_API_KEY (if you want access to many models via OpenRouter).
 - OPENAI_API_KEY (if you want to use OpenAI models directly, or for impact context when context_llm is an OpenAI model).
 
 If you do not need alerts, you can omit OPENWEATHERMAP_API_KEY.
+
+Where keys are read from:
+- IBF reads API keys from a `.env` file in the current working directory or from environment variables.
+- The `.env` file takes priority (it overrides any existing environment variables).
+- API keys are not read from the TOML config.
 
 Impact context note:
 - IBF always attempts to fetch impact context. If no context LLM key is set, IBF will continue but without extra context.
@@ -179,13 +184,13 @@ Available ensemble models
 - ens:ukmo_uk_ensemble_2km
 - ens:gfs025
 - ens:icon_seamless
-See the full list and details: https://open-meteo.com/en/docs/ensemble-api
+See the full list and details: <https://open-meteo.com/en/docs/ensemble-api>
 
 Deterministic model examples
 - det:ecmwf_ifs
 - det:icon_seamless
 - det:open-meteo (auto-selects best deterministic model for the location)
-More deterministic models: https://open-meteo.com/en/docs
+More deterministic models: <https://open-meteo.com/en/docs>
 
 Maps (optional)
 --------------
@@ -262,6 +267,22 @@ Google Geocoding API key (step-by-step)
 5) Create an API key under APIs & Services -> Credentials.
 6) Restrict the key to Geocoding (and Elevation if enabled).
 7) Paste the key into your .env as `GOOGLE_API_KEY=...`.
+
+OpenWeatherMap API key (alerts)
+-------------------------------
+1) Go to <https://home.openweathermap.org/> and sign in.
+2) Open the API Keys page and create a key (e.g., "ibf-alerts").
+3) Ensure the One Call API is enabled for your account (alerts come from One Call).
+4) Paste the key into your .env as `OPENWEATHERMAP_API_KEY=...`.
+
+Gemini API key (Google AI Studio)
+---------------------------------
+1) Go to <https://aistudio.google.com/> and sign in.
+2) Click "Get API key" and create a new key (choose or create a project if prompted).
+3) Paste the key into your .env as `GEMINI_API_KEY=...`.
+
+If you prefer using Google Cloud Console instead of AI Studio, enable the Generative Language API
+and create an API key under APIs & Services -> Credentials.
 
 Configuration reference (technical)
 -----------------------------------
@@ -346,7 +367,7 @@ Ensemble models:
 | `ukmo_uk_ensemble_2km` | 3 | UKMO MOGREPS-UK 2 km ensemble |
 | `gfs025` | 31 | NOAA GFS 0.25 deg ensemble |
 | `icon_seamless` | 40 | DWD ICON seamless ensemble |
-See https://open-meteo.com/en/docs/ensemble-api for the full list.
+See <https://open-meteo.com/en/docs/ensemble-api> for the full list.
 
 Deterministic models:
 
@@ -355,7 +376,7 @@ Deterministic models:
 | `ecmwf_ifs` | ECMWF IFS HRES 9 km deterministic |
 | `icon_seamless` | DWD ICON seamless deterministic |
 | `open-meteo` | Open-Meteo auto-selects the best deterministic model |
-See https://open-meteo.com/en/docs for more deterministic model IDs.
+See <https://open-meteo.com/en/docs> for more deterministic model IDs.
 
 Snow levels:
 - Snow levels are only computed for deterministic models when `snow_levels` is enabled.
@@ -446,4 +467,4 @@ Preferred citation
 If you use this toolkit in research or a product, please cite:
 
 Neil Gordon. IBF (Impact-Based Forecast Toolkit): LLM-ready impact-based forecast generation. 2025. GitHub repository.
-https://github.com/tehoro/ibf
+<https://github.com/tehoro/ibf>
