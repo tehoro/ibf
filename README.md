@@ -9,7 +9,7 @@ IBF was developed by Neil Gordon starting in late 2022 after the release of the 
 
 What IBF Does
 ------------
-- Reads a JSON configuration file (locations, areas, output folder, model choices).
+ - Reads a TOML configuration file (locations, areas, output folder, model choices).
 - Pulls the latest model data from Open-Meteo (ensemble or deterministic).
 - Optionally adds alerts (OpenWeatherMap) and impact context (LLM search).
 - Uses an LLM to write plain-language forecasts (plus optional translations).
@@ -53,23 +53,23 @@ Notes:
 - IBF reads `.env` from the current working directory.
 
 Step 4: Create a config file
-Create a JSON config file in your config folder. You can name it anything; it just needs
-to be valid JSON.
+Create a TOML config file in your config folder. You can name it anything; it just needs
+to be valid TOML.
 
 Options:
-- Download examples/sample-config.json from the GitHub repo and edit it, or
+- Download examples/sample-config.toml from the GitHub repo and edit it, or
 - Start from the minimal example in the Configuration File Guide below.
 
 Step 5: Run IBF
 
 macOS or Linux:
 ```text
-./ibf run --config config/my-config.json
+./ibf run --config config/my-config.toml
 ```
 
 Windows:
 ```text
-.\ibf.exe run --config config\my-config.json
+.\ibf.exe run --config config\my-config.toml
 ```
 
 Outputs will be written to the web_root specified in the config.
@@ -99,12 +99,10 @@ For most users, this is a good default for all three LLM uses (context, forecast
 
 Suggested config snippet:
 
-```json
-{
-  "llm": "gemini-3-flash-preview",
-  "context_llm": "gemini-3-flash-preview",
-  "translation_llm": "gemini-3-flash-preview"
-}
+```toml
+llm = "gemini-3-flash-preview"
+context_llm = "gemini-3-flash-preview"
+translation_llm = "gemini-3-flash-preview"
 ```
 
 Outputs and File Structure
@@ -127,28 +125,26 @@ It is safe to delete the ibf_cache folder; IBF will rebuild it as needed.
 Configuration File Guide
 ------------------------
 
-IBF uses a single JSON file. It has three sections:
+IBF uses a single TOML file. It has three sections:
 - global settings
-- locations
-- areas
+- one or more [[location]] blocks
+- one or more [[area]] blocks
 
-Use proper JSON types for numbers and booleans (e.g., `4` and `true`), and reserve strings for model names or labels.
-JSON does not support comments, so keep any notes in a separate README/notes file alongside the config.
+TOML supports comments with `#`, and uses native types for numbers and booleans.
+IBF expects TOML config files; JSON configs are no longer supported.
+Unit keys must be specified inline (no `[units]`, `[location.units]`, or `[area.units]` tables).
 
 At least one location or area is required. If web_root is omitted, output defaults to outputs/forecasts.
 
 Minimal example:
 
-```json
-{
-  "web_root": "./outputs/example-site",
-  "llm": "gemini-3-flash-preview",
-  "context_llm": "gemini-3-flash-preview",
-  "locations": [
-    { "name": "Otaki Beach, New Zealand" }
-  ],
-  "areas": []
-}
+```toml
+web_root = "./outputs/example-site"
+llm = "gemini-3-flash-preview"
+context_llm = "gemini-3-flash-preview"
+
+[[location]]
+name = "Otaki Beach, New Zealand"
 ```
 
 Global settings (common ones)
@@ -159,25 +155,25 @@ Global settings (common ones)
 - location_impact_based / area_impact_based: include impact context.
 - location_thin_select / area_thin_select: reduce ensemble members for cost.
 - translation_language / translation_llm: optional translation settings.
-- units: global default units (temperature, precipitation, wind, snowfall).
+- temperature_unit / precipitation_unit / windspeed_unit / snowfall_unit / altitude_m: global unit defaults.
 
 Locations
-Each location entry supports:
+Each [[location]] block supports:
 - name (required)
 - model (override global)
 - snow_levels (only for deterministic models)
 - translation_language
-- units (temperature_unit, precipitation_unit, windspeed_unit, snowfall_unit)
+- temperature_unit / precipitation_unit / windspeed_unit / snowfall_unit / altitude_m (per-location overrides)
 
 Areas
-Each area entry supports:
+Each [[area]] block supports:
 - name (required)
 - locations (list of location names)
 - mode: "area" or "regional"
 - model (override global)
 - snow_levels (only for deterministic models)
 - translation_language
-- units (same as locations)
+- temperature_unit / precipitation_unit / windspeed_unit / snowfall_unit / altitude_m (per-area overrides)
 
 Available ensemble models
 - ens:ecmwf_ifs025
@@ -217,7 +213,7 @@ uv pip install -e .
 
 Then run:
 ```text
-uv run ibf run --config /path/to/config.json
+uv run ibf run --config /path/to/config.toml
 ```
 
 Security prompts
@@ -293,7 +289,7 @@ Global settings:
 | `area_thin_select` | Thin ensemble members for areas. | Caps to model member count. |
 | `recent_overwrite_minutes` | Skip rewriting outputs younger than this. | Useful for cron. |
 | `web_root` | Output directory for HTML. | Defaults to `outputs/forecasts`. |
-| `units` | Global unit defaults. | See Units section below. |
+| `temperature_unit` / `precipitation_unit` / `windspeed_unit` / `snowfall_unit` / `altitude_m` | Global unit defaults. | See Units section below. |
 
 Locations:
 
@@ -303,7 +299,7 @@ Locations:
 | `model` | Override the global model. | Use `ens:` or `det:`. |
 | `snow_levels` | Override global `snow_levels`. | Deterministic only. |
 | `translation_language` | Per-location translation language. | Overrides global. |
-| `units` | Per-location unit overrides. | See Units section. |
+| `temperature_unit` / `precipitation_unit` / `windspeed_unit` / `snowfall_unit` / `altitude_m` | Per-location unit overrides. | See Units section. |
 
 Areas:
 
@@ -315,13 +311,13 @@ Areas:
 | `model` | Override the global model. | Use `ens:` or `det:`. |
 | `snow_levels` | Override global `snow_levels`. | Deterministic only. |
 | `translation_language` | Per-area translation language. | Overrides global. |
-| `units` | Per-area unit overrides. | See Units section. |
+| `temperature_unit` / `precipitation_unit` / `windspeed_unit` / `snowfall_unit` / `altitude_m` | Per-area unit overrides. | See Units section. |
 
 Units
 -----
 
-Units are set globally under `units` and can be overridden per location/area. You can add
-secondary units in parentheses, for example: `"windspeed_unit": "mph (kph)"`.
+Units are set inline at the global level and can be overridden per location/area. You can add
+secondary units in parentheses, for example: `windspeed_unit = "mph(kph)"`.
 
 Supported keys and values:
 - `temperature_unit`: `celsius` or `fahrenheit`
@@ -418,7 +414,7 @@ CLI commands and options
 ------------------------
 
 Commands:
-- `ibf run --config path/to/config.json` runs the full pipeline.
+- `ibf run --config path/to/config.toml` runs the full pipeline.
 - `ibf scaffold --config ...` refreshes the web root structure and menu.
 - `ibf maps --config ...` regenerates area maps (supports `--area`, `--tiles`, `--engine`).
 - `ibf config-hash --config ...` prints the deterministic config hash.

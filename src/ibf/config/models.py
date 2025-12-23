@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import tomllib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Literal
 
@@ -118,10 +119,10 @@ class ForecastConfig(BaseModel):
 
 def load_config(path: Path | str) -> ForecastConfig:
     """
-    Load and validate a config file into a ForecastConfig instance.
+    Load and validate a TOML config file into a ForecastConfig instance.
 
     Args:
-        path: Path to the JSON configuration file.
+        path: Path to the TOML configuration file.
 
     Returns:
         A validated ForecastConfig object.
@@ -134,14 +135,89 @@ def load_config(path: Path | str) -> ForecastConfig:
         raise ConfigError(f"Configuration file not found: {config_path}")
 
     try:
-        with config_path.open("r", encoding="utf-8") as handle:
-            raw_data: Dict[str, Any] = json.load(handle)
+        with config_path.open("rb") as handle:
+            raw_data: Dict[str, Any] = tomllib.load(handle)
     except OSError as exc:
         raise ConfigError(f"Unable to read configuration file: {exc}") from exc
-    except json.JSONDecodeError as exc:
-        raise ConfigError(f"Invalid JSON in configuration file: {exc}") from exc
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(f"Invalid TOML in configuration file: {exc}") from exc
+
+    raw_data = _normalize_toml_schema(raw_data)
 
     try:
         return ForecastConfig.model_validate(raw_data)
     except ValidationError as exc:
         raise ConfigError(str(exc)) from exc
+
+
+def _normalize_toml_schema(data: Any) -> Dict[str, Any]:
+    """
+    Normalize TOML-specific schema conveniences to the internal config model.
+
+    Accepts singular table arrays: [[location]] and [[area]], and maps them to the
+    internal plural list fields: locations and areas.
+    """
+    if not isinstance(data, dict):
+        raise ConfigError("Configuration root must be a TOML table/object.")
+
+    if "locations" in data:
+        raise ConfigError("Use [[location]] blocks (singular) instead of [[locations]].")
+    if "areas" in data:
+        raise ConfigError("Use [[area]] blocks (singular) instead of [[areas]].")
+
+    normalized = dict(data)
+    if "units" in normalized:
+        raise ConfigError("Use inline unit keys at the top level; [units] tables are not supported.")
+
+    root_units = _extract_inline_units(normalized)
+    if root_units:
+        normalized["units"] = root_units
+
+    locations = _coerce_table_array(normalized.pop("location", None), "location")
+    for location in locations:
+        if "units" in location:
+            raise ConfigError("Use inline unit keys inside [[location]]; [location.units] is not supported.")
+        location_units = _extract_inline_units(location)
+        if location_units:
+            location["units"] = location_units
+
+    areas = _coerce_table_array(normalized.pop("area", None), "area")
+    for area in areas:
+        if "units" in area:
+            raise ConfigError("Use inline unit keys inside [[area]]; [area.units] is not supported.")
+        area_units = _extract_inline_units(area)
+        if area_units:
+            area["units"] = area_units
+
+    normalized["locations"] = locations
+    normalized["areas"] = areas
+    return normalized
+
+
+def _coerce_table_array(value: Any, label: str) -> list[dict]:
+    if value is None:
+        return []
+    if isinstance(value, dict):
+        return [value]
+    if isinstance(value, list):
+        if not all(isinstance(item, dict) for item in value):
+            raise ConfigError(f"Each [[{label}]] entry must be a table/object.")
+        return value
+    raise ConfigError(f"Invalid [{label}] block; expected a table or array of tables.")
+
+
+_UNIT_KEYS = {
+    "temperature_unit",
+    "precipitation_unit",
+    "windspeed_unit",
+    "snowfall_unit",
+    "altitude_m",
+}
+
+
+def _extract_inline_units(payload: dict) -> Dict[str, Any]:
+    units: Dict[str, Any] = {}
+    for key in _UNIT_KEYS:
+        if key in payload:
+            units[key] = payload.pop(key)
+    return units

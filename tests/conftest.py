@@ -1,5 +1,5 @@
-import json
 from pathlib import Path
+import textwrap
 
 import pytest
 from typer.testing import CliRunner
@@ -16,37 +16,38 @@ def sample_config(tmp_path: Path) -> dict:
     Write a small configuration file for tests and return metadata.
     """
     web_root = tmp_path / "site"
-    config = {
-        "locations": [
-            {
-                "name": "Test City",
-                "lang": "Spanish",
-                "units": {"temperature_unit": "celsius", "precipitation_unit": "mm", "windspeed_unit": "kph"},
-            },
-            {
-                "name": "Second City",
-                "lang": "French",
-                "units": {"temperature_unit": "celsius", "precipitation_unit": "mm", "windspeed_unit": "kph"},
-            },
-        ],
-        "areas": [
-            {
-                "name": "Sample Area",
-                "lang": "Spanish",
-                "locations": ["Test City", "Second City"],
-            },
-            {
-                "name": "Sample Regional",
-                "mode": "regional",
-                "lang": "French",
-                "locations": ["Test City", "Second City"],
-            },
-        ],
-        "web_root": str(web_root),
-        "llm": "mock-model",
-        "translation_llm": "mock-translation",
-    }
-    path = tmp_path / "config.json"
-    path.write_text(json.dumps(config, indent=2), encoding="utf-8")
-    return {"path": path, "web_root": web_root}
+    config_text = textwrap.dedent(
+        f"""
+        web_root = "{web_root}"
+        llm = "mock-model"
+        translation_llm = "mock-translation"
 
+        [[location]]
+        name = "Test City"
+        translation_language = "Spanish"
+        temperature_unit = "celsius"
+        precipitation_unit = "mm"
+        windspeed_unit = "kph"
+
+        [[location]]
+        name = "Second City"
+        translation_language = "French"
+        temperature_unit = "celsius"
+        precipitation_unit = "mm"
+        windspeed_unit = "kph"
+
+        [[area]]
+        name = "Sample Area"
+        translation_language = "Spanish"
+        locations = ["Test City", "Second City"]
+
+        [[area]]
+        name = "Sample Regional"
+        mode = "regional"
+        translation_language = "French"
+        locations = ["Test City", "Second City"]
+        """
+    ).strip()
+    path = tmp_path / "config.toml"
+    path.write_text(config_text + "\n", encoding="utf-8")
+    return {"path": path, "web_root": web_root}

@@ -141,7 +141,7 @@ def _root_command(
 
     if ctx.invoked_subcommand is None:
         console.print(
-            "[bold yellow]ibf[/] is ready. Run [cyan]ibf run --config path/to/config.json[/] "
+            "[bold yellow]ibf[/] is ready. Run [cyan]ibf run --config path/to/config.toml[/] "
             "once the pipeline is configured.",
         )
 
@@ -152,7 +152,7 @@ def run(
         ...,
         "--config",
         "-c",
-        help="Path to the configuration JSON file.",
+        help="Path to the configuration TOML file.",
         callback=_resolve_config_path,
     ),
     dry_run: bool = typer.Option(
@@ -278,7 +278,7 @@ def config_hash(
         ...,
         "--config",
         "-c",
-        help="Path to configuration JSON.",
+        help="Path to configuration TOML.",
         callback=_resolve_config_path,
     ),
 ) -> None:
@@ -295,7 +295,7 @@ def scaffold(
         ...,
         "--config",
         "-c",
-        help="Path to configuration JSON.",
+        help="Path to configuration TOML.",
         callback=_resolve_config_path,
     ),
     force: bool = typer.Option(
@@ -319,7 +319,7 @@ def maps(
         ...,
         "--config",
         "-c",
-        help="Path to the configuration JSON.",
+        help="Path to the configuration TOML.",
         callback=_resolve_config_path,
     ),
     output: Optional[Path] = typer.Option(
@@ -381,4 +381,3 @@ def main() -> None:
     Entry-point used by the console script defined in pyproject.toml.
     """
     app()
-

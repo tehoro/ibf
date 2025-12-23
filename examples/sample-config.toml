@@ -1,0 +1,64 @@
+model = "det:ecmwf_ifs"
+llm = "or:openai/gpt-5.1"
+context_llm = "gpt-4o"
+translation_llm = "or:openai/gpt-5-mini"
+enable_reasoning = true
+
+location_forecast_days = 4
+location_wordiness = "normal"
+location_reasoning = "medium"
+location_impact_based = true
+location_thin_select = 10
+
+area_forecast_days = 2
+area_wordiness = "normal"
+area_reasoning = "medium"
+area_impact_based = true
+area_thin_select = 10
+
+temperature_unit = "celsius"
+precipitation_unit = "mm"
+windspeed_unit = "kph"
+
+web_root = "./outputs/example-site"
+recent_overwrite_minutes = 0
+
+[[location]]
+name = "Otaki Beach, New Zealand"
+
+[[location]]
+name = "Seattle, Washington"
+
+temperature_unit = "fahrenheit"
+precipitation_unit = "in"
+windspeed_unit = "mph"
+
+[[location]]
+name = "Bedford, Massachusetts"
+
+temperature_unit = "fahrenheit"
+precipitation_unit = "in"
+windspeed_unit = "mph"
+
+[[location]]
+name = "Kingston, Jamaica"
+
+temperature_unit = "fahrenheit(celsius)"
+windspeed_unit = "mph"
+precipitation_unit = "in"
+
+[[area]]
+name = "Trinidad and Tobago"
+locations = [
+  "Port of Spain, Trinidad and Tobago",
+  "Arima, Trinidad and Tobago",
+  "Toco, Trinidad and Tobago",
+  "Manzanilla, Trinidad and Tobago",
+  "Mayaro, Trinidad and Tobago",
+  "San Fernando, Trinidad and Tobago",
+  "Point Fortin, Trinidad and Tobago",
+  "Cedros, Trinidad and Tobago",
+  "Moruga, Trinidad and Tobago",
+  "Crown Point, Trinidad and Tobago",
+  "Roxborough, Trinidad and Tobago",
+]
