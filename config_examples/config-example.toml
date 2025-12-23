@@ -1,0 +1,106 @@
+# Sample Configration Showing Different Types
+
+# Language Models to use
+llm = "gemini-3-flash-preview"
+context_llm = "gemini-3-flash-preview"
+translation_llm = "gemini-3-flash-preview"
+enable_reasoning = true   # use reasoning or thjnking where supported
+
+# Default NWP model unless over-ridden - standard ECMWF ensemble at 0.25 degree resolution
+model = "ens:ecmwf_ifs025"
+
+
+# Location specific settings
+location_forecast_days = 4
+location_wordiness = "normal"
+location_reasoning = "low"
+location_impact_based = true
+location_thin_select = 10   # thin ensemble members down to a representative 10
+
+# Area specific settings
+area_forecast_days = 2
+area_wordiness = "brief"
+area_reasoning = "low"
+area_impact_based = true
+area_thin_select = 10
+
+# These are the default global units settings anyway, but given here for the avoidance of doubt
+temperature_unit = "celsius"  
+windspeed_unit = "kph"
+precipitation_unit = "mm"
+
+# The base index.html file is written to this location
+web_root = "./outputs/example"
+
+# If 0 this is ignored, but if greater than zero then we don't overwrite any forecasts
+# which were produced within this last number of minutes
+# Useful for testing
+
+recent_overwrite_minutes = 0
+
+
+# A list of locations with their specific settings
+
+[[location]]
+name = "Road Town, British Virgin Islands"
+translation_language = "Virgin Islands Creole English"
+temperature_unit = "celsius(fahrenheit)"
+windspeed_unit = "kph(mph)"
+
+[[location]]
+name = "Otaki, New Zealand"
+translation_language = "Maori"
+
+[[location]]
+name = "Otaki, New Zealand"
+model = "det:ecmwf_ifs"
+
+
+[[location]]
+name = "Burbank, California"
+temperature_unit = "fahrenheit"
+precipitation_unit = "in"
+windspeed_unit = "mph"
+
+
+[[location]]
+name = "Seattle, Washington"
+model = "det:icon_seamless"
+snow_levels = true
+temperature_unit = "fahrenheit"
+precipitation_unit = "in"
+windspeed_unit = "mph"
+
+
+[[location]]
+name = "Boulder, Colorado"
+model = "det:open-meteo"
+snow_levels = true
+temperature_unit = "fahrenheit"
+precipitation_unit = "in"
+windspeed_unit = "mph"
+
+[[location]]
+name = "Exeter, England"
+windspeed_unit = "mph"
+
+
+## Areas
+
+
+[[area]]
+name = "Trinidad and Tobago"
+translation_language = "Trinidadian Creole English"
+locations = [
+  "Port of Spain, Trinidad and Tobago",
+  "Arima, Trinidad and Tobago",
+  "Toco, Trinidad and Tobago",
+  "Manzanilla, Trinidad and Tobago",
+  "Mayaro, Trinidad and Tobago",
+  "San Fernando, Trinidad and Tobago",
+  "Point Fortin, Trinidad and Tobago",
+  "Cedros, Trinidad and Tobago",
+  "Moruga, Trinidad and Tobago",
+  "Crown Point, Trinidad and Tobago",
+  "Roxborough, Trinidad and Tobago"
+]

@@ -7,7 +7,7 @@ What IBF Does
 ------------
  - Reads a TOML configuration file (locations, areas, output folder, model choices).
 - Pulls the latest model data from Open-Meteo (ensemble or deterministic).
-- Optionally adds alerts (OpenWeatherMap) and impact context (LLM search).
+- Optionally adds alerts (MetService for NZ, NWS for USA, OpenWeatherMap elsewhere) and impact context (LLM search).
 - Uses an LLM to write plain-language forecasts (plus optional translations).
 - Publishes simple HTML pages that can be viewed locally or hosted on a web server.
 
@@ -89,6 +89,11 @@ Where keys are read from:
 - The `.env` file takes priority (it overrides any existing environment variables).
 - API keys are not read from the TOML config.
 
+Alert sources:
+- New Zealand: MetService CAP feed.
+- USA: National Weather Service (NWS).
+- Other countries: OpenWeatherMap One Call (requires OPENWEATHERMAP_API_KEY).
+
 Impact context note:
 - IBF always attempts to fetch impact context. If no context LLM key is set, IBF will continue but without extra context.
 
@@ -133,7 +138,6 @@ IBF uses a single TOML file. It has three sections:
 
 TOML supports comments with `#`, and uses native types for numbers and booleans.
 IBF expects TOML config files.
-Unit keys must be specified inline (no `[units]`, `[location.units]`, or `[area.units]` tables).
 
 At least one location or area is required. If web_root is omitted, output defaults to outputs/forecasts.
 
@@ -164,6 +168,7 @@ Each [[location]] block supports:
 - model (override global)
 - snow_levels (only for deterministic models)
 - translation_language
+- extra_context: optional local notes to prioritize in impact context
 - temperature_unit / precipitation_unit / windspeed_unit (per-location overrides)
 
 Areas
@@ -174,6 +179,7 @@ Each [[area]] block supports:
 - model (override global)
 - snow_levels (only for deterministic models)
 - translation_language
+- extra_context: optional local notes to prioritize in impact context
 - temperature_unit / precipitation_unit / windspeed_unit (per-area overrides)
 
 Available ensemble models
@@ -245,7 +251,7 @@ Environment variables:
 | Variable | Used for | Required when |
 | --- | --- | --- |
 | `GOOGLE_API_KEY` | Geocoding and optional elevation lookup. Also used for reverse geocoding when resolving alert country codes. | Recommended for reliable geocoding/elevation. |
-| `OPENWEATHERMAP_API_KEY` | Alerts (OpenWeatherMap One Call) and fallback reverse geocoding. | Required for alerts, otherwise optional. |
+| `OPENWEATHERMAP_API_KEY` | Alerts (OpenWeatherMap One Call for non‑US/NZ) and fallback reverse geocoding. | Required for non‑US/NZ alerts, otherwise optional. |
 | `OPENROUTER_API_KEY` | Any model name with an `or:` prefix or unknown model names (OpenRouter). | Required for OpenRouter usage. |
 | `OPENAI_API_KEY` | OpenAI models such as `gpt-4o-mini` or `gpt-4o-latest`. | Required if using OpenAI models. |
 | `GEMINI_API_KEY` | Direct Gemini SDK usage (`gemini-*` or `google/gemini-*`). | Required if using direct Gemini models. |
@@ -320,6 +326,7 @@ Locations:
 | `model` | Override the global model. | Use `ens:` or `det:`. |
 | `snow_levels` | Override global `snow_levels`. | Deterministic only. |
 | `translation_language` | Per-location translation language. | Overrides global. |
+| `extra_context` | Optional local context notes. | Added to impact context prompt. |
 | `temperature_unit` / `precipitation_unit` / `windspeed_unit` | Per-location unit overrides. | See Units section. |
 
 Areas:
@@ -332,6 +339,7 @@ Areas:
 | `model` | Override the global model. | Use `ens:` or `det:`. |
 | `snow_levels` | Override global `snow_levels`. | Deterministic only. |
 | `translation_language` | Per-area translation language. | Overrides global. |
+| `extra_context` | Optional local context notes. | Added to impact context prompt. |
 | `temperature_unit` / `precipitation_unit` / `windspeed_unit` | Per-area unit overrides. | See Units section. |
 
 Units

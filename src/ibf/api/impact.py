@@ -4,6 +4,7 @@ Impact-based forecast context loader with filesystem caching.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import re
@@ -58,6 +59,7 @@ def fetch_impact_context(
     secrets: Optional[Secrets] = None,
     timezone_name: str = "UTC",
     context_llm: str = DEFAULT_CONTEXT_LLM,
+    extra_context: Optional[str] = None,
 ) -> ImpactContext:
     """
     Retrieve or generate impact context for a location or area.
@@ -72,6 +74,7 @@ def fetch_impact_context(
         secrets: Optional Secrets instance.
         timezone_name: Local timezone for date calculations.
         context_llm: LLM identifier to use for impact context generation.
+        extra_context: Optional user-supplied context to prioritize.
 
     Returns:
         An ImpactContext object containing the text.
@@ -86,6 +89,7 @@ def fetch_impact_context(
         forecast_days,
         timezone_name,
         context_llm=context_llm,
+        extra_context=extra_context,
     )
     if cached_context:
         logger.info("Using cached impact context for %s (%s)", name, context_type)
@@ -104,6 +108,7 @@ def fetch_impact_context(
         timezone_name,
         secrets,
         context_llm=context_llm,
+        extra_context=extra_context,
     )
     if context:
         store_impact_context(
@@ -113,6 +118,7 @@ def fetch_impact_context(
             forecast_days=forecast_days,
             timezone_name=timezone_name,
             context_llm=context_llm,
+            extra_context=extra_context,
         )
         return ImpactContext(
             name=name,
@@ -134,6 +140,7 @@ def store_impact_context(
     forecast_days: int = 4,
     timezone_name: str = "UTC",
     context_llm: str = DEFAULT_CONTEXT_LLM,
+    extra_context: Optional[str] = None,
 ) -> None:
     """
     Save generated impact context to the filesystem cache.
@@ -147,7 +154,14 @@ def store_impact_context(
         context_llm: LLM identifier used to generate this context.
     """
     context_llm = (context_llm or DEFAULT_CONTEXT_LLM).strip()
-    cache_path = _cache_path(context_type, name, forecast_days, timezone_name, context_llm=context_llm)
+    cache_path = _cache_path(
+        context_type,
+        name,
+        forecast_days,
+        timezone_name,
+        context_llm=context_llm,
+        extra_context=extra_context,
+    )
     payload = {
         "context": content,
         "timestamp": get_local_now(timezone_name).isoformat(),
@@ -155,6 +169,7 @@ def store_impact_context(
         "name": name,
         "forecast_days": forecast_days,
         "context_llm": context_llm,
+        "extra_context": extra_context,
     }
     try:
         cache_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -187,6 +202,7 @@ def _cache_path(
     date_override: Optional[datetime] = None,
     legacy_suffix: bool = False,
     context_llm: str = DEFAULT_CONTEXT_LLM,
+    extra_context: Optional[str] = None,
 ) -> Path:
     """
     Return the cache file path for the given context parameters.
@@ -200,6 +216,9 @@ def _cache_path(
     filename = f"{date_str}_{context_type}_{safe_name}"
     if context_llm and context_llm.strip().lower() != DEFAULT_CONTEXT_LLM.lower():
         filename += f"__{_slugify(context_llm)}"
+    extra_key = _extra_context_key(extra_context)
+    if extra_key:
+        filename += f"__ctx{extra_key}"
     if legacy_suffix:
         filename += f"_{forecast_days}"
     filename += ".json"
@@ -243,6 +262,7 @@ def _load_recent_cache(
     timezone_name: str,
     *,
     context_llm: str = DEFAULT_CONTEXT_LLM,
+    extra_context: Optional[str] = None,
 ) -> Tuple[Optional[str], Path]:
     """
     Attempt to load a cached context from the past MAX_CONTEXT_AGE_DAYS (inclusive).
@@ -252,6 +272,7 @@ def _load_recent_cache(
     """
     context_llm = (context_llm or DEFAULT_CONTEXT_LLM).strip()
     local_now = get_local_now(timezone_name)
+    has_extra = _extra_context_key(extra_context) is not None
     for offset in range(MAX_CONTEXT_AGE_DAYS):
         date_candidate = local_now - timedelta(days=offset)
         cache_path = _cache_path(
@@ -261,49 +282,50 @@ def _load_recent_cache(
             timezone_name,
             date_override=date_candidate,
             context_llm=context_llm,
+            extra_context=extra_context,
         )
         cached = _load_cache(cache_path)
         if cached:
             return cached, cache_path
-
-        legacy_path = _cache_path(
-            context_type,
-            name,
-            forecast_days,
-            timezone_name,
-            date_override=date_candidate,
-            legacy_suffix=True,
-            context_llm=context_llm,
-        )
-        cached_legacy = _load_cache(legacy_path)
-        if cached_legacy:
-            return cached_legacy, legacy_path
-
-        # Backwards-compat: the historical cache key didn't include any context_llm suffix.
-        if context_llm.strip().lower() == DEFAULT_CONTEXT_LLM.lower():
-            legacy_no_model = _cache_path(
-                context_type,
-                name,
-                forecast_days,
-                timezone_name,
-                date_override=date_candidate,
-                context_llm=DEFAULT_CONTEXT_LLM,
-            )
-            cached_no_model = _load_cache(legacy_no_model)
-            if cached_no_model:
-                return cached_no_model, legacy_no_model
-            legacy_no_model_suffix = _cache_path(
+        if not has_extra:
+            legacy_path = _cache_path(
                 context_type,
                 name,
                 forecast_days,
                 timezone_name,
                 date_override=date_candidate,
                 legacy_suffix=True,
-                context_llm=DEFAULT_CONTEXT_LLM,
+                context_llm=context_llm,
             )
-            cached_no_model_suffix = _load_cache(legacy_no_model_suffix)
-            if cached_no_model_suffix:
-                return cached_no_model_suffix, legacy_no_model_suffix
+            cached_legacy = _load_cache(legacy_path)
+            if cached_legacy:
+                return cached_legacy, legacy_path
+
+            # Backwards-compat: the historical cache key didn't include any context_llm suffix.
+            if context_llm.strip().lower() == DEFAULT_CONTEXT_LLM.lower():
+                legacy_no_model = _cache_path(
+                    context_type,
+                    name,
+                    forecast_days,
+                    timezone_name,
+                    date_override=date_candidate,
+                    context_llm=DEFAULT_CONTEXT_LLM,
+                )
+                cached_no_model = _load_cache(legacy_no_model)
+                if cached_no_model:
+                    return cached_no_model, legacy_no_model
+                legacy_no_model_suffix = _cache_path(
+                    context_type,
+                    name,
+                    forecast_days,
+                    timezone_name,
+                    date_override=date_candidate,
+                    legacy_suffix=True,
+                    context_llm=DEFAULT_CONTEXT_LLM,
+                )
+                cached_no_model_suffix = _load_cache(legacy_no_model_suffix)
+                if cached_no_model_suffix:
+                    return cached_no_model_suffix, legacy_no_model_suffix
 
     today_path = _cache_path(
         context_type,
@@ -312,6 +334,7 @@ def _load_recent_cache(
         timezone_name,
         date_override=local_now,
         context_llm=context_llm,
+        extra_context=extra_context,
     )
     return None, today_path
 
@@ -319,6 +342,16 @@ def _load_recent_cache(
 def _slugify(value: str) -> str:
     """Normalize a name into a lowercase, filesystem-safe slug."""
     return re.sub(r"[-\s]+", "_", re.sub(r"[^\w\s-]", "", value.strip())).lower()
+
+
+def _extra_context_key(extra_context: Optional[str]) -> Optional[str]:
+    """Return a short hash for user-supplied context, or None when absent."""
+    if not extra_context:
+        return None
+    normalized = re.sub(r"\s+", " ", extra_context.strip())
+    if not normalized:
+        return None
+    return hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:8]
 
 
 def _generate_context(
@@ -329,6 +362,7 @@ def _generate_context(
     secrets: Secrets,
     *,
     context_llm: str,
+    extra_context: Optional[str] = None,
 ) -> Tuple[str, float]:
     """Generate impact context using the requested LLM."""
     context_llm = (context_llm or DEFAULT_CONTEXT_LLM).strip()
@@ -338,6 +372,13 @@ def _generate_context(
     end_iso = (local_now + timedelta(days=forecast_days)).strftime("%Y-%m-%d")
     events_end_iso = (local_now + timedelta(days=max_event_days)).strftime("%Y-%m-%d")
     local_date_str = local_now.strftime("%A %d %B %Y")
+    extra_context_block = ""
+    if extra_context:
+        extra_context_block = (
+            "\nAdditional local context supplied by a knowledgeable source (treat as authoritative and emphasize it):\n"
+            f"{extra_context.strip()}\n"
+        )
+
     prompt = f"""Another assistant will soon prepare {forecast_days}-day impact-based weather forecast and associated warnings for {name} ({'an area' if context_type == 'area' else 'a location'}).
 
 To provide context for that forecast, identify and list all relevant contextual information that could influence weather impacts, including:
@@ -346,7 +387,7 @@ To provide context for that forecast, identify and list all relevant contextual 
 
     • Weather impact thresholds specific to this location (IMPORTANT): Identify any known rainfall amounts (in mm), wind speeds (in km/h), or other weather thresholds that historically trigger impacts such as flooding, landslides, road closures, power outages, or structural damage in this specific area. For example: "Flash flooding typically occurs with rainfall exceeding 25mm in 24 hours" or "Landslides are a risk when rainfall exceeds 50mm over 2-3 days" or "Wind damage to informal structures begins around 60 km/h gusts". Include any location-specific vulnerability factors that affect these thresholds (e.g., poor drainage, deforested slopes, damaged infrastructure from recent events).
 
-    • Upcoming events that may increase exposure or vulnerability (e.g. public holidays, major sports events, concerts, festivals, school terms or exams). These should be major events that have quite large public attendance, not small minor ones. CRITICAL: Only include events that occur TODAY or within the next {max_event_days} days (through {events_end_iso}). Do NOT include any events that have already occurred (events before today) or events more than {max_event_days} days in the future. For any events listed, you MUST provide the exact date (e.g., "15 November 2025" or "November 15, 2025"). Vague descriptions like "mid-November", "late November", "early November", or "around November 15" are NOT acceptable. If you cannot find the exact date, do not include that event.
+    • Upcoming events that may increase exposure or vulnerability (e.g. public holidays, major sports events, concerts, festivals, school terms or exams). These must be major events with large public attendance, and they must occur at the location (or within 20 km of it). Do NOT include minor or distant events or national events that are not tied to the location. CRITICAL: Only include events that occur TODAY or within the next {max_event_days} days (through {events_end_iso}). Do NOT include any events that have already occurred (events before today) or events more than {max_event_days} days in the future. For any events listed, you MUST provide the exact date (e.g., "15 November 2025" or "November 15, 2025"). Vague descriptions like "mid-November", "late November", "early November", or "around November 15" are NOT acceptable. If you cannot find the exact date, do not include that event.
 
     • Key vulnerable groups and assets (e.g. informal settlements, flood-prone neighbourhoods, critical infrastructure, tourism areas, coastal communities).
 
@@ -361,6 +402,7 @@ Use only recent, publicly available information covering the period from {start_
     • "Upcoming Events"
 
 For each item, add 1–2 sentences explaining why it is relevant for an impact-based forecast and warning for the next {forecast_days} days. For events in the "Upcoming Events" section, you MUST include the exact date (day, month, and year) for each event, and only include events occurring today or within the next {max_event_days} days (up to {events_end_iso}). Do not use vague timeframes and do not include past events or events beyond that window. For the "Weather Impact Thresholds" section, provide specific quantitative thresholds when available (e.g., "X mm rainfall", "Y km/h winds"), as these will be used to determine when impacts should be mentioned in the forecast.
+{extra_context_block}
 
 Formatting requirements:
 

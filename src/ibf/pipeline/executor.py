@@ -246,6 +246,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
         forecast_days=forecast_days,
         timezone_name=timezone_name,
         context_llm=context_llm,
+        extra_context=location.extra_context,
     )
     ibf_context = impact_context.content
     _record_cost("Location", unique_name, context=impact_context.cost_cents)
@@ -373,6 +374,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
         forecast_days=forecast_days,
         timezone_name=area_timezone,
         context_llm=context_llm,
+        extra_context=area.extra_context,
     )
     ibf_context = impact_context.content
     _record_cost("Area", area.name, context=impact_context.cost_cents)
@@ -511,6 +513,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
         forecast_days=forecast_days,
         timezone_name=area_timezone,
         context_llm=context_llm,
+        extra_context=area.extra_context,
     )
     ibf_context = regional_context.content
     _record_cost("Regional", area.name, context=regional_context.cost_cents)

@@ -24,10 +24,12 @@ class LocationConfig(BaseModel):
     Attributes:
         name: Display name (e.g., "London, UK").
         translation_language: Optional target language for translation.
+        extra_context: Optional user-supplied impact context notes.
         units: Dictionary of unit preferences (e.g., {"temperature_unit": "celsius"}).
     """
     name: str
     translation_language: Optional[str] = None
+    extra_context: Optional[str] = None
     units: Dict[str, str] = Field(default_factory=dict)
     snow_levels: Optional[bool] = None
     model: Optional[str] = None
@@ -41,12 +43,14 @@ class AreaConfig(BaseModel):
         name: Display name for the area.
         locations: List of location names that comprise the area.
         translation_language: Optional target language.
+        extra_context: Optional user-supplied impact context notes.
         mode: "area" (summary) or "regional" (breakdown).
         units: Dictionary of unit preferences.
     """
     name: str
     locations: List[str]
     translation_language: Optional[str] = None
+    extra_context: Optional[str] = None
     mode: Literal["area", "regional"] = "area"
     units: Dict[str, str] = Field(default_factory=dict)
     snow_levels: Optional[bool] = None
