@@ -133,6 +133,7 @@ IBF uses a single JSON file. It has three sections:
 - areas
 
 Use proper JSON types for numbers and booleans (e.g., `4` and `true`), and reserve strings for model names or labels.
+JSON does not support comments, so keep any notes in a separate README/notes file alongside the config.
 
 At least one location or area is required. If web_root is omitted, output defaults to outputs/forecasts.
 
@@ -226,6 +227,14 @@ Windows: The binary is unsigned, so SmartScreen may warn. Use More info > Run an
 
 Technical Reference (Detailed)
 ------------------------------
+
+Prompt customization (source installs)
+--------------------------------------
+If you run IBF from source (e.g., with UV), you can edit the built-in prompts directly:
+- Forecast and translation prompts live in `src/ibf/llm/prompts.py`.
+- Impact-context prompt lives in `src/ibf/api/impact.py` (see `_generate_context`).
+
+These prompts include required placeholders and formatting rules, so treat edits carefully.
 
 API keys and provider mapping
 -----------------------------
