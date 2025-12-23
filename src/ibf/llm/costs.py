@@ -6,13 +6,14 @@ Each entry records the USD cost per 1M tokens for:
 - cached input tokens (OpenAI prompt caching discount)
 - output tokens
 
-Edit `MODEL_COSTS` directly to customise or add new models.
+Edit `MODEL_COSTS` directly to customise or add new models, or add an
+`llm_costs.toml` file in the working directory to override costs.
 """
 
 from __future__ import annotations
 
-import json
 import logging
+import tomllib
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -20,7 +21,7 @@ from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-_EXTERNAL_COSTS_PATH = Path("llm_costs.json")
+_EXTERNAL_COSTS_PATH = Path("llm_costs.toml")
 
 
 @dataclass(frozen=True)
@@ -135,27 +136,46 @@ def _load_external_costs() -> Optional[Dict[str, ModelCost]]:
     if not _EXTERNAL_COSTS_PATH.exists():
         return None
     try:
-        payload = json.loads(_EXTERNAL_COSTS_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        logger.warning("Failed to read llm_costs.json (%s). Ignoring override.", exc)
+        payload = tomllib.loads(_EXTERNAL_COSTS_PATH.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        logger.warning("Failed to read llm_costs.toml (%s). Ignoring override.", exc)
         return None
-    if isinstance(payload, dict) and isinstance(payload.get("models"), dict):
-        payload = payload["models"]
-    if not isinstance(payload, dict):
-        logger.warning("Invalid llm_costs.json format; expected object of model costs.")
+
+    data = payload.get("model", payload.get("models", payload)) if isinstance(payload, dict) else payload
+    entries: list[dict] = []
+    if isinstance(data, list):
+        entries = [item for item in data if isinstance(item, dict)]
+    elif isinstance(data, dict):
+        if "name" in data:
+            entries = [data]
+        else:
+            for name, values in data.items():
+                if not isinstance(values, dict):
+                    continue
+                entry = dict(values)
+                entry.setdefault("name", name)
+                entries.append(entry)
+    else:
+        logger.warning("Invalid llm_costs.toml format; expected [model] tables.")
         return None
 
     parsed: Dict[str, ModelCost] = {}
-    for name, values in payload.items():
-        if not isinstance(values, dict):
+    for entry in entries:
+        name = entry.get("name")
+        if not isinstance(name, str) or not name.strip():
             continue
         try:
+            input_cost = entry.get("input", entry.get("input_per_million"))
+            output_cost = entry.get("output", entry.get("output_per_million"))
+            cached_cost = entry.get("cached_input", entry.get("cached_input_per_million", input_cost))
+            if input_cost is None or output_cost is None:
+                raise KeyError("input/output cost missing")
             parsed[name] = ModelCost(
-                input_per_million=float(values["input_per_million"]),
-                cached_input_per_million=float(values.get("cached_input_per_million", values["input_per_million"])),
-                output_per_million=float(values["output_per_million"]),
+                input_per_million=float(input_cost),
+                cached_input_per_million=float(cached_cost),
+                output_per_million=float(output_cost),
             )
         except (KeyError, TypeError, ValueError):
-            logger.warning("Skipping invalid cost entry for model %s in llm_costs.json.", name)
+            logger.warning("Skipping invalid cost entry for model %s in llm_costs.toml.", name)
             continue
     return parsed or None

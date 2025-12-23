@@ -169,6 +169,7 @@ def _normalize_toml_schema(data: Any) -> Dict[str, Any]:
     if "units" in normalized:
         raise ConfigError("Use inline unit keys at the top level; [units] tables are not supported.")
 
+    _raise_on_disallowed_units(normalized, "Global settings")
     root_units = _extract_inline_units(normalized)
     if root_units:
         normalized["units"] = root_units
@@ -177,6 +178,7 @@ def _normalize_toml_schema(data: Any) -> Dict[str, Any]:
     for location in locations:
         if "units" in location:
             raise ConfigError("Use inline unit keys inside [[location]]; [location.units] is not supported.")
+        _raise_on_disallowed_units(location, "[[location]]")
         location_units = _extract_inline_units(location)
         if location_units:
             location["units"] = location_units
@@ -185,6 +187,7 @@ def _normalize_toml_schema(data: Any) -> Dict[str, Any]:
     for area in areas:
         if "units" in area:
             raise ConfigError("Use inline unit keys inside [[area]]; [area.units] is not supported.")
+        _raise_on_disallowed_units(area, "[[area]]")
         area_units = _extract_inline_units(area)
         if area_units:
             area["units"] = area_units
@@ -210,6 +213,9 @@ _UNIT_KEYS = {
     "temperature_unit",
     "precipitation_unit",
     "windspeed_unit",
+}
+
+_DISALLOWED_UNIT_KEYS = {
     "snowfall_unit",
     "altitude_m",
 }
@@ -221,3 +227,14 @@ def _extract_inline_units(payload: dict) -> Dict[str, Any]:
         if key in payload:
             units[key] = payload.pop(key)
     return units
+
+
+def _raise_on_disallowed_units(payload: dict, scope: str) -> None:
+    disallowed = sorted(key for key in _DISALLOWED_UNIT_KEYS if key in payload)
+    if not disallowed:
+        return
+    joined = ", ".join(disallowed)
+    raise ConfigError(
+        f"{scope} does not support {joined}. "
+        "Snowfall units are derived from precipitation and altitude comes from geocoding."
+    )

@@ -876,29 +876,20 @@ def _resolve_units(
             return primary.strip(), secondary[:-1].strip() or None
         return value.strip(), None
 
-    altitude_raw = units.get("altitude_m")
-    try:
-        altitude_val = float(altitude_raw)
-    except (TypeError, ValueError):
-        altitude_val = 0.0
-
     temp_primary, temp_secondary = _split(units.get("temperature_unit"), "celsius")
     precip_primary, precip_secondary = _split(units.get("precipitation_unit"), "mm")
-    snowfall_raw = units.get("snowfall_unit")
-    snow_primary, snow_secondary = _split(snowfall_raw, "cm")
     wind_primary, wind_secondary = _split(units.get("windspeed_unit"), "kph")
 
     temp_primary = temp_primary.lower()
     temp_secondary = temp_secondary.lower() if temp_secondary else None
     precip_primary = precip_primary.lower()
     precip_secondary = precip_secondary.lower() if precip_secondary else None
-    snow_primary = snow_primary.lower()
-    snow_secondary = snow_secondary.lower() if snow_secondary else None
     wind_primary = wind_primary.lower()
     wind_secondary = wind_secondary.lower() if wind_secondary else None
 
-    if not snowfall_raw and precip_primary in {"inch", "in", "inches"}:
-        snow_primary = "inch"
+    snow_primary = "inch" if precip_primary in {"inch", "in", "inches"} else "cm"
+    snow_secondary = None
+    altitude_val = 0.0
 
     return LocationUnits(
         temperature_primary=temp_primary,

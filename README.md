@@ -155,7 +155,7 @@ Global settings (common ones)
 - location_impact_based / area_impact_based: include impact context.
 - location_thin_select / area_thin_select: reduce ensemble members for cost.
 - translation_language / translation_llm: optional translation settings.
-- temperature_unit / precipitation_unit / windspeed_unit / snowfall_unit / altitude_m: global unit defaults.
+- temperature_unit / precipitation_unit / windspeed_unit: global unit defaults.
 
 Locations
 Each [[location]] block supports:
@@ -163,7 +163,7 @@ Each [[location]] block supports:
 - model (override global)
 - snow_levels (only for deterministic models)
 - translation_language
-- temperature_unit / precipitation_unit / windspeed_unit / snowfall_unit / altitude_m (per-location overrides)
+- temperature_unit / precipitation_unit / windspeed_unit (per-location overrides)
 
 Areas
 Each [[area]] block supports:
@@ -173,7 +173,7 @@ Each [[area]] block supports:
 - model (override global)
 - snow_levels (only for deterministic models)
 - translation_language
-- temperature_unit / precipitation_unit / windspeed_unit / snowfall_unit / altitude_m (per-area overrides)
+- temperature_unit / precipitation_unit / windspeed_unit (per-area overrides)
 
 Available ensemble models
 - ens:ecmwf_ifs025
@@ -289,7 +289,7 @@ Global settings:
 | `area_thin_select` | Thin ensemble members for areas. | Caps to model member count. |
 | `recent_overwrite_minutes` | Skip rewriting outputs younger than this. | Useful for cron. |
 | `web_root` | Output directory for HTML. | Defaults to `outputs/forecasts`. |
-| `temperature_unit` / `precipitation_unit` / `windspeed_unit` / `snowfall_unit` / `altitude_m` | Global unit defaults. | See Units section below. |
+| `temperature_unit` / `precipitation_unit` / `windspeed_unit` | Global unit defaults. | See Units section below. |
 
 Locations:
 
@@ -299,7 +299,7 @@ Locations:
 | `model` | Override the global model. | Use `ens:` or `det:`. |
 | `snow_levels` | Override global `snow_levels`. | Deterministic only. |
 | `translation_language` | Per-location translation language. | Overrides global. |
-| `temperature_unit` / `precipitation_unit` / `windspeed_unit` / `snowfall_unit` / `altitude_m` | Per-location unit overrides. | See Units section. |
+| `temperature_unit` / `precipitation_unit` / `windspeed_unit` | Per-location unit overrides. | See Units section. |
 
 Areas:
 
@@ -311,7 +311,7 @@ Areas:
 | `model` | Override the global model. | Use `ens:` or `det:`. |
 | `snow_levels` | Override global `snow_levels`. | Deterministic only. |
 | `translation_language` | Per-area translation language. | Overrides global. |
-| `temperature_unit` / `precipitation_unit` / `windspeed_unit` / `snowfall_unit` / `altitude_m` | Per-area unit overrides. | See Units section. |
+| `temperature_unit` / `precipitation_unit` / `windspeed_unit` | Per-area unit overrides. | See Units section. |
 
 Units
 -----
@@ -322,9 +322,10 @@ secondary units in parentheses, for example: `windspeed_unit = "mph(kph)"`.
 Supported keys and values:
 - `temperature_unit`: `celsius` or `fahrenheit`
 - `precipitation_unit`: `mm` or `inch` (also accepts `in`, `inches`)
-- `snowfall_unit`: `cm` or `inch` (defaults to `cm`, or `inch` if precipitation is in inches)
 - `windspeed_unit`: `kph`, `mph`, `mps`, `kt` (accepts `kmh`, `km/h`, `ms`, `kn`, `knots`)
-- `altitude_m`: numeric override for station altitude (meters), used for snow levels
+
+Snowfall units are derived automatically: `cm` when precipitation is metric, `inch` when precipitation is inches.
+Altitude for snow levels is taken from geocoding and terrain data and is not configurable.
 
 Models
 ------
@@ -381,16 +382,14 @@ Reasoning levels (forecast text):
 - `auto` lets the provider choose its default (dynamic) behavior.
 
 LLM cost overrides (optional):
-- If `llm_costs.json` exists in the working directory, IBF uses it to override cost estimates in logs.
-- Format (either top-level mapping or nested under `"models"`):
-  ```json
-  {
-    "gemini-3-flash-preview": {
-      "input_per_million": 0.50,
-      "cached_input_per_million": 0.35,
-      "output_per_million": 3.00
-    }
-  }
+- If `llm_costs.toml` exists in the working directory, IBF uses it to override cost estimates in logs.
+- Costs are USD per million tokens:
+  ```toml
+  [[model]]
+  name = "gemini-3-flash-preview"
+  input = 0.50
+  cached_input = 0.35
+  output = 3.00
   ```
 
 Cache behavior (technical)
