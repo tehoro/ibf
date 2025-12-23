@@ -17,6 +17,14 @@ from ..util import convert_hour_to_ampm  # will add helper there
 
 PRECIP_HEAVY_THRESHOLD_MM = 10.0
 PRECIP_HEAVY_THRESHOLD_IN = 0.5
+_FAHRENHEIT_UNITS = {"fahrenheit", "f"}
+_INCH_UNITS = {"inch", "in", "inches"}
+
+
+def _snow_level_unit_label(temp_unit: str, precip_unit: str) -> str:
+    if temp_unit.lower() in _FAHRENHEIT_UNITS or precip_unit.lower() in _INCH_UNITS:
+        return "ft"
+    return "m"
 def format_location_dataset(
     dataset: List[dict],
     alerts: List[AlertSummary],
@@ -50,6 +58,7 @@ def format_location_dataset(
 
     alert_text = _format_alerts(alerts, dataset, tz_str)
     output_parts: List[str] = []
+    snow_level_unit = _snow_level_unit_label(temperature_unit, precipitation_unit)
 
     for day in dataset:
         if not all(key in day for key in ("year", "month", "day", "dayofweek", "hours")):
@@ -116,7 +125,7 @@ def format_location_dataset(
 
                 snow_text = ""
                 if isinstance(snow_level, int) and snow_level > 0:
-                    snow_text = f"snow down to about {snow_level} m"
+                    snow_text = f"(snow down to about {snow_level} {snow_level_unit})"
 
                 wind_text = _format_wind(wind_direction, wind_speed, wind_gust)
                 pop_text = f"pop {int(pop)}" if isinstance(pop, int) else ""
@@ -604,4 +613,3 @@ def determine_current_season(latitude: float) -> str:
     if month in (9, 10, 11):
         return "Autumn" if latitude >= 0 else "Spring"
     return "Winter" if latitude >= 0 else "Summer"
-

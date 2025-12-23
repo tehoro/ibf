@@ -706,17 +706,36 @@ def _collect_location_payload(
                 altitude_for_snow = elevation
 
     if units.snow_levels_enabled and resolved_model.kind == "deterministic":
-        if highest_terrain is not None:
-            logger.info(
-                "Snow levels: enabled; station_altitude=%.0fm; max_terrain_50km=%.0fm",
-                altitude_for_snow,
-                highest_terrain,
-            )
+        uses_imperial = (
+            units.temperature_primary.lower() in {"fahrenheit", "f"}
+            or units.precipitation_primary.lower() in {"inch", "in", "inches"}
+        )
+        if uses_imperial:
+            station_ft = altitude_for_snow * 3.28084
+            max_terrain_ft = highest_terrain * 3.28084 if highest_terrain is not None else None
+            if max_terrain_ft is not None:
+                logger.info(
+                    "Snow levels: enabled; station_altitude=%.0fft; max_terrain_50km=%.0fft",
+                    station_ft,
+                    max_terrain_ft,
+                )
+            else:
+                logger.info(
+                    "Snow levels: enabled; station_altitude=%.0fft; max_terrain_50km=unavailable",
+                    station_ft,
+                )
         else:
-            logger.info(
-                "Snow levels: enabled; station_altitude=%.0fm; max_terrain_50km=unavailable",
-                altitude_for_snow,
-            )
+            if highest_terrain is not None:
+                logger.info(
+                    "Snow levels: enabled; station_altitude=%.0fm; max_terrain_50km=%.0fm",
+                    altitude_for_snow,
+                    highest_terrain,
+                )
+            else:
+                logger.info(
+                    "Snow levels: enabled; station_altitude=%.0fm; max_terrain_50km=unavailable",
+                    altitude_for_snow,
+                )
 
     # Optional second request to fetch pressure-level profiles for snow-level calculations.
     if units.snow_levels_enabled and resolved_model.kind == "deterministic":
@@ -758,6 +777,7 @@ def _collect_location_payload(
     dataset = build_processed_days(
         raw_forecast,
         timezone_name=geocode.timezone or "UTC",
+        temperature_unit=units.temperature_primary,
         precipitation_unit=units.precipitation_primary,
         windspeed_unit=units.windspeed_primary,
         thin_select=effective_thin,
@@ -781,6 +801,8 @@ def _collect_location_payload(
             raw_forecast,
             dataset,
             timezone_name=geocode.timezone or "UTC",
+            temperature_unit=units.temperature_primary,
+            precipitation_unit=units.precipitation_primary,
         )
     formatted_dataset = format_location_dataset(
         dataset,
@@ -1030,14 +1052,26 @@ def _needs_snow_profile_request(forecast_raw: dict) -> bool:
     """
     try:
         hourly = forecast_raw.get("hourly", {})
+        hourly_units = forecast_raw.get("hourly_units", {}) if isinstance(forecast_raw, dict) else {}
         temps = hourly.get("temperature_2m", [])
         precip = hourly.get("precipitation", [])
         codes = hourly.get("weather_code", [])
+        temp_unit = str(hourly_units.get("temperature_2m", "")).lower()
+        precip_unit = str(hourly_units.get("precipitation", "")).lower()
+
+        def _to_celsius(value: float) -> float:
+            return (value - 32.0) * (5.0 / 9.0) if temp_unit in {"°f", "f", "fahrenheit"} else value
+
+        def _to_mm(value: float) -> float:
+            return value * 25.4 if precip_unit in {"inch", "in", "inches"} else value
+
         for t, p, c in zip(temps, precip, codes):
             if t is None or p is None or c is None:
                 continue
             try:
-                if should_check_snow_level(float(p), int(c), float(t)):
+                temp_c = _to_celsius(float(t))
+                precip_mm = _to_mm(float(p))
+                if should_check_snow_level(precip_mm, int(c), temp_c):
                     return True
             except Exception:
                 continue
@@ -1115,7 +1149,15 @@ def _has_any_pressure_level_profile(raw: dict) -> bool:
         return False
 
 
-def _log_snow_levels_summary(name: str, raw_forecast: dict, dataset: List[dict], *, timezone_name: str) -> None:
+def _log_snow_levels_summary(
+    name: str,
+    raw_forecast: dict,
+    dataset: List[dict],
+    *,
+    timezone_name: str,
+    temperature_unit: str,
+    precipitation_unit: str,
+) -> None:
     """
     INFO-level debugging summary for snow-level calculations.
     """
@@ -1126,18 +1168,32 @@ def _log_snow_levels_summary(name: str, raw_forecast: dict, dataset: List[dict],
         precip = hourly.get("precipitation", [])
         codes = hourly.get("weather_code", [])
 
+        def _to_celsius(value: float) -> float:
+            return (value - 32.0) * (5.0 / 9.0)
+
+        def _to_mm(value: float) -> float:
+            return value * 25.4
+
+        temp_unit = temperature_unit.lower()
+        precip_unit = precipitation_unit.lower()
+        uses_f = temp_unit in {"fahrenheit", "f"}
+        uses_in = precip_unit in {"inch", "in", "inches"}
+        snow_unit = "ft" if uses_f or uses_in else "m"
+
         candidates: list[tuple[int, str, float, float, int]] = []
         for idx, (ts, t, p, c) in enumerate(zip(times, temps, precip, codes)):
             if ts is None or t is None or p is None or c is None:
                 continue
             try:
-                t_f = float(t)
-                p_f = float(p)
+                t_val = float(t)
+                p_val = float(p)
                 c_i = int(c)
             except Exception:
                 continue
-            if should_check_snow_level(p_f, c_i, t_f):
-                candidates.append((idx, str(ts), t_f, p_f, c_i))
+            t_c = _to_celsius(t_val) if uses_f else t_val
+            p_mm = _to_mm(p_val) if uses_in else p_val
+            if should_check_snow_level(p_mm, c_i, t_c):
+                candidates.append((idx, str(ts), t_c, p_mm, c_i))
 
         # Map dataset snow levels by local date/hour
         produced: dict[tuple[str, str], int] = {}
@@ -1163,10 +1219,12 @@ def _log_snow_levels_summary(name: str, raw_forecast: dict, dataset: List[dict],
         )
         if produced_values:
             logger.info(
-                "Snow levels summary for '%s': min=%dm max=%dm",
+                "Snow levels summary for '%s': min=%d%s max=%d%s",
                 name,
                 min(produced_values),
+                snow_unit,
                 max(produced_values),
+                snow_unit,
             )
 
         # Print a few sample candidate hours
@@ -1179,8 +1237,8 @@ def _log_snow_levels_summary(name: str, raw_forecast: dict, dataset: List[dict],
             except Exception:
                 tz = ZoneInfo("UTC")
 
-            sample = candidates[:5]
-            for _, ts, t_f, p_f, c_i in sample:
+            log_candidates: list[tuple[str, str, float, float, int, int | None, str]] = []
+            for _, ts, t_c, p_mm, c_i in candidates:
                 # Open-Meteo times can be either "YYYY-MM-DDTHH:MM" or include "Z"/offset.
                 try:
                     dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(tz)
@@ -1196,15 +1254,23 @@ def _log_snow_levels_summary(name: str, raw_forecast: dict, dataset: List[dict],
                         dbg_txt = f" raw_est={float(dbg['raw_estimate_m']):.0f}m"
                     except Exception:
                         dbg_txt = ""
+                if not isinstance(sl, int) and not dbg_txt:
+                    continue
+                log_candidates.append((date_key, hour_key, t_c, p_mm, c_i, sl, dbg_txt))
+                if len(log_candidates) >= 5:
+                    break
+
+            for date_key, hour_key, t_c, p_mm, c_i, sl, dbg_txt in log_candidates:
+                level_text = f"{sl}{snow_unit}" if isinstance(sl, int) else "none"
                 logger.info(
                     "Snow levels candidate '%s' %s %s: T=%.1fC precip=%.1fmm code=%d snow_level=%s%s",
                     name,
                     date_key,
                     hour_key,
-                    t_f,
-                    p_f,
+                    t_c,
+                    p_mm,
                     c_i,
-                    (f"{sl}m" if isinstance(sl, int) else "none"),
+                    level_text,
                     dbg_txt,
                 )
     except Exception as exc:

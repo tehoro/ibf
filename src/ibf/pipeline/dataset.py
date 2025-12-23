@@ -29,6 +29,7 @@ def build_processed_days(
     forecast_raw: Dict[str, Any],
     *,
     timezone_name: str,
+    temperature_unit: str = "celsius",
     precipitation_unit: str = "mm",
     windspeed_unit: str = "kph",
     thin_select: int = 16,
@@ -54,9 +55,11 @@ def build_processed_days(
     Returns:
         A list of day dictionaries containing hourly forecasts.
     """
-    members = _detect_members(forecast_raw.get("hourly_units", {}))
+    hourly_units = forecast_raw.get("hourly_units", {})
+    members = _detect_members(hourly_units)
     hourly = forecast_raw.get("hourly", {})
     timestamps = hourly.get("time", [])
+    freezing_level_unit = _resolve_freezing_level_unit(hourly_units)
 
     tz = _resolve_timezone(timezone_name)
     now = datetime.now(tz)
@@ -86,8 +89,10 @@ def build_processed_days(
                 member,
                 idx,
                 indexed,
+                temperature_unit=temperature_unit,
                 precipitation_unit=precipitation_unit,
                 windspeed_unit=windspeed_unit,
+                freezing_level_unit=freezing_level_unit,
                 location_altitude=location_altitude,
                 snow_levels_enabled=snow_levels_enabled,
                 highest_terrain_m=highest_terrain_m,
@@ -148,6 +153,71 @@ def _build_indexed_hourly(hourly: Dict[str, Any], count: int) -> Dict[str, List[
     return {key: hourly.get(key, [None] * count) for key in hourly}
 
 
+_FAHRENHEIT_UNITS = {"fahrenheit", "f"}
+_INCH_UNITS = {"inch", "in", "inches"}
+_FEET_UNITS = {"ft", "feet", "foot"}
+_METER_UNITS = {"m", "meter", "meters", "metre", "metres"}
+
+
+def _to_celsius(value: Any, unit: str) -> float | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if unit.lower() in _FAHRENHEIT_UNITS:
+        return (numeric - 32.0) * (5.0 / 9.0)
+    return numeric
+
+
+def _to_mm(value: Any, unit: str) -> float | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if unit.lower() in _INCH_UNITS:
+        return numeric * 25.4
+    return numeric
+
+
+def _to_meters(value: Any, unit: str) -> float | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if unit.lower() in _FEET_UNITS:
+        return numeric * 0.3048
+    return numeric
+
+
+def _snow_level_units(temp_unit: str, precip_unit: str) -> str:
+    if temp_unit.lower() in _FAHRENHEIT_UNITS or precip_unit.lower() in _INCH_UNITS:
+        return "us"
+    return "metric"
+
+
+def _resolve_freezing_level_unit(hourly_units: Dict[str, Any]) -> str:
+    if not isinstance(hourly_units, dict):
+        return "m"
+    unit_value = hourly_units.get("freezing_level_height")
+    if not unit_value:
+        for key, value in hourly_units.items():
+            if key.startswith("freezing_level_height") and value:
+                unit_value = value
+                break
+    if not isinstance(unit_value, str):
+        return "m"
+    token = unit_value.strip().lower()
+    if token in _FEET_UNITS:
+        return "ft"
+    if token in _METER_UNITS:
+        return "m"
+    return "m"
+
+
+def _snow_level_output(value_m: float | int) -> int:
+    return int(round((float(value_m) * 3.28084) / 500.0) * 500)
+
+
 def _parse_timestamp(value: str, tz: ZoneInfo) -> datetime | None:
     """Parse ISO timestamps (with optional Z suffix) and convert to the target TZ."""
     try:
@@ -165,8 +235,10 @@ def _build_member_record(
     index: int,
     indexed: Dict[str, List[Any]],
     *,
+    temperature_unit: str,
     precipitation_unit: str,
     windspeed_unit: str,
+    freezing_level_unit: str,
     location_altitude: float,
     snow_levels_enabled: bool,
     highest_terrain_m: float | None,
@@ -204,21 +276,41 @@ def _build_member_record(
             wx_code = int(weather_code) if weather_code is not None else 0
         except Exception:
             wx_code = 0
+        temp_c = _to_celsius(temperature, temperature_unit)
+        dewpoint_c = _to_celsius(dewpoint, temperature_unit)
+        precip_mm = _to_mm(precipitation, precipitation_unit)
+        snow_units = _snow_level_units(temperature_unit, precipitation_unit)
 
         # Avoid expensive or noisy calculations when snow is implausible.
-        if dewpoint is not None and should_check_snow_level(float(precipitation), wx_code, float(temperature)):
+        if (
+            dewpoint_c is not None
+            and temp_c is not None
+            and precip_mm is not None
+            and should_check_snow_level(precip_mm, wx_code, temp_c)
+        ):
             freezing_level = _safe_get(indexed, f"freezing_level_height{base}", index)
             if freezing_level is not None:
-                snow_level = _estimate_snow_level(
-                    temperature,
-                    dewpoint,
+                freezing_level_m = _to_meters(freezing_level, freezing_level_unit)
+                if freezing_level_m is None:
+                    freezing_level = None
+                else:
+                    freezing_level = freezing_level_m
+                snow_level_m = _estimate_snow_level(
+                    temp_c,
+                    dewpoint_c,
                     snowfall,
-                    precipitation,
+                    precip_mm,
                     freezing_level,
                     location_altitude,
                     weather_code=wx_code,
                     max_terrain_m=highest_terrain_m,
                 )
+                if snow_level_m is not None:
+                    snow_level = (
+                        _snow_level_output(snow_level_m)
+                        if snow_units == "us"
+                        else int(snow_level_m)
+                    )
             elif pressure_levels_hpa:
                 surface_pressure = _safe_get(indexed, f"surface_pressure{base}", index)
                 try:
@@ -236,14 +328,14 @@ def _build_member_record(
                     if profile is not None:
                         try:
                             profile_snow = compute_hourly_snow_level(
-                                precipitation_mm=float(precipitation),
+                                precipitation_mm=float(precip_mm),
                                 weather_code=wx_code,
-                                temperature_c=float(temperature),
-                                dewpoint_c=float(dewpoint) if dewpoint is not None else float("nan"),
+                                temperature_c=float(temp_c),
+                                dewpoint_c=float(dewpoint_c),
                                 location_elevation_m=float(location_altitude),
                                 surface_pressure_hpa=surface_pressure_hpa,
                                 pressure_profile=profile,
-                                units="metric",
+                                units=snow_units,
                                 max_terrain_m=highest_terrain_m,
                                 precip_adjust=True,
                             )
@@ -254,13 +346,13 @@ def _build_member_record(
                                 raw_est = estimate_snow_level_msl(
                                     z_station_m=float(location_altitude),
                                     p_station_pa=surface_pressure_hpa * 100.0,
-                                    t2m_c=float(temperature),
-                                    td2m_c=float(dewpoint),
+                                    t2m_c=float(temp_c),
+                                    td2m_c=float(dewpoint_c),
                                     pressures_hpa=profile["pressures_hpa"],
                                     temps_c=profile["temps_c"],
                                     rhs_pct=profile["rhs_pct"],
                                     geop_heights_m=profile["geop_heights_m"],
-                                    precip_rate_mm_per_hr=float(precipitation),
+                                    precip_rate_mm_per_hr=float(precip_mm),
                                     apply_precip_adjustment=True,
                                 )
                                 snow_level_debug = {
@@ -415,4 +507,3 @@ def _resolve_timezone(name: str) -> ZoneInfo:
         return ZoneInfo(name)
     except Exception:
         return ZoneInfo("UTC")
-

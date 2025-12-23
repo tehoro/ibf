@@ -1,0 +1,68 @@
+# Sample Configration To Test Snow Levels
+
+# Language Models to use
+llm = "gemini-3-flash-preview"
+context_llm = "gemini-3-flash-preview"
+translation_llm = "gemini-3-flash-preview"
+enable_reasoning = true   # use reasoning or thjnking where supported
+
+# Default NWP model unless over-ridden - open-meteo choice
+model = "det:open-meteo"
+
+
+# Location specific settings
+location_forecast_days = 4
+location_wordiness = "normal"
+location_reasoning = "low"
+location_impact_based = true
+location_thin_select = 10   # thin ensemble members down to a representative 10
+
+# Area specific settings
+area_forecast_days = 2
+area_wordiness = "brief"
+area_reasoning = "low"
+area_impact_based = true
+area_thin_select = 10
+
+# These are the default global units settings anyway, but given here for the avoidance of doubt
+temperature_unit = "celsius"  
+windspeed_unit = "kph"
+precipitation_unit = "mm"
+
+# The base index.html file is written to this location
+web_root = "./outputs/example"
+
+# If 0 this is ignored, but if greater than zero then we don't overwrite any forecasts
+# which were produced within this last number of minutes
+# Useful for testing
+
+recent_overwrite_minutes = 0
+
+
+# A list of locations with their specific settings
+
+[[location]]
+name = "Inverness, Scotland"
+snow_levels = true
+windspeed_unit = "mph"
+
+[[location]]
+name = "Reno, Nevada"
+model = "det:icon_seamless"
+snow_levels = true
+temperature_unit = "fahrenheit"
+precipitation_unit = "in"
+windspeed_unit = "mph"
+
+
+[[location]]
+name = "Boulder, Colorado"
+model = "det:open-meteo"
+snow_levels = true
+temperature_unit = "fahrenheit"
+precipitation_unit = "in"
+windspeed_unit = "mph"
+
+
+
+

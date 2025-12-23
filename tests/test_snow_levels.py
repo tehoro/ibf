@@ -40,6 +40,7 @@ def test_snow_levels_disabled_ignores_freezing_level() -> None:
     days = build_processed_days(
         raw,
         timezone_name="UTC",
+        temperature_unit="celsius",
         precipitation_unit="mm",
         windspeed_unit="kph",
         thin_select=1,
@@ -57,6 +58,7 @@ def test_snow_levels_uses_freezing_level_when_present() -> None:
     days = build_processed_days(
         raw,
         timezone_name="UTC",
+        temperature_unit="celsius",
         precipitation_unit="mm",
         windspeed_unit="kph",
         thin_select=1,
@@ -94,8 +96,59 @@ def test_snow_levels_uses_profile_when_no_freezing_level() -> None:
     days = build_processed_days(
         raw,
         timezone_name="UTC",
+        temperature_unit="celsius",
         precipitation_unit="mm",
         windspeed_unit="kph",
+        thin_select=1,
+        location_altitude=0.0,
+        snow_levels_enabled=True,
+        highest_terrain_m=3500.0,
+        pressure_levels_hpa=[1000, 925, 850, 700, 600, 500],
+    )
+    member = days[0]["hours"][0]["ensemble_members"]["member00"]
+    snow_level = member.get("snow_level")
+    assert isinstance(snow_level, int) and snow_level > 0
+
+
+def test_snow_levels_imperial_units_convert_and_round_to_feet() -> None:
+    raw = _base_forecast_raw(freezing_level=1200.0)
+    raw["hourly"]["temperature_2m"] = [40.0]
+    raw["hourly"]["dewpoint_2m"] = [38.0]
+    raw["hourly"]["precipitation"] = [0.1]
+    raw["hourly_units"]["temperature_2m"] = "°F"
+
+    days = build_processed_days(
+        raw,
+        timezone_name="UTC",
+        temperature_unit="fahrenheit",
+        precipitation_unit="inch",
+        windspeed_unit="mph",
+        thin_select=1,
+        location_altitude=0.0,
+        snow_levels_enabled=True,
+        highest_terrain_m=3500.0,
+        pressure_levels_hpa=[1000, 925, 850, 700, 600, 500],
+    )
+    member = days[0]["hours"][0]["ensemble_members"]["member00"]
+    snow_level = member.get("snow_level")
+    assert isinstance(snow_level, int) and snow_level > 0
+    assert snow_level % 500 == 0
+
+
+def test_snow_levels_freezing_level_units_in_feet_are_converted() -> None:
+    raw = _base_forecast_raw(freezing_level=5000.0)
+    raw["hourly_units"]["freezing_level_height"] = "ft"
+    raw["hourly_units"]["temperature_2m"] = "°F"
+    raw["hourly"]["temperature_2m"] = [35.0]
+    raw["hourly"]["dewpoint_2m"] = [33.0]
+    raw["hourly"]["precipitation"] = [0.1]
+
+    days = build_processed_days(
+        raw,
+        timezone_name="UTC",
+        temperature_unit="fahrenheit",
+        precipitation_unit="inch",
+        windspeed_unit="mph",
         thin_select=1,
         location_altitude=0.0,
         snow_levels_enabled=True,
