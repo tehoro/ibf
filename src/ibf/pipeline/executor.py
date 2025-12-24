@@ -1569,6 +1569,8 @@ def _should_skip_recent_output(config: ForecastConfig, name: str, *, context: st
     destination = _build_destination_path(config, name)
     if not destination.exists():
         return False
+    if _is_placeholder_output(destination):
+        return False
     try:
         age_seconds = utc_now().timestamp() - destination.stat().st_mtime
     except OSError:
@@ -1584,6 +1586,17 @@ def _should_skip_recent_output(config: ForecastConfig, name: str, *, context: st
         )
         return True
     return False
+
+
+def _is_placeholder_output(path: Path) -> bool:
+    """Return True if the output file still contains the scaffold placeholder content."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return False
+    if not text.strip():
+        return True
+    return "<p>Forecast will be updated here.</p>" in text
 
 
 def _build_destination_path(config: ForecastConfig, name: str) -> Path:
