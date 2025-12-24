@@ -32,6 +32,7 @@ from ..api import (
 )
 from ..render import ForecastPage, render_forecast_page
 from ..util import slugify, write_text_file, ensure_directory, utc_now
+from ..util.naming import generate_unique_location_names
 from ..util.elevation import get_highest_point
 from ..util.snow import should_check_snow_level
 from .dataset import build_processed_days
@@ -205,7 +206,9 @@ def execute_pipeline(config: ForecastConfig) -> None:
 
     _reset_cost_tracker()
     # Generate unique names for locations to avoid conflicts
-    unique_names = _generate_unique_location_names(config)
+    location_names = [location.name for location in config.locations]
+    location_kinds = [_resolve_model_spec(location, config).kind for location in config.locations]
+    unique_names = generate_unique_location_names(location_names, location_kinds)
     for i, location in enumerate(config.locations):
         _process_location(location, config, unique_names[i])
     for area in config.areas:
@@ -239,18 +242,23 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
         return None
     geocode = payload.geocode
     timezone_name = geocode.timezone or "UTC"
-    context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
-    impact_context = fetch_impact_context(
-        name,
-        context_type="location",
-        forecast_days=forecast_days,
-        timezone_name=timezone_name,
-        context_llm=context_llm,
-        extra_context=location.extra_context,
-    )
-    ibf_context = impact_context.content
-    _record_cost("Location", unique_name, context=impact_context.cost_cents)
-    logger.info("Fetched impact context for '%s'", name)
+    impact_enabled = _as_bool(config.location_impact_based)
+    ibf_context = ""
+    if impact_enabled:
+        context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
+        impact_context = fetch_impact_context(
+            name,
+            context_type="location",
+            forecast_days=forecast_days,
+            timezone_name=timezone_name,
+            context_llm=context_llm,
+            extra_context=location.extra_context,
+        )
+        ibf_context = impact_context.content
+        _record_cost("Location", unique_name, context=impact_context.cost_cents)
+        logger.info("Fetched impact context for '%s'", name)
+    else:
+        logger.info("Impact context disabled for '%s'; skipping.", name)
     formatted_dataset = payload.formatted_dataset
     dataset = payload.dataset
     alerts = payload.alerts
@@ -266,7 +274,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
                 model_kind=payload.model_kind,
             )
             short_instr = _short_period_instruction(dataset, geocode.timezone or "UTC")
-            impact_instr = _impact_instruction(_as_bool(config.location_impact_based))
+            impact_instr = _impact_instruction(impact_enabled)
             prompt = build_spot_user_prompt(
                 formatted_dataset,
                 location_name=name,
@@ -367,18 +375,23 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
         return
 
     area_timezone = payloads[0].geocode.timezone or "UTC"
-    context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
-    impact_context = fetch_impact_context(
-        area.name,
-        context_type="area",
-        forecast_days=forecast_days,
-        timezone_name=area_timezone,
-        context_llm=context_llm,
-        extra_context=area.extra_context,
-    )
-    ibf_context = impact_context.content
-    _record_cost("Area", area.name, context=impact_context.cost_cents)
-    logger.info("Fetched impact context for area '%s'", area.name)
+    impact_enabled = _as_bool(config.area_impact_based)
+    ibf_context = ""
+    if impact_enabled:
+        context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
+        impact_context = fetch_impact_context(
+            area.name,
+            context_type="area",
+            forecast_days=forecast_days,
+            timezone_name=area_timezone,
+            context_llm=context_llm,
+            extra_context=area.extra_context,
+        )
+        ibf_context = impact_context.content
+        _record_cost("Area", area.name, context=impact_context.cost_cents)
+        logger.info("Fetched impact context for area '%s'", area.name)
+    else:
+        logger.info("Impact context disabled for area '%s'; skipping.", area.name)
     formatted_dataset = format_area_dataset(
         area.name,
         [
@@ -406,7 +419,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
             short_instr = _short_period_instruction(
                 payloads[0].dataset, payloads[0].geocode.timezone or "UTC"
             )
-            impact_instr = _impact_instruction(_as_bool(config.area_impact_based))
+            impact_instr = _impact_instruction(impact_enabled)
             prompt = build_area_user_prompt(
                 formatted_dataset,
                 area_name=area.name,
@@ -506,18 +519,23 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
         return
 
     area_timezone = payloads[0].geocode.timezone or "UTC"
-    context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
-    regional_context = fetch_impact_context(
-        area.name,
-        context_type="regional",
-        forecast_days=forecast_days,
-        timezone_name=area_timezone,
-        context_llm=context_llm,
-        extra_context=area.extra_context,
-    )
-    ibf_context = regional_context.content
-    _record_cost("Regional", area.name, context=regional_context.cost_cents)
-    logger.info("Fetched impact context for regional area '%s'", area.name)
+    impact_enabled = _as_bool(config.area_impact_based)
+    ibf_context = ""
+    if impact_enabled:
+        context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
+        regional_context = fetch_impact_context(
+            area.name,
+            context_type="regional",
+            forecast_days=forecast_days,
+            timezone_name=area_timezone,
+            context_llm=context_llm,
+            extra_context=area.extra_context,
+        )
+        ibf_context = regional_context.content
+        _record_cost("Regional", area.name, context=regional_context.cost_cents)
+        logger.info("Fetched impact context for regional area '%s'", area.name)
+    else:
+        logger.info("Impact context disabled for regional area '%s'; skipping.", area.name)
     formatted_dataset = format_area_dataset(
         area.name,
         [
@@ -545,7 +563,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
             short_instr = _short_period_instruction(
                 payloads[0].dataset, payloads[0].geocode.timezone or "UTC"
             )
-            impact_instr = _impact_instruction(_as_bool(config.area_impact_based))
+            impact_instr = _impact_instruction(impact_enabled)
             prompt = build_regional_user_prompt(
                 formatted_dataset,
                 area_name=area.name,
@@ -954,69 +972,6 @@ def _open_meteo_model_param(model_spec: ModelSpec) -> Optional[str]:
     if model_spec.model_id in {"open-meteo", "openmeteo", "open_meteo"}:
         return None
     return model_spec.model_id
-
-
-def _generate_unique_location_names(config: ForecastConfig) -> List[str]:
-    """
-    Generate unique display names for locations to avoid conflicts when multiple
-    forecasts exist for the same location name (e.g., deterministic vs ensemble).
-
-    Returns a list of unique display names, one per location in config order.
-    For duplicates, appends suffixes like " (Deterministic)", " (Ensemble)", or " 1", " 2".
-    """
-    from collections import defaultdict
-    
-    name_counts: Dict[str, int] = {}
-    location_kinds: List[tuple[str, str]] = []  # (name, kind) pairs in order
-    
-    # First pass: count occurrences and record model kinds
-    for location in config.locations:
-        name = location.name
-        name_counts[name] = name_counts.get(name, 0) + 1
-        model_spec = _resolve_model_spec(location, config)
-        location_kinds.append((name, model_spec.kind))
-    
-    # Determine which names should use kind labels (exactly 2 duplicates with different kinds)
-    name_should_use_kinds: Dict[str, bool] = {}
-    name_kinds_all: Dict[str, set] = defaultdict(set)
-    for i, location in enumerate(config.locations):
-        name = location.name
-        kind = location_kinds[i][1]
-        name_kinds_all[name].add(kind)
-    
-    for name in name_counts:
-        if name_counts[name] == 2 and len(name_kinds_all[name]) == 2:
-            name_should_use_kinds[name] = True
-        else:
-            name_should_use_kinds[name] = False
-    
-    # Second pass: assign unique names
-    result: List[str] = []
-    name_occurrences: Dict[str, int] = {}
-    
-    for i, location in enumerate(config.locations):
-        name = location.name
-        kind = location_kinds[i][1]
-        
-        if name_counts[name] == 1:
-            # No duplicates, use original name
-            result.append(name)
-        else:
-            # Duplicate found - need to disambiguate
-            occurrence = name_occurrences.get(name, 0) + 1
-            name_occurrences[name] = occurrence
-            
-            # If exactly 2 duplicates with different kinds, use kind labels
-            if name_should_use_kinds[name]:
-                if kind == "deterministic":
-                    result.append(f"{name} (Deterministic)")
-                else:
-                    result.append(f"{name} (Ensemble)")
-            else:
-                # More than two duplicates or same kind - use numbers
-                result.append(f"{name} {occurrence}")
-    
-    return result
 
 
 def _snow_levels_enabled(entity: SupportsUnits, config: ForecastConfig, model_spec: ModelSpec) -> bool:

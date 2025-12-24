@@ -6,11 +6,15 @@ from __future__ import annotations
 
 import json
 import hashlib
+import logging
+import re
 import tomllib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigError(RuntimeError):
@@ -34,6 +38,10 @@ class LocationConfig(BaseModel):
     snow_levels: Optional[bool] = None
     model: Optional[str] = None
 
+    model_config = {
+        "extra": "forbid",
+    }
+
 
 class AreaConfig(BaseModel):
     """
@@ -55,6 +63,10 @@ class AreaConfig(BaseModel):
     units: Dict[str, str] = Field(default_factory=dict)
     snow_levels: Optional[bool] = None
     model: Optional[str] = None
+
+    model_config = {
+        "extra": "forbid",
+    }
 
 
 class ForecastConfig(BaseModel):
@@ -93,8 +105,8 @@ class ForecastConfig(BaseModel):
     enable_reasoning: bool = True
     location_reasoning: Optional[str] = None
     area_reasoning: Optional[str] = None
-    location_impact_based: Optional[bool] = None
-    area_impact_based: Optional[bool] = None
+    location_impact_based: bool = True
+    area_impact_based: bool = True
     location_thin_select: Optional[int] = None
     area_thin_select: Optional[int] = None
     llm: Optional[str] = None
@@ -109,7 +121,19 @@ class ForecastConfig(BaseModel):
     model_config = {
         "arbitrary_types_allowed": True,
         "populate_by_name": True,
+        "extra": "forbid",
     }
+
+    @model_validator(mode="after")
+    def _validate_context_llm(self) -> "ForecastConfig":
+        if self.context_llm:
+            raw = str(self.context_llm).strip()
+            if raw and not _is_supported_context_llm(raw):
+                raise ValueError(
+                    "context_llm must be a Gemini or OpenAI model name; OpenRouter models are not supported "
+                    "for impact-context web search."
+                )
+        return self
 
     @property
     def hash(self) -> str:
@@ -149,9 +173,12 @@ def load_config(path: Path | str) -> ForecastConfig:
     raw_data = _normalize_toml_schema(raw_data)
 
     try:
-        return ForecastConfig.model_validate(raw_data)
+        config = ForecastConfig.model_validate(raw_data)
     except ValidationError as exc:
         raise ConfigError(str(exc)) from exc
+
+    _warn_on_unknown_area_locations(config)
+    return config
 
 
 def _normalize_toml_schema(data: Any) -> Dict[str, Any]:
@@ -224,12 +251,49 @@ _DISALLOWED_UNIT_KEYS = {
     "altitude_m",
 }
 
+_UNIT_ALIASES: dict[str, dict[str, str]] = {
+    "temperature_unit": {
+        "c": "celsius",
+        "°c": "celsius",
+        "celsius": "celsius",
+        "centigrade": "celsius",
+        "celcius": "celsius",
+        "f": "fahrenheit",
+        "°f": "fahrenheit",
+        "fahrenheit": "fahrenheit",
+    },
+    "precipitation_unit": {
+        "mm": "mm",
+        "millimeter": "mm",
+        "millimeters": "mm",
+        "millimetre": "mm",
+        "millimetres": "mm",
+        "in": "inch",
+        "inch": "inch",
+        "inches": "inch",
+    },
+    "windspeed_unit": {
+        "kph": "kph",
+        "kmh": "kph",
+        "km/h": "kph",
+        "kmph": "kph",
+        "mph": "mph",
+        "mps": "mps",
+        "m/s": "mps",
+        "ms": "mps",
+        "kt": "kt",
+        "kts": "kt",
+        "kn": "kt",
+        "knots": "kt",
+    },
+}
+
 
 def _extract_inline_units(payload: dict) -> Dict[str, Any]:
     units: Dict[str, Any] = {}
     for key in _UNIT_KEYS:
         if key in payload:
-            units[key] = payload.pop(key)
+            units[key] = _normalize_unit_value(payload.pop(key), key)
     return units
 
 
@@ -242,3 +306,56 @@ def _raise_on_disallowed_units(payload: dict, scope: str) -> None:
         f"{scope} does not support {joined}. "
         "Snowfall units are derived from precipitation and altitude comes from geocoding."
     )
+
+
+def _normalize_unit_value(value: Any, key: str) -> str:
+    if not isinstance(value, str):
+        raise ConfigError(f"{key} must be a string (got {type(value).__name__}).")
+    raw = value.strip()
+    if not raw:
+        raise ConfigError(f"{key} cannot be blank.")
+    if "(" in raw:
+        if not raw.endswith(")") or raw.count("(") != 1:
+            raise ConfigError(
+                f"{key} secondary units must be written as primary(secondary), e.g. \"mph(kph)\"."
+            )
+        primary, secondary = raw.split("(", 1)
+        primary_norm = _normalize_unit_token(primary, key)
+        secondary_norm = _normalize_unit_token(secondary[:-1], key)
+        return f"{primary_norm}({secondary_norm})"
+    return _normalize_unit_token(raw, key)
+
+
+def _normalize_unit_token(token: str, key: str) -> str:
+    normalized = token.strip().lower()
+    mapping = _UNIT_ALIASES.get(key, {})
+    if normalized in mapping:
+        return mapping[normalized]
+    allowed = ", ".join(sorted(set(mapping.values())))
+    raise ConfigError(f"Invalid {key} value '{token}'. Allowed: {allowed}.")
+
+
+def _is_supported_context_llm(value: str) -> bool:
+    lowered = value.strip().lower()
+    if lowered.startswith("gemini-") or lowered.startswith("google/gemini-"):
+        return True
+    if lowered.startswith("gpt-") or lowered.startswith("openai/"):
+        return True
+    if re.match(r"^o[1-9]", lowered):
+        return True
+    return False
+
+
+def _warn_on_unknown_area_locations(config: ForecastConfig) -> None:
+    if not config.areas:
+        return
+    known = {loc.name.strip() for loc in config.locations}
+    for area in config.areas:
+        for entry in area.locations:
+            if entry.strip() not in known:
+                logger.warning(
+                    "Area '%s' references location '%s' that is not defined in [[location]]. "
+                    "Per-location overrides will not apply for this area member.",
+                    area.name,
+                    entry,
+                )

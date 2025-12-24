@@ -15,7 +15,7 @@ Quick Start (Recommended)
 ------------------------
 
 Step 1: Download the latest release
-- Go to the GitHub Releases page and download the build for your machine:
+- Go to the GitHub Releases page (<https://github.com/tehoro/ibf/releases>) and download the build for your machine:
   - macOS arm64 (Apple Silicon)
   - macOS x86_64 (Intel)
   - Windows x86_64
@@ -53,7 +53,7 @@ Create a TOML config file in your config folder. You can name it anything; it ju
 to be valid TOML.
 
 Options:
-- Download config_examples/sample-config.toml from the GitHub repo and edit it, or
+- Download <https://github.com/tehoro/ibf/blob/main/config_examples/config-example.toml> from the GitHub repo and edit it, or
 - Start from the minimal example in the Configuration File Guide below.
 
 Step 5: Run IBF
@@ -95,7 +95,7 @@ Alert sources:
 - Other countries: OpenWeatherMap One Call (requires OPENWEATHERMAP_API_KEY).
 
 Impact context note:
-- IBF always attempts to fetch impact context. If no context LLM key is set, IBF will continue but without extra context.
+- IBF only fetches impact context when `location_impact_based` / `area_impact_based` are true (default). If impact context is enabled but no context LLM key is set, IBF will continue without extra context.
 
 Recommended LLM choices
 -----------------------
@@ -137,7 +137,7 @@ IBF uses a single TOML file. It has three sections:
 - one or more [[area]] blocks
 
 TOML supports comments with `#`, and uses native types for numbers and booleans.
-IBF expects TOML config files.
+IBF expects TOML config files and validates them strictly (unknown keys or invalid unit values will raise an error).
 
 At least one location or area is required. If web_root is omitted, output defaults to outputs/forecasts.
 
@@ -259,9 +259,10 @@ Environment variables:
 
 Notes:
 - If `GOOGLE_API_KEY` is not set, IBF will still attempt Open-Meteo geocoding first.
+- Impact context supports Gemini or OpenAI models only (`context_llm`). OpenRouter models are not supported for impact context.
 - Impact context uses Gemini search when `context_llm` is a Gemini model (the default).
-- If `context_llm` is set to a non-Gemini model, impact context uses OpenAI web search and requires `OPENAI_API_KEY`.
-- If a model string is unrecognized, IBF falls back to an OpenRouter model and will require `OPENROUTER_API_KEY`.
+- Impact context uses OpenAI web search when `context_llm` is an OpenAI model and requires `OPENAI_API_KEY`.
+- If a forecast/translation model string is unrecognized, IBF falls back to an OpenRouter model and will require `OPENROUTER_API_KEY`.
 - Keep `GOOGLE_API_KEY` (Geocoding/Elevation) and `GEMINI_API_KEY` (Gemini) separate; they are issued in different consoles and are not interchangeable.
 
 Google Geocoding API key (step-by-step)
@@ -300,7 +301,7 @@ Global settings:
 | `model` | Default forecast model for all locations/areas. | Use `ens:<id>` or `det:<id>`. Defaults to `ens:ecmwf_ifs025`. |
 | `snow_levels` | Enable snow-level estimates. | Only applies to deterministic models. |
 | `llm` | Model used for forecast text. | Supports OpenRouter, OpenAI, and Gemini naming. |
-| `context_llm` | Model used for impact context. | Defaults to `gemini-3-flash-preview` if omitted. |
+| `context_llm` | Model used for impact context. | Gemini or OpenAI only. Defaults to `gemini-3-flash-preview` if omitted. |
 | `translation_llm` | Optional model used for translations only. | Used only if translation is enabled. |
 | `translation_language` | Default translation language. | English output is always produced; translations are additional. |
 | `enable_reasoning` | Enable model reasoning when supported. | Boolean; defaults to true. |
@@ -310,8 +311,8 @@ Global settings:
 | `area_forecast_days` | Days of forecast for areas. | Defaults to location days or 4. |
 | `location_wordiness` | `brief`, `normal`, or `detailed`. | Default is `normal`. |
 | `area_wordiness` | `brief`, `normal`, or `detailed`. | Default is `normal`. |
-| `location_impact_based` | Include impact context for locations. | Boolean. |
-| `area_impact_based` | Include impact context for areas. | Boolean. |
+| `location_impact_based` | Include impact context for locations. | Boolean; defaults to true. |
+| `area_impact_based` | Include impact context for areas. | Boolean; defaults to true. |
 | `location_thin_select` | Thin ensemble members for locations. | Caps to model member count. |
 | `area_thin_select` | Thin ensemble members for areas. | Caps to model member count. |
 | `recent_overwrite_minutes` | Skip rewriting outputs younger than this. | Useful for cron. |
@@ -406,7 +407,7 @@ Provider naming:
 - Gemini direct: `gemini-3-flash-preview` or `google/gemini-3-flash-preview` (requires `GEMINI_API_KEY`)
 
 Impact context is separate: it uses Gemini search by default (`context_llm = gemini-3-flash-preview`),
-or OpenAI web search when `context_llm` is a non-Gemini model.
+or OpenAI web search when `context_llm` is an OpenAI model.
 
 Reasoning levels (forecast text):
 - OpenAI reasoning models (direct or via OpenRouter) use `reasoning.effort` with `low`/`medium`/`high`; `minimal` maps to `low`, and `off` disables the reasoning payload.
