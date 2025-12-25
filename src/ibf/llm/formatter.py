@@ -136,10 +136,10 @@ def format_location_dataset(
 
                 temp_text = f"{_format_temp(temp)}" if isinstance(temp, (int, float)) else "N/A"
                 details = [temp_text, weather_desc]
-                if cloud_text:
-                    details.append(cloud_text)
                 if precip_text:
                     details.append(precip_text)
+                if cloud_text:
+                    details.append(cloud_text)
                 if snow_text:
                     details.append(snow_text)
                 if pop_text:
