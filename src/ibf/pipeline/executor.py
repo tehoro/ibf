@@ -224,7 +224,17 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
     name = location.name
     unique_name = display_name or name
     logger.info("Processing location '%s' (display: '%s')", name, unique_name)
-    if _should_skip_recent_output(config, unique_name, context="location"):
+    refresh_minutes = _coerce_minimum_refresh_minutes(
+        location.minimum_refresh_minutes
+        if location.minimum_refresh_minutes is not None
+        else config.minimum_refresh_minutes
+    )
+    if _should_skip_recent_output(
+        config,
+        unique_name,
+        context="location",
+        minimum_refresh_minutes=refresh_minutes,
+    ):
         return None
     model_spec = _resolve_model_spec(location, config)
     snow_feature_enabled = _snow_levels_enabled(location, config, model_spec)
@@ -355,7 +365,17 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
 def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Generate an area-level forecast (single text block) across representative spots."""
     logger.info("Processing area '%s'", area.name)
-    if _should_skip_recent_output(config, area.name, context="area"):
+    refresh_minutes = _coerce_minimum_refresh_minutes(
+        area.minimum_refresh_minutes
+        if area.minimum_refresh_minutes is not None
+        else config.minimum_refresh_minutes
+    )
+    if _should_skip_recent_output(
+        config,
+        area.name,
+        context="area",
+        minimum_refresh_minutes=refresh_minutes,
+    ):
         return
     area_model_spec = _resolve_model_spec(area, config)
     base_units = _resolve_units(
@@ -500,7 +520,17 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
 def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     """Produce a regional forecast that is broken down by sub-regions."""
     logger.info("Processing regional area '%s'", area.name)
-    if _should_skip_recent_output(config, area.name, context="regional"):
+    refresh_minutes = _coerce_minimum_refresh_minutes(
+        area.minimum_refresh_minutes
+        if area.minimum_refresh_minutes is not None
+        else config.minimum_refresh_minutes
+    )
+    if _should_skip_recent_output(
+        config,
+        area.name,
+        context="regional",
+        minimum_refresh_minutes=refresh_minutes,
+    ):
         return
     area_model_spec = _resolve_model_spec(area, config)
     base_units = _resolve_units(
@@ -1513,12 +1543,30 @@ def _resolve_forecast_days(raw_value, fallback: int) -> int:
     return parsed
 
 
-def _should_skip_recent_output(config: ForecastConfig, name: str, *, context: str) -> bool:
-    """Skip regeneration if the existing output is newer than recent_overwrite_minutes."""
+def _coerce_minimum_refresh_minutes(value) -> int:
+    """Normalize refresh minute settings into a non-negative integer."""
+    if value in (None, ""):
+        return 0
     try:
-        max_age_minutes = int(config.recent_overwrite_minutes or 0)
+        parsed = int(value)
     except (TypeError, ValueError):
-        max_age_minutes = 0
+        return 0
+    if parsed <= 0:
+        return 0
+    return parsed
+
+
+def _should_skip_recent_output(
+    config: ForecastConfig,
+    name: str,
+    *,
+    context: str,
+    minimum_refresh_minutes: int | str | None = None,
+) -> bool:
+    """Skip regeneration if the existing output is newer than minimum_refresh_minutes."""
+    if minimum_refresh_minutes is None:
+        minimum_refresh_minutes = config.minimum_refresh_minutes
+    max_age_minutes = _coerce_minimum_refresh_minutes(minimum_refresh_minutes)
     if max_age_minutes <= 0:
         return False
     destination = _build_destination_path(config, name)
@@ -1533,7 +1581,7 @@ def _should_skip_recent_output(config: ForecastConfig, name: str, *, context: st
     age_minutes = max(age_seconds / 60.0, 0.0)
     if age_minutes < max_age_minutes:
         logger.info(
-            "Skipping %s forecast for '%s' (output updated %.1f minutes ago; recent_overwrite_minutes=%s).",
+            "Skipping %s forecast for '%s' (output updated %.1f minutes ago; minimum_refresh_minutes=%s).",
             context,
             name,
             age_minutes,

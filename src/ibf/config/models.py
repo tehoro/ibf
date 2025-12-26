@@ -30,6 +30,7 @@ class LocationConfig(BaseModel):
         translation_language: Optional target language for translation.
         extra_context: Optional user-supplied impact context notes.
         units: Dictionary of unit preferences (e.g., {"temperature_unit": "celsius"}).
+        minimum_refresh_minutes: Optional per-location refresh interval override.
     """
     name: str
     translation_language: Optional[str] = None
@@ -37,6 +38,7 @@ class LocationConfig(BaseModel):
     units: Dict[str, str] = Field(default_factory=dict)
     snow_levels: Optional[bool] = None
     model: Optional[str] = None
+    minimum_refresh_minutes: Optional[int] = None
 
     model_config = {
         "extra": "forbid",
@@ -54,6 +56,7 @@ class AreaConfig(BaseModel):
         extra_context: Optional user-supplied impact context notes.
         mode: "area" (summary) or "regional" (breakdown).
         units: Dictionary of unit preferences.
+        minimum_refresh_minutes: Optional per-area refresh interval override.
     """
     name: str
     locations: List[str]
@@ -63,6 +66,7 @@ class AreaConfig(BaseModel):
     units: Dict[str, str] = Field(default_factory=dict)
     snow_levels: Optional[bool] = None
     model: Optional[str] = None
+    minimum_refresh_minutes: Optional[int] = None
 
     model_config = {
         "extra": "forbid",
@@ -92,7 +96,7 @@ class ForecastConfig(BaseModel):
         context_llm: LLM model identifier to use for impact-context web search (default "gemini-3-flash-preview").
         translation_language: Global default translation language.
         translation_llm: Specific LLM to use for translation.
-        recent_overwrite_minutes: Prevent overwriting fresh forecasts if < N minutes old.
+        minimum_refresh_minutes: Minimum minutes between refreshes (global default).
     """
     locations: List[LocationConfig] = Field(default_factory=list)
     areas: List[AreaConfig] = Field(default_factory=list)
@@ -113,7 +117,7 @@ class ForecastConfig(BaseModel):
     context_llm: Optional[str] = None
     translation_language: Optional[str] = None
     translation_llm: Optional[str] = None
-    recent_overwrite_minutes: int = 0
+    minimum_refresh_minutes: int = 0
     snow_levels: bool = False
     # Global default forecast model. This name matches the per-location/per-area override field.
     model: Optional[str] = None

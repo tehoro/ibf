@@ -24,7 +24,7 @@ precipitation_unit = "mm"
 windspeed_unit = "kph"
 
 web_root = "./outputs/example-site/otaki"
-recent_overwrite_minutes = 0
+minimum_refresh_minutes = 0
 
 [[location]]
 name = "Otaki Beach, New Zealand"

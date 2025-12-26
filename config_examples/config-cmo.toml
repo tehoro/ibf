@@ -32,11 +32,11 @@ precipitation_unit = "mm"
 # The base index.html file is written to this location
 web_root = "./output/cmo"
 
-# If 0 this is ignored, but if greater than zero then we don't overwrite any forecasts
+# If 0 this is ignored, but if greater than zero then we don't refresh any forecasts
 # which were produced within this last number of minutes
 # Useful for testing
 
-recent_overwrite_minutes = 60
+minimum_refresh_minutes = 60
 
 
 # A list of locations with their specific settings

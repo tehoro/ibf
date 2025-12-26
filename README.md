@@ -169,6 +169,7 @@ Each [[location]] block supports:
 - snow_levels (only for deterministic models)
 - translation_language
 - extra_context: optional local notes to prioritize in impact context
+- minimum_refresh_minutes: optional per-location refresh interval override
 - temperature_unit / precipitation_unit / windspeed_unit (per-location overrides)
 
 Areas
@@ -180,6 +181,7 @@ Each [[area]] block supports:
 - snow_levels (only for deterministic models)
 - translation_language
 - extra_context: optional local notes to prioritize in impact context
+- minimum_refresh_minutes: optional per-area refresh interval override
 - temperature_unit / precipitation_unit / windspeed_unit (per-area overrides)
 
 Available ensemble models
@@ -315,7 +317,7 @@ Global settings:
 | `area_impact_based` | Include impact context for areas. | Boolean; defaults to true. |
 | `location_thin_select` | Thin ensemble members for locations. | Caps to model member count. |
 | `area_thin_select` | Thin ensemble members for areas. | Caps to model member count. |
-| `recent_overwrite_minutes` | Skip rewriting outputs younger than this. | Useful for cron. |
+| `minimum_refresh_minutes` | Minimum minutes between refreshes for any output. | Useful for cron; overridden per location/area if set. |
 | `web_root` | Output directory for HTML. | Defaults to `outputs/forecasts`. |
 | `temperature_unit` / `precipitation_unit` / `windspeed_unit` | Global unit defaults. | See Units section below. |
 
@@ -328,6 +330,7 @@ Locations:
 | `snow_levels` | Override global `snow_levels`. | Deterministic only. |
 | `translation_language` | Per-location translation language. | Overrides global. |
 | `extra_context` | Optional local context notes. | Added to impact context prompt. |
+| `minimum_refresh_minutes` | Optional per-location refresh interval. | Overrides global. |
 | `temperature_unit` / `precipitation_unit` / `windspeed_unit` | Per-location unit overrides. | See Units section. |
 
 Areas:
@@ -341,6 +344,7 @@ Areas:
 | `snow_levels` | Override global `snow_levels`. | Deterministic only. |
 | `translation_language` | Per-area translation language. | Overrides global. |
 | `extra_context` | Optional local context notes. | Added to impact context prompt. |
+| `minimum_refresh_minutes` | Optional per-area refresh interval. | Overrides global. |
 | `temperature_unit` / `precipitation_unit` / `windspeed_unit` | Per-area unit overrides. | See Units section. |
 
 Units
@@ -464,7 +468,7 @@ Troubleshooting (technical)
 - Missing API key errors: verify `.env` and rerun with the same working directory.
 - Geocoding failures: ensure the Google Geocoding API is enabled and billing is active.
 - LLM errors: confirm the model string matches the provider and that the correct API key is set.
-- Outputs not updating: check `recent_overwrite_minutes` or delete the target HTML.
+- Outputs not updating: check `minimum_refresh_minutes` or delete the target HTML.
 - Maps not regenerating: use `--force-maps` or delete `<web_root>/.ibf_maps_hash`.
 
 License
