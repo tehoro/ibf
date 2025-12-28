@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 from typing import List, Optional
+from xml.etree import ElementTree as ET
 
 import feedparser
 import requests
@@ -173,28 +174,79 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
             logger.debug("MetService CAP fetch failed for %s: %s", link, exc)
             continue
 
+        # Initialize variables
+        polygons = []
+        severity = None
+        onset = None
+        expires = None
+
         try:
-            soup = BeautifulSoup(resp.content, "xml")
-        except FeatureNotFound as exc:
-            logger.error("BeautifulSoup XML parser not available: %s", exc)
-            return []
-        polygon_tags = soup.find_all("polygon")
-        polygons = [_cap_polygon_to_shape(tag.text) for tag in polygon_tags]
-        polygons = [poly for poly in polygons if poly is not None]
-        if not polygons:
+            # Parse XML with ElementTree for better namespace handling
+            root = ET.fromstring(resp.content)
+            # CAP 1.2 namespace
+            ns = {"cap": "urn:oasis:names:tc:emergency:cap:1.2"}
+            
+            # Find all polygon elements using namespace
+            polygon_elements = root.findall(".//cap:polygon", ns)
+            if not polygon_elements:
+                # Fallback: try without namespace (some feeds might not use it)
+                polygon_elements = root.findall(".//polygon")
+            
+            for poly_elem in polygon_elements:
+                poly_text = poly_elem.text
+                if poly_text:
+                    polygon = _cap_polygon_to_shape(poly_text.strip())
+                    if polygon:
+                        polygons.append(polygon)
+            
+            if not polygons:
+                logger.debug("No valid polygons found in CAP alert %s", link)
+                continue
+            
+            # Parse other fields using ElementTree as well
+            info_elem = root.find(".//cap:info", ns) or root.find(".//info")
+            if info_elem is not None:
+                severity_elem = info_elem.find("cap:severity", ns) or info_elem.find("severity")
+                if severity_elem is not None and severity_elem.text:
+                    severity = severity_elem.text.strip()
+                onset_elem = info_elem.find("cap:onset", ns) or info_elem.find("onset")
+                if onset_elem is not None and onset_elem.text:
+                    onset = onset_elem.text.strip()
+                expires_elem = info_elem.find("cap:expires", ns) or info_elem.find("expires")
+                if expires_elem is not None and expires_elem.text:
+                    expires = expires_elem.text.strip()
+            
+            # Fallback to BeautifulSoup for other fields if ElementTree didn't work
+            if severity is None or onset is None or expires is None:
+                try:
+                    soup = BeautifulSoup(resp.content, "xml")
+                    if severity is None:
+                        severity = _get_xml_text(soup, "severity")
+                    if onset is None:
+                        onset = _get_xml_text(soup, "onset")
+                    if expires is None:
+                        expires = _get_xml_text(soup, "expires")
+                except FeatureNotFound:
+                    pass
+        except ET.ParseError as exc:
+            logger.warning("Failed to parse CAP XML for %s: %s", link, exc)
+            continue
+        except Exception as exc:
+            logger.debug("Error processing CAP alert %s: %s", link, exc)
             continue
 
-        if any(poly.contains(point) or poly.touches(point) for poly in polygons):
+        # Check if point is within any polygon
+        if polygons and any(poly.contains(point) or poly.touches(point) for poly in polygons):
             summaries.append(
                 AlertSummary(
                     title=getattr(entry, "title", None) or "MetService Alert",
                     description=getattr(entry, "summary", None)
                     or getattr(entry, "description", None)
                     or "",
-                    severity=_get_xml_text(soup, "severity"),
+                    severity=severity,
                     source="MetService",
-                    onset=_get_xml_text(soup, "onset"),
-                    expires=_get_xml_text(soup, "expires"),
+                    onset=onset,
+                    expires=expires,
                 )
             )
 

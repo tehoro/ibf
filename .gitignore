@@ -16,5 +16,8 @@ outputs/
 examples/sample-config-*.json
 !examples/sample-config.json
 
+# Local agent instructions
+AGENTS.md
+
 # OS files
 .DS_Store
