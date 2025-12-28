@@ -183,7 +183,18 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
     rss_url = "https://alerts.metservice.com/cap/rss"
     try:
         logger.debug("Requesting MetService CAP RSS: %s", rss_url)
-        feed = feedparser.parse(rss_url)
+        resp = requests.get(rss_url, headers={"User-Agent": "ibf-refactor/0.1"}, timeout=20)
+        resp.raise_for_status()
+        logger.debug(
+            "MetService RSS response status=%s bytes=%d content_type=%s",
+            resp.status_code,
+            len(resp.content),
+            resp.headers.get("Content-Type", "N/A"),
+        )
+        feed = feedparser.parse(resp.content)
+    except requests.RequestException as exc:
+        logger.warning("MetService RSS request failed: %s", exc)
+        return []
     except Exception as exc:  # feedparser can raise generic exceptions
         logger.warning("MetService RSS parse failed: %s", exc)
         return []
@@ -191,6 +202,9 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
     point = Point(longitude, latitude)
     summaries: List[AlertSummary] = []
     entries = list(getattr(feed, "entries", []))
+    if getattr(feed, "bozo", False):
+        logger.debug("MetService RSS bozo exception: %s", getattr(feed, "bozo_exception", "N/A"))
+    logger.debug("MetService RSS parsed version=%s", getattr(feed, "version", "N/A"))
     logger.debug("MetService RSS returned %d entr(y/ies).", len(entries))
 
     for entry in entries:
