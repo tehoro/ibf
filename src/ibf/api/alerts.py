@@ -67,33 +67,56 @@ def fetch_alerts(latitude: float, longitude: float, *, country_code: Optional[st
         A list of AlertSummary objects.
     """
     secrets = secrets or get_secrets()
-    country = (country_code or _resolve_country_code(latitude, longitude, secrets)) or ""
-    country = country.upper()
+    resolved_country = country_code or _resolve_country_code(latitude, longitude, secrets)
+    country = (resolved_country or "").upper()
+    source = "provided" if country_code else "resolved"
+    logger.debug(
+        "Alert country code %s (%s) for lat=%.4f lon=%.4f",
+        country or "unknown",
+        source,
+        latitude,
+        longitude,
+    )
 
     if country == "US":
-        return _fetch_us_alerts(latitude, longitude)
+        logger.debug("Using NWS alerts provider.")
+        summaries = _fetch_us_alerts(latitude, longitude)
+        logger.debug("NWS alerts returned %d alert(s).", len(summaries))
+        return summaries
     if country == "NZ":
         # MetService feed is authoritative; do not fall back to OpenWeatherMap if it returns none.
-        return _fetch_nz_alerts(latitude, longitude)
+        logger.debug("Using MetService CAP alerts provider.")
+        summaries = _fetch_nz_alerts(latitude, longitude)
+        logger.debug("MetService alerts returned %d alert(s).", len(summaries))
+        return summaries
     if country == "CA":
         logger.info("Canadian alerts falling back to OpenWeatherMap.")
 
-    return _fetch_openweather_alerts(latitude, longitude, secrets)
+    logger.debug("Using OpenWeatherMap alerts provider.")
+    summaries = _fetch_openweather_alerts(latitude, longitude, secrets)
+    logger.debug("OpenWeatherMap alerts returned %d alert(s).", len(summaries))
+    return summaries
 
 
 def _fetch_us_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
     """Fetch alerts from the National Weather Service for the given point."""
     url = f"https://api.weather.gov/alerts/active?point={latitude},{longitude}"
     try:
+        logger.debug("Requesting NWS alerts: %s", url)
         resp = requests.get(url, headers={"User-Agent": "ibf-refactor/0.1"}, timeout=20)
         resp.raise_for_status()
         payload = resp.json()
     except requests.RequestException as exc:
         logger.warning("NWS alerts API failed: %s", exc)
         return []
+    except json.JSONDecodeError as exc:
+        logger.warning("NWS alerts returned invalid JSON: %s", exc)
+        return []
 
     summaries: List[AlertSummary] = []
-    for feature in payload.get("features", []):
+    features = payload.get("features", [])
+    logger.debug("NWS alerts payload contains %d feature(s).", len(features))
+    for feature in features:
         props = feature.get("properties", {})
         summaries.append(
             AlertSummary(
@@ -105,6 +128,7 @@ def _fetch_us_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
                 expires=props.get("ends") or props.get("expires"),
             )
         )
+    logger.debug("NWS alerts parsed %d alert(s).", len(summaries))
     return summaries
 
 
@@ -121,6 +145,7 @@ def _fetch_openweather_alerts(latitude: float, longitude: float, secrets: Secret
         "appid": secrets.openweathermap_api_key,
     }
     try:
+        logger.debug("Requesting OpenWeatherMap alerts for lat=%.4f lon=%.4f", latitude, longitude)
         resp = requests.get("https://api.openweathermap.org/data/3.0/onecall", params=params, timeout=20)
         resp.raise_for_status()
     except requests.RequestException as exc:
@@ -134,7 +159,9 @@ def _fetch_openweather_alerts(latitude: float, longitude: float, secrets: Secret
         return []
 
     summaries: List[AlertSummary] = []
-    for alert in data.get("alerts", []):
+    alerts = data.get("alerts", [])
+    logger.debug("OpenWeather alerts payload contains %d alert(s).", len(alerts))
+    for alert in alerts:
         onset = alert.get("start")
         expires = alert.get("end")
         summaries.append(
@@ -147,6 +174,7 @@ def _fetch_openweather_alerts(latitude: float, longitude: float, secrets: Secret
                 expires=_unix_to_iso(expires) if isinstance(expires, (int, float)) else None,
             )
         )
+    logger.debug("OpenWeather alerts parsed %d alert(s).", len(summaries))
     return summaries
 
 
@@ -154,6 +182,7 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
     """Fetch alerts from MetService CAP RSS feed for New Zealand."""
     rss_url = "https://alerts.metservice.com/cap/rss"
     try:
+        logger.debug("Requesting MetService CAP RSS: %s", rss_url)
         feed = feedparser.parse(rss_url)
     except Exception as exc:  # feedparser can raise generic exceptions
         logger.warning("MetService RSS parse failed: %s", exc)
@@ -161,15 +190,21 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
 
     point = Point(longitude, latitude)
     summaries: List[AlertSummary] = []
+    entries = list(getattr(feed, "entries", []))
+    logger.debug("MetService RSS returned %d entr(y/ies).", len(entries))
 
-    for entry in getattr(feed, "entries", []):
+    for entry in entries:
         link = getattr(entry, "link", None)
+        title = getattr(entry, "title", None)
+        logger.debug("Processing CAP entry title=%s link=%s", title or "N/A", link or "N/A")
         if not link:
+            logger.debug("Skipping CAP entry without link.")
             continue
 
         try:
             resp = requests.get(link, timeout=20)
             resp.raise_for_status()
+            logger.debug("CAP fetch OK: %s (%d bytes)", link, len(resp.content))
         except requests.RequestException as exc:
             logger.debug("MetService CAP fetch failed for %s: %s", link, exc)
             continue
@@ -191,6 +226,7 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
             if not polygon_elements:
                 # Fallback: try without namespace (some feeds might not use it)
                 polygon_elements = root.findall(".//polygon")
+            logger.debug("CAP polygon elements found: %d", len(polygon_elements))
             
             for poly_elem in polygon_elements:
                 poly_text = poly_elem.text
@@ -198,7 +234,8 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
                     polygon = _cap_polygon_to_shape(poly_text.strip())
                     if polygon:
                         polygons.append(polygon)
-            
+            logger.debug("CAP valid polygons parsed: %d", len(polygons))
+
             if not polygons:
                 logger.debug("No valid polygons found in CAP alert %s", link)
                 continue
@@ -215,9 +252,10 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
                 expires_elem = info_elem.find("cap:expires", ns) or info_elem.find("expires")
                 if expires_elem is not None and expires_elem.text:
                     expires = expires_elem.text.strip()
-            
+
             # Fallback to BeautifulSoup for other fields if ElementTree didn't work
             if severity is None or onset is None or expires is None:
+                logger.debug("CAP missing fields; trying BeautifulSoup fallback for %s", link)
                 try:
                     soup = BeautifulSoup(resp.content, "xml")
                     if severity is None:
@@ -227,7 +265,15 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
                     if expires is None:
                         expires = _get_xml_text(soup, "expires")
                 except FeatureNotFound:
+                    logger.debug("BeautifulSoup XML parser not available for %s", link)
                     pass
+            logger.debug(
+                "CAP fields for %s: severity=%s onset=%s expires=%s",
+                link,
+                severity or "N/A",
+                onset or "N/A",
+                expires or "N/A",
+            )
         except ET.ParseError as exc:
             logger.warning("Failed to parse CAP XML for %s: %s", link, exc)
             continue
@@ -236,10 +282,21 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
             continue
 
         # Check if point is within any polygon
-        if polygons and any(poly.contains(point) or poly.touches(point) for poly in polygons):
+        point_matches = False
+        if polygons:
+            point_matches = any(poly.contains(point) or poly.touches(point) for poly in polygons)
+            logger.debug(
+                "CAP point match for %s: %s (lat=%.4f lon=%.4f polygons=%d)",
+                link,
+                point_matches,
+                latitude,
+                longitude,
+                len(polygons),
+            )
+        if point_matches:
             summaries.append(
                 AlertSummary(
-                    title=getattr(entry, "title", None) or "MetService Alert",
+                    title=title or "MetService Alert",
                     description=getattr(entry, "summary", None)
                     or getattr(entry, "description", None)
                     or "",
@@ -249,7 +306,11 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
                     expires=expires,
                 )
             )
+            logger.debug("Added MetService alert for %s", link)
+        else:
+            logger.debug("Point not inside CAP polygons for %s", link)
 
+    logger.debug("MetService alerts matched: %d alert(s).", len(summaries))
     return summaries
 
 
@@ -292,17 +353,23 @@ def _resolve_country_code(latitude: float, longitude: float, secrets: Secrets) -
     cache_key = f"{latitude:.4f},{longitude:.4f}"
     cached = _read_country_cache().get(cache_key)
     if cached:
+        logger.debug("Country cache hit for %s -> %s", cache_key, cached)
         return cached
+    logger.debug("Country cache miss for %s", cache_key)
 
     if secrets.google_api_key:
+        logger.debug("Resolving country via Google reverse geocoding.")
         code = _reverse_country_google(latitude, longitude, secrets.google_api_key)
         if code:
+            logger.debug("Resolved country via Google: %s", code)
             _write_country_cache(cache_key, code)
             return code
 
     if secrets.openweathermap_api_key:
+        logger.debug("Resolving country via OpenWeatherMap reverse geocoding.")
         code = _reverse_country_openweather(latitude, longitude, secrets.openweathermap_api_key)
         if code:
+            logger.debug("Resolved country via OpenWeatherMap: %s", code)
             _write_country_cache(cache_key, code)
             return code
 
@@ -349,7 +416,10 @@ def _reverse_country_google(latitude: float, longitude: float, api_key: str) -> 
             return None
         for component in results[0].get("address_components", []):
             if "country" in component.get("types", []):
-                return component.get("short_name")
+                code = component.get("short_name")
+                if code:
+                    logger.debug("Google reverse geocode resolved country: %s", code)
+                return code
     except requests.RequestException as exc:
         logger.debug("Google reverse geocode failed: %s", exc)
     except (IndexError, KeyError, json.JSONDecodeError):
@@ -367,10 +437,12 @@ def _reverse_country_openweather(latitude: float, longitude: float, api_key: str
         if not payload:
             return None
         entry = payload[0]
-        return entry.get("country")
+        code = entry.get("country")
+        if code:
+            logger.debug("OpenWeatherMap reverse geocode resolved country: %s", code)
+        return code
     except requests.RequestException as exc:
         logger.debug("OpenWeatherMap reverse geocode failed: %s", exc)
     except (IndexError, KeyError, json.JSONDecodeError):
         logger.debug("Unexpected OpenWeatherMap geocode response structure.")
     return None
-
