@@ -27,6 +27,9 @@ from ..api import (
     DEFAULT_ENSEMBLE_MODEL,
     HOURLY_FIELDS_SNOW_PROFILE,
     PRESSURE_LEVELS_SNOW_HPA,
+    STANDARD_TEMPERATURE_UNIT,
+    STANDARD_PRECIPITATION_UNIT,
+    STANDARD_WINDSPEED_UNIT,
     ModelSpec,
     resolve_model_spec,
 )
@@ -725,9 +728,9 @@ def _collect_location_payload(
                 longitude=geocode.longitude,
                 timezone=geocode.timezone,
                 forecast_days=request_days,
-                temperature_unit=_temperature_unit_for_api(units.temperature_primary),
-                precipitation_unit=_precipitation_unit_for_api(units.precipitation_primary),
-                windspeed_unit=_windspeed_unit_for_api(units.windspeed_primary),
+                temperature_unit=STANDARD_TEMPERATURE_UNIT,
+                precipitation_unit=STANDARD_PRECIPITATION_UNIT,
+                windspeed_unit=STANDARD_WINDSPEED_UNIT,
                 models=_open_meteo_model_param(resolved_model),
                 model_kind=resolved_model.kind,
             )
@@ -802,9 +805,9 @@ def _collect_location_payload(
                             longitude=geocode.longitude,
                             timezone=geocode.timezone,
                             forecast_days=request_days,
-                            temperature_unit=_temperature_unit_for_api(units.temperature_primary),
-                            precipitation_unit=_precipitation_unit_for_api(units.precipitation_primary),
-                            windspeed_unit=_windspeed_unit_for_api(units.windspeed_primary),
+                            temperature_unit=STANDARD_TEMPERATURE_UNIT,
+                            precipitation_unit=STANDARD_PRECIPITATION_UNIT,
+                            windspeed_unit=STANDARD_WINDSPEED_UNIT,
                             models=_open_meteo_model_param(resolved_model),
                             model_kind=resolved_model.kind,
                             hourly_fields=HOURLY_FIELDS_SNOW_PROFILE,
@@ -825,9 +828,9 @@ def _collect_location_payload(
     dataset = build_processed_days(
         raw_forecast,
         timezone_name=geocode.timezone or "UTC",
-        temperature_unit=units.temperature_primary,
-        precipitation_unit=units.precipitation_primary,
-        windspeed_unit=units.windspeed_primary,
+        temperature_unit=STANDARD_TEMPERATURE_UNIT,
+        precipitation_unit=STANDARD_PRECIPITATION_UNIT,
+        windspeed_unit=STANDARD_WINDSPEED_UNIT,
         thin_select=effective_thin,
         location_altitude=altitude_for_snow,
         snow_levels_enabled=units.snow_levels_enabled,
@@ -849,8 +852,6 @@ def _collect_location_payload(
             raw_forecast,
             dataset,
             timezone_name=geocode.timezone or "UTC",
-            temperature_unit=units.temperature_primary,
-            precipitation_unit=units.precipitation_primary,
         )
     formatted_dataset = format_location_dataset(
         dataset,
@@ -1140,8 +1141,6 @@ def _log_snow_levels_summary(
     dataset: List[dict],
     *,
     timezone_name: str,
-    temperature_unit: str,
-    precipitation_unit: str,
 ) -> None:
     """
     INFO-level debugging summary for snow-level calculations.
@@ -1153,17 +1152,7 @@ def _log_snow_levels_summary(
         precip = hourly.get("precipitation", [])
         codes = hourly.get("weather_code", [])
 
-        def _to_celsius(value: float) -> float:
-            return (value - 32.0) * (5.0 / 9.0)
-
-        def _to_mm(value: float) -> float:
-            return value * 25.4
-
-        temp_unit = temperature_unit.lower()
-        precip_unit = precipitation_unit.lower()
-        uses_f = temp_unit in {"fahrenheit", "f"}
-        uses_in = precip_unit in {"inch", "in", "inches"}
-        snow_unit = "ft" if uses_f or uses_in else "m"
+        snow_unit = "m"
 
         candidates: list[tuple[int, str, float, float, int]] = []
         for idx, (ts, t, p, c) in enumerate(zip(times, temps, precip, codes)):
@@ -1175,8 +1164,8 @@ def _log_snow_levels_summary(
                 c_i = int(c)
             except Exception:
                 continue
-            t_c = _to_celsius(t_val) if uses_f else t_val
-            p_mm = _to_mm(p_val) if uses_in else p_val
+            t_c = t_val
+            p_mm = p_val
             if should_check_snow_level(p_mm, c_i, t_c):
                 candidates.append((idx, str(ts), t_c, p_mm, c_i))
 
@@ -1189,8 +1178,13 @@ def _log_snow_levels_summary(
                 hour_key = hour.get("hour")
                 member = (hour.get("ensemble_members", {}) or {}).get("member00") or {}
                 sl = member.get("snow_level")
-                if isinstance(date_key, str) and isinstance(hour_key, str) and isinstance(sl, int) and sl > 0:
-                    produced[(date_key, hour_key)] = sl
+                if (
+                    isinstance(date_key, str)
+                    and isinstance(hour_key, str)
+                    and isinstance(sl, (int, float))
+                    and sl > 0
+                ):
+                    produced[(date_key, hour_key)] = float(sl)
                 dbg = member.get("_snow_level_debug")
                 if isinstance(date_key, str) and isinstance(hour_key, str) and isinstance(dbg, dict):
                     debug_by_hour[(date_key, hour_key)] = dbg
@@ -1204,7 +1198,7 @@ def _log_snow_levels_summary(
         )
         if produced_values:
             logger.info(
-                "Snow levels summary for '%s': min=%d%s max=%d%s",
+                "Snow levels summary for '%s': min=%.0f%s max=%.0f%s",
                 name,
                 min(produced_values),
                 snow_unit,
@@ -1239,14 +1233,14 @@ def _log_snow_levels_summary(
                         dbg_txt = f" raw_est={float(dbg['raw_estimate_m']):.0f}m"
                     except Exception:
                         dbg_txt = ""
-                if not isinstance(sl, int) and not dbg_txt:
+                if not isinstance(sl, (int, float)) and not dbg_txt:
                     continue
                 log_candidates.append((date_key, hour_key, t_c, p_mm, c_i, sl, dbg_txt))
                 if len(log_candidates) >= 5:
                     break
 
             for date_key, hour_key, t_c, p_mm, c_i, sl, dbg_txt in log_candidates:
-                level_text = f"{sl}{snow_unit}" if isinstance(sl, int) else "none"
+                level_text = f"{sl:.0f}{snow_unit}" if isinstance(sl, (int, float)) else "none"
                 logger.info(
                     "Snow levels candidate '%s' %s %s: T=%.1fC precip=%.1fmm code=%d snow_level=%s%s",
                     name,
@@ -1676,32 +1670,6 @@ def _format_issue_time(tz_name: Optional[str]) -> str:
     except Exception:
         zone = ZoneInfo("UTC")
     return datetime.now(zone).strftime("%Y-%m-%d %H:%M %Z")
-
-
-def _temperature_unit_for_api(value: str) -> str:
-    """Map configuration temperature units to Open-Meteo API values."""
-    normalized = (value or "celsius").strip().lower()
-    return "fahrenheit" if normalized in {"f", "fahrenheit"} else "celsius"
-
-
-def _precipitation_unit_for_api(value: str) -> str:
-    """Map configuration precipitation units to Open-Meteo API values."""
-    normalized = (value or "mm").strip().lower()
-    return "inch" if normalized in {"in", "inch", "inches"} else "mm"
-
-
-def _windspeed_unit_for_api(value: str) -> str:
-    """Map configuration wind units to Open-Meteo API values."""
-    normalized = (value or "kph").strip().lower()
-    if normalized in {"kmh", "km/h", "kph"}:
-        return "kph"
-    if normalized in {"mph"}:
-        return "mph"
-    if normalized in {"mps", "ms"}:
-        return "mps"
-    if normalized in {"kt", "knots", "kts", "kn"}:
-        return "kt"
-    return "kph"
 
 
 _REASONING_DISABLE = {"off", "disable", "disabled", "none", "false"}

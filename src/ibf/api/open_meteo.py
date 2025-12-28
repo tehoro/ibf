@@ -38,6 +38,11 @@ HOURLY_FIELDS_BASE = ",".join(
     ]
 )
 
+# Open-Meteo requests are always normalized to these units for caching and processing.
+STANDARD_TEMPERATURE_UNIT = "celsius"
+STANDARD_PRECIPITATION_UNIT = "mm"
+STANDARD_WINDSPEED_UNIT = "kph"
+
 # Deterministic models typically include probability of precipitation.
 # Only request this field for deterministic requests to avoid incompatibilities
 # with the ensemble endpoint.
@@ -227,9 +232,9 @@ class ForecastRequest:
         longitude: Target longitude.
         timezone: Timezone string (e.g., "America/New_York").
         forecast_days: Number of days to fetch (default 4).
-        temperature_unit: "celsius" or "fahrenheit".
-        windspeed_unit: "kph", "mph", "ms", or "kn".
-        precipitation_unit: "mm" or "inch".
+        temperature_unit: Always normalized to "celsius".
+        windspeed_unit: Always normalized to "kph".
+        precipitation_unit: Always normalized to "mm".
         models: Open-Meteo model identifier (default "ecmwf_ifs025"). Use None to omit.
         model_kind: "ensemble" or "deterministic" (routes to correct endpoint).
         hourly_fields: Optional explicit hourly field list override.
@@ -240,14 +245,30 @@ class ForecastRequest:
     longitude: float
     timezone: str
     forecast_days: int = 4
-    temperature_unit: str = "celsius"
-    windspeed_unit: str = "kph"
-    precipitation_unit: str = "mm"
+    temperature_unit: str = STANDARD_TEMPERATURE_UNIT
+    windspeed_unit: str = STANDARD_WINDSPEED_UNIT
+    precipitation_unit: str = STANDARD_PRECIPITATION_UNIT
     models: Optional[str] = DEFAULT_ENSEMBLE_MODEL
     model_kind: ModelKind = "ensemble"
     hourly_fields: Optional[str] = None
     cache_ttl_minutes: int = 60
     cache_dir: Path = field(default_factory=lambda: Path("ibf_cache/forecasts"))
+
+    def __post_init__(self) -> None:
+        if (
+            self.temperature_unit != STANDARD_TEMPERATURE_UNIT
+            or self.precipitation_unit != STANDARD_PRECIPITATION_UNIT
+            or self.windspeed_unit != STANDARD_WINDSPEED_UNIT
+        ):
+            logger.warning(
+                "ForecastRequest units overridden to standard (%s, %s, %s).",
+                STANDARD_TEMPERATURE_UNIT,
+                STANDARD_PRECIPITATION_UNIT,
+                STANDARD_WINDSPEED_UNIT,
+            )
+            object.__setattr__(self, "temperature_unit", STANDARD_TEMPERATURE_UNIT)
+            object.__setattr__(self, "precipitation_unit", STANDARD_PRECIPITATION_UNIT)
+            object.__setattr__(self, "windspeed_unit", STANDARD_WINDSPEED_UNIT)
 
 
 @dataclass
@@ -306,11 +327,14 @@ def _cache_key(request: ForecastRequest) -> str:
     fields_sig = hashlib.sha1(hourly_fields.encode("utf-8")).hexdigest()[:8]
     model_token = (request.models or "auto").strip().lower().replace(",", "+")
     kind_token = "ens" if request.model_kind == "ensemble" else "det"
+    temp_unit = STANDARD_TEMPERATURE_UNIT
+    precip_unit = STANDARD_PRECIPITATION_UNIT
+    wind_unit = STANDARD_WINDSPEED_UNIT
     return (
         f"{abs(round(request.latitude, 2))}{lat_suffix}_"
         f"{abs(round(request.longitude, 2))}{lon_suffix}_"
-        f"{request.forecast_days}_{request.temperature_unit}_"
-        f"{request.precipitation_unit}_{request.windspeed_unit}_"
+        f"{request.forecast_days}_{temp_unit}_"
+        f"{precip_unit}_{wind_unit}_"
         f"{kind_token}_{model_token}_{fields_sig}"
     )
 
@@ -382,15 +406,26 @@ def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
     for candidate_idx, hourly_fields in enumerate(hourly_candidates, start=1):
         latitude = round(request.latitude, 2)
         longitude = round(request.longitude, 2)
+        if (
+            request.temperature_unit != STANDARD_TEMPERATURE_UNIT
+            or request.precipitation_unit != STANDARD_PRECIPITATION_UNIT
+            or request.windspeed_unit != STANDARD_WINDSPEED_UNIT
+        ):
+            logger.debug(
+                "Overriding non-standard units for Open-Meteo request (%s, %s, %s).",
+                request.temperature_unit,
+                request.precipitation_unit,
+                request.windspeed_unit,
+            )
         params = {
             "latitude": latitude,
             "longitude": longitude,
             "hourly": hourly_fields,
             "timezone": request.timezone,
             "forecast_days": request.forecast_days,
-            "temperature_unit": request.temperature_unit,
-            "windspeed_unit": WINDSPEED_CONVERSIONS.get(request.windspeed_unit, request.windspeed_unit),
-            "precipitation_unit": request.precipitation_unit,
+            "temperature_unit": STANDARD_TEMPERATURE_UNIT,
+            "windspeed_unit": WINDSPEED_CONVERSIONS.get(STANDARD_WINDSPEED_UNIT, STANDARD_WINDSPEED_UNIT),
+            "precipitation_unit": STANDARD_PRECIPITATION_UNIT,
         }
         if request.models:
             params["models"] = request.models

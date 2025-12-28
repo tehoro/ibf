@@ -13,7 +13,7 @@ import numpy as np
 import pytz
 
 from ..api.alerts import AlertSummary
-from ..util import convert_hour_to_ampm  # will add helper there
+from ..util import convert_hour_to_ampm, round_windspeed  # will add helper there
 
 PRECIP_HEAVY_THRESHOLD_MM = 10.0
 PRECIP_HEAVY_THRESHOLD_IN = 0.5
@@ -25,6 +25,65 @@ def _snow_level_unit_label(temp_unit: str, precip_unit: str) -> str:
     if temp_unit.lower() in _FAHRENHEIT_UNITS or precip_unit.lower() in _INCH_UNITS:
         return "ft"
     return "m"
+
+
+def _convert_temperature(value: Any, unit: str) -> float | None:
+    if not isinstance(value, (int, float)):
+        return None
+    unit = (unit or "").lower()
+    if unit in _FAHRENHEIT_UNITS:
+        return (float(value) * 9.0 / 5.0) + 32.0
+    return float(value)
+
+
+def _convert_precipitation(value: Any, unit: str) -> float | None:
+    if not isinstance(value, (int, float)):
+        return None
+    unit = (unit or "").lower()
+    if unit in _INCH_UNITS:
+        return float(value) / 25.4
+    return float(value)
+
+
+def _convert_snowfall(value: Any, unit: str) -> float | None:
+    if not isinstance(value, (int, float)):
+        return None
+    unit = (unit or "").lower()
+    if unit in _INCH_UNITS:
+        return float(value) / 2.54
+    return float(value)
+
+
+def _convert_wind(value: Any, unit: str) -> float | None:
+    if not isinstance(value, (int, float)):
+        return None
+    unit = (unit or "").lower()
+    if unit == "mph":
+        return float(value) / 1.609344
+    if unit == "kt":
+        return float(value) / 1.852
+    if unit == "mps":
+        return float(value) / 3.6
+    return float(value)
+
+
+def _convert_snow_level(value_m: Any, temperature_unit: str, precipitation_unit: str) -> int | None:
+    if not isinstance(value_m, (int, float)) or value_m <= 0:
+        return None
+    temp_unit = (temperature_unit or "").lower()
+    precip_unit = (precipitation_unit or "").lower()
+    if temp_unit in _FAHRENHEIT_UNITS or precip_unit in _INCH_UNITS:
+        value_ft = float(value_m) * 3.28084
+        return int(round(value_ft / 500.0) * 500)
+    return int(round(float(value_m) / 100.0) * 100)
+
+
+def _format_unit_label(unit: str) -> str:
+    normalized = (unit or "").strip().lower()
+    if normalized in {"inch", "in"}:
+        return "in"
+    return normalized
+
 def format_location_dataset(
     dataset: List[dict],
     alerts: List[AlertSummary],
@@ -38,8 +97,8 @@ def format_location_dataset(
     """
     Convert the structured dataset and alerts into a human-readable text block for the LLM.
 
-    This function iterates through each day and hour, formatting the ensemble member data
-    into a consistent text format that the LLM can interpret to write the forecast.
+    This function iterates through each day and hour, converting standard-unit data
+    into the configured display units and formatting it for the LLM.
 
     Args:
         dataset: The processed forecast data.
@@ -95,11 +154,17 @@ def format_location_dataset(
                     continue
 
                 has_data = True
-                temp = member_data.get("temperature")
-                precip_val = member_data.get("precipitation", 0.0)
-                snowfall_val = member_data.get("snowfall", 0.0)
-                wind_speed = member_data.get("wind_speed", 0.0)
-                wind_gust = member_data.get("wind_gust", 0.0)
+                temp = _convert_temperature(member_data.get("temperature"), temperature_unit)
+                precip_val = _convert_precipitation(
+                    member_data.get("precipitation", 0.0),
+                    precipitation_unit,
+                )
+                snowfall_val = _convert_snowfall(
+                    member_data.get("snowfall", 0.0),
+                    snowfall_unit,
+                )
+                wind_speed = _convert_wind(member_data.get("wind_speed", 0.0), windspeed_unit)
+                wind_gust = _convert_wind(member_data.get("wind_gust", 0.0), windspeed_unit)
                 wind_direction = member_data.get("wind_direction", "variable")
                 pop = member_data.get("pop")
                 cloud_cover = member_data.get("cloud_cover")
@@ -115,7 +180,11 @@ def format_location_dataset(
 
                 hour_label = convert_hour_to_ampm(_hour_from_string(hour_entry.get("hour", "0:00")))
                 weather_desc = str(member_data.get("weather", "Unknown")).capitalize()
-                snow_level = member_data.get("snow_level")
+                snow_level = _convert_snow_level(
+                    member_data.get("snow_level"),
+                    temperature_unit,
+                    precipitation_unit,
+                )
 
                 precip_text = _format_hourly_precip_rate(
                     precipitation=precip_val,
@@ -128,7 +197,9 @@ def format_location_dataset(
                 if isinstance(snow_level, int) and snow_level > 0:
                     snow_text = f"(snow down to about {snow_level} {snow_level_unit})"
 
-                wind_text = _format_wind(wind_direction, wind_speed, wind_gust)
+                wind_speed_rounded = round_windspeed(wind_speed, windspeed_unit)
+                wind_gust_rounded = round_windspeed(wind_gust, windspeed_unit) if wind_gust else 0
+                wind_text = _format_wind(wind_direction, wind_speed_rounded, wind_gust_rounded)
                 pop_text = f"pop{int(pop)}" if isinstance(pop, int) else ""
                 cloud_text = ""
                 if is_single_member and isinstance(cloud_cover, int) and 0 <= cloud_cover <= 100:
@@ -303,7 +374,8 @@ def _format_hourly_precip_rate(
         return ""
     value_text = f"{value:.{precision}f}"
     phase = _precip_phase(snowfall, weather_desc)
-    rate_text = f"{value_text} {unit}/h"
+    unit_label = _format_unit_label(unit)
+    rate_text = f"{value_text} {unit_label}/h"
     if phase == "mixed":
         return f"(Precip {rate_text})"
     return rate_text
@@ -340,11 +412,12 @@ def _member_summary(
     """Produce a per-member summary of highs, lows, and precipitation totals."""
     if not (math.isfinite(high_temp) and math.isfinite(low_temp)):
         return " No valid temperature data found for summary.\n"
+    snow_unit_label = _format_unit_label(snowfall_unit)
     lines = [
         f" Low {round(low_temp)}°{temperature_unit.capitalize()[0]}, High {round(high_temp)}°{temperature_unit.capitalize()[0]}",
     ]
     if total_snow > 0:
-        lines.append(f" Total snowfall: {round(total_snow)} {snowfall_unit}.")
+        lines.append(f" Total snowfall: {round(total_snow)} {snow_unit_label}.")
     rainfall_line = _format_total_amount_line(total_precip, precipitation_unit, label="rainfall")
     if rainfall_line:
         lines.append(rainfall_line)
@@ -391,6 +464,7 @@ def _format_total_amount_line(value: float, unit: str, *, label: str) -> str:
     if v <= 0:
         return ""
 
+    unit_label = _format_unit_label(unit)
     if label == "rainfall" and unit == "mm":
         if v < 0.25:
             return ""
@@ -402,7 +476,7 @@ def _format_total_amount_line(value: float, unit: str, *, label: str) -> str:
             return ""
         # Render 0.5 steps without trailing .0
         text = str(int(rounded)) if float(rounded).is_integer() else f"{rounded:.1f}".rstrip("0").rstrip(".")
-        return f" Total rainfall: {text} {unit}."
+        return f" Total rainfall: {text} {unit_label}."
 
     # Default formatting: keep existing behavior but avoid "0.0".
     precision = 0 if unit == "mm" else 1
@@ -410,8 +484,8 @@ def _format_total_amount_line(value: float, unit: str, *, label: str) -> str:
     if rounded == 0:
         return ""
     if precision == 0:
-        return f" Total {label}: {int(rounded)} {unit}."
-    return f" Total {label}: {rounded:.{precision}f} {unit}."
+        return f" Total {label}: {int(rounded)} {unit_label}."
+    return f" Total {label}: {rounded:.{precision}f} {unit_label}."
 
 
 def _should_use_only_low(hours: List[dict]) -> bool:
@@ -509,6 +583,7 @@ def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str)
     precision = 0 if unit == "mm" else 1
     lower = round(percentiles[0], precision)
     upper = round(percentiles[1], precision)
+    unit_label = _format_unit_label(unit)
 
     def _fmt(value: float) -> str:
         if precision == 0:
@@ -518,8 +593,8 @@ def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str)
     lower_text = _fmt(lower)
     upper_text = _fmt(upper)
     if lower == upper:
-        return f"Estimated probability of {label}: {probability}%\nLikely {label} around {lower_text} {unit}"
-    return f"Estimated probability of {label}: {probability}%\nLikely {label} {lower_text} {unit} to {upper_text} {unit}"
+        return f"Estimated probability of {label}: {probability}%\nLikely {label} around {lower_text} {unit_label}"
+    return f"Estimated probability of {label}: {probability}%\nLikely {label} {lower_text} {unit_label} to {upper_text} {unit_label}"
 
 
 def precipitation_exceedance_probability(

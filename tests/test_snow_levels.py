@@ -69,8 +69,7 @@ def test_snow_levels_uses_freezing_level_when_present() -> None:
     )
     member = days[0]["hours"][0]["ensemble_members"]["member00"]
     snow_level = member.get("snow_level")
-    assert isinstance(snow_level, int) and snow_level > 0
-    assert snow_level % 100 == 0
+    assert isinstance(snow_level, (int, float)) and snow_level > 0
 
 
 def test_snow_levels_uses_profile_when_no_freezing_level() -> None:
@@ -107,15 +106,16 @@ def test_snow_levels_uses_profile_when_no_freezing_level() -> None:
     )
     member = days[0]["hours"][0]["ensemble_members"]["member00"]
     snow_level = member.get("snow_level")
-    assert isinstance(snow_level, int) and snow_level > 0
+    assert isinstance(snow_level, (int, float)) and snow_level > 0
 
 
-def test_snow_levels_imperial_units_convert_and_round_to_feet() -> None:
+def test_snow_levels_fahrenheit_inputs_normalized() -> None:
     raw = _base_forecast_raw(freezing_level=1200.0)
     raw["hourly"]["temperature_2m"] = [40.0]
     raw["hourly"]["dewpoint_2m"] = [38.0]
     raw["hourly"]["precipitation"] = [0.1]
     raw["hourly_units"]["temperature_2m"] = "°F"
+    raw["hourly_units"]["precipitation"] = "in"
 
     days = build_processed_days(
         raw,
@@ -130,9 +130,8 @@ def test_snow_levels_imperial_units_convert_and_round_to_feet() -> None:
         pressure_levels_hpa=[1000, 925, 850, 700, 600, 500],
     )
     member = days[0]["hours"][0]["ensemble_members"]["member00"]
-    snow_level = member.get("snow_level")
-    assert isinstance(snow_level, int) and snow_level > 0
-    assert snow_level % 500 == 0
+    assert abs(float(member.get("temperature")) - 4.4) < 0.2
+    assert abs(float(member.get("precipitation")) - 2.54) < 0.05
 
 
 def test_snow_levels_freezing_level_units_in_feet_are_converted() -> None:
@@ -157,7 +156,7 @@ def test_snow_levels_freezing_level_units_in_feet_are_converted() -> None:
     )
     member = days[0]["hours"][0]["ensemble_members"]["member00"]
     snow_level = member.get("snow_level")
-    assert isinstance(snow_level, int) and snow_level > 0
+    assert isinstance(snow_level, (int, float)) and snow_level > 0
 
 
 def test_executor_profile_gate_uses_temperature_cutoff() -> None:

@@ -36,7 +36,7 @@ web_root = "./outputs/example"
 # which were produced within this last number of minutes
 # Useful for testing
 
-minimum_refresh_minutes = 0
+minimum_refresh_minutes = 60
 
 
 # A list of locations with their specific settings

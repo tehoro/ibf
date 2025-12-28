@@ -267,12 +267,12 @@ def compute_hourly_snow_level(
     units: str = "metric",
     max_terrain_m: Optional[float] = None,
     precip_adjust: bool = True,
-) -> int:
+) -> float:
     """
-    High-level helper that applies all decision logic, runs estimate_snow_level_msl,
-    and returns a rounded/filtered snow level suitable for display.
+    High-level helper that applies all decision logic and returns a snow level in meters.
 
-    Returns -1 if not applicable or filtered out.
+    Returns -1 if not applicable or filtered out. The units parameter is retained for
+    compatibility; output is always meters.
     """
     if not should_check_snow_level(precipitation_mm, weather_code, temperature_c):
         return -1
@@ -297,10 +297,7 @@ def compute_hourly_snow_level(
         terrain_threshold = max_terrain_m - 300.0
         if snow_level_m > terrain_threshold:
             return -1
-
-    if units == "us":
-        return int(round((snow_level_m * 3.28084) / 500.0) * 500)
-    return int(round(snow_level_m / 100.0) * 100)
+    return float(snow_level_m)
 
 
 __all__ = [

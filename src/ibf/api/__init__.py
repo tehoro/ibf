@@ -11,6 +11,9 @@ from .open_meteo import (
     DETERMINISTIC_MODELS,
     HOURLY_FIELDS_SNOW_PROFILE,
     PRESSURE_LEVELS_SNOW_HPA,
+    STANDARD_TEMPERATURE_UNIT,
+    STANDARD_PRECIPITATION_UNIT,
+    STANDARD_WINDSPEED_UNIT,
     ModelSpec,
     resolve_model_spec,
 )
@@ -27,6 +30,9 @@ __all__ = [
     "DETERMINISTIC_MODELS",
     "HOURLY_FIELDS_SNOW_PROFILE",
     "PRESSURE_LEVELS_SNOW_HPA",
+    "STANDARD_TEMPERATURE_UNIT",
+    "STANDARD_PRECIPITATION_UNIT",
+    "STANDARD_WINDSPEED_UNIT",
     "ModelSpec",
     "resolve_model_spec",
     "AlertSummary",
@@ -36,4 +42,3 @@ __all__ = [
     "GeocodeResult",
     "geocode_name",
 ]
-
