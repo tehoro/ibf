@@ -78,23 +78,23 @@ def fetch_alerts(latitude: float, longitude: float, *, country_code: Optional[st
         longitude,
     )
 
+    provider = "OpenWeatherMap"
     if country == "US":
+        provider = "NWS"
         logger.debug("Using NWS alerts provider.")
         summaries = _fetch_us_alerts(latitude, longitude)
-        logger.debug("NWS alerts returned %d alert(s).", len(summaries))
-        return summaries
-    if country == "NZ":
+    elif country == "NZ":
         # MetService feed is authoritative; do not fall back to OpenWeatherMap if it returns none.
+        provider = "MetService"
         logger.debug("Using MetService CAP alerts provider.")
         summaries = _fetch_nz_alerts(latitude, longitude)
-        logger.debug("MetService alerts returned %d alert(s).", len(summaries))
-        return summaries
-    if country == "CA":
-        logger.info("Canadian alerts falling back to OpenWeatherMap.")
+    else:
+        if country == "CA":
+            logger.info("Canadian alerts falling back to OpenWeatherMap.")
+        logger.debug("Using OpenWeatherMap alerts provider.")
+        summaries = _fetch_openweather_alerts(latitude, longitude, secrets)
 
-    logger.debug("Using OpenWeatherMap alerts provider.")
-    summaries = _fetch_openweather_alerts(latitude, longitude, secrets)
-    logger.debug("OpenWeatherMap alerts returned %d alert(s).", len(summaries))
+    logger.info("Alerts fetched: %d (%s).", len(summaries), provider)
     return summaries
 
 
@@ -114,9 +114,7 @@ def _fetch_us_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
         return []
 
     summaries: List[AlertSummary] = []
-    features = payload.get("features", [])
-    logger.debug("NWS alerts payload contains %d feature(s).", len(features))
-    for feature in features:
+    for feature in payload.get("features", []):
         props = feature.get("properties", {})
         summaries.append(
             AlertSummary(
@@ -128,7 +126,6 @@ def _fetch_us_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
                 expires=props.get("ends") or props.get("expires"),
             )
         )
-    logger.debug("NWS alerts parsed %d alert(s).", len(summaries))
     return summaries
 
 
@@ -159,9 +156,7 @@ def _fetch_openweather_alerts(latitude: float, longitude: float, secrets: Secret
         return []
 
     summaries: List[AlertSummary] = []
-    alerts = data.get("alerts", [])
-    logger.debug("OpenWeather alerts payload contains %d alert(s).", len(alerts))
-    for alert in alerts:
+    for alert in data.get("alerts", []):
         onset = alert.get("start")
         expires = alert.get("end")
         summaries.append(
@@ -174,7 +169,6 @@ def _fetch_openweather_alerts(latitude: float, longitude: float, secrets: Secret
                 expires=_unix_to_iso(expires) if isinstance(expires, (int, float)) else None,
             )
         )
-    logger.debug("OpenWeather alerts parsed %d alert(s).", len(summaries))
     return summaries
 
 
@@ -204,21 +198,17 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
     entries = list(getattr(feed, "entries", []))
     if getattr(feed, "bozo", False):
         logger.debug("MetService RSS bozo exception: %s", getattr(feed, "bozo_exception", "N/A"))
-    logger.debug("MetService RSS parsed version=%s", getattr(feed, "version", "N/A"))
     logger.debug("MetService RSS returned %d entr(y/ies).", len(entries))
 
     for entry in entries:
         link = getattr(entry, "link", None)
         title = getattr(entry, "title", None)
-        logger.debug("Processing CAP entry title=%s link=%s", title or "N/A", link or "N/A")
         if not link:
-            logger.debug("Skipping CAP entry without link.")
             continue
 
         try:
             resp = requests.get(link, timeout=20)
             resp.raise_for_status()
-            logger.debug("CAP fetch OK: %s (%d bytes)", link, len(resp.content))
         except requests.RequestException as exc:
             logger.debug("MetService CAP fetch failed for %s: %s", link, exc)
             continue
@@ -240,7 +230,6 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
             if not polygon_elements:
                 # Fallback: try without namespace (some feeds might not use it)
                 polygon_elements = root.findall(".//polygon")
-            logger.debug("CAP polygon elements found: %d", len(polygon_elements))
             
             for poly_elem in polygon_elements:
                 poly_text = poly_elem.text
@@ -248,7 +237,6 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
                     polygon = _cap_polygon_to_shape(poly_text.strip())
                     if polygon:
                         polygons.append(polygon)
-            logger.debug("CAP valid polygons parsed: %d", len(polygons))
 
             if not polygons:
                 logger.debug("No valid polygons found in CAP alert %s", link)
@@ -269,7 +257,6 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
 
             # Fallback to BeautifulSoup for other fields if ElementTree didn't work
             if severity is None or onset is None or expires is None:
-                logger.debug("CAP missing fields; trying BeautifulSoup fallback for %s", link)
                 try:
                     soup = BeautifulSoup(resp.content, "xml")
                     if severity is None:
@@ -279,15 +266,7 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
                     if expires is None:
                         expires = _get_xml_text(soup, "expires")
                 except FeatureNotFound:
-                    logger.debug("BeautifulSoup XML parser not available for %s", link)
                     pass
-            logger.debug(
-                "CAP fields for %s: severity=%s onset=%s expires=%s",
-                link,
-                severity or "N/A",
-                onset or "N/A",
-                expires or "N/A",
-            )
         except ET.ParseError as exc:
             logger.warning("Failed to parse CAP XML for %s: %s", link, exc)
             continue
@@ -296,18 +275,7 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
             continue
 
         # Check if point is within any polygon
-        point_matches = False
-        if polygons:
-            point_matches = any(poly.contains(point) or poly.touches(point) for poly in polygons)
-            logger.debug(
-                "CAP point match for %s: %s (lat=%.4f lon=%.4f polygons=%d)",
-                link,
-                point_matches,
-                latitude,
-                longitude,
-                len(polygons),
-            )
-        if point_matches:
+        if polygons and any(poly.contains(point) or poly.touches(point) for poly in polygons):
             summaries.append(
                 AlertSummary(
                     title=title or "MetService Alert",
@@ -320,11 +288,14 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
                     expires=expires,
                 )
             )
-            logger.debug("Added MetService alert for %s", link)
-        else:
-            logger.debug("Point not inside CAP polygons for %s", link)
+            logger.debug(
+                "MetService alert matched: %s (severity=%s onset=%s expires=%s)",
+                title or "MetService Alert",
+                severity or "N/A",
+                onset or "N/A",
+                expires or "N/A",
+            )
 
-    logger.debug("MetService alerts matched: %d alert(s).", len(summaries))
     return summaries
 
 
