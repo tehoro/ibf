@@ -437,6 +437,24 @@ def _format_unit_label(unit: str, unit_type: str) -> str:
     return unit
 
 
+def _build_context_block(
+    user_context: Optional[str],
+    impact_context: Optional[str],
+) -> str:
+    """Combine user-supplied and generated context blocks in priority order."""
+    sections = []
+    if user_context and user_context.strip():
+        sections.append(
+            "IMPORTANT USER CONTEXT (from configuration; take into account if relevant):\n"
+            f"{user_context.strip()}"
+        )
+    if impact_context and impact_context.strip():
+        sections.append(f"ADDITIONAL CONTEXT:\n{impact_context.strip()}")
+    if not sections:
+        return ""
+    return "\n\n" + "\n\n".join(sections) + "\n"
+
+
 def build_spot_user_prompt(
     formatted_dataset: str,
     *,
@@ -448,6 +466,7 @@ def build_spot_user_prompt(
     short_period_instruction: Optional[str] = "",
     impact_instruction: Optional[str] = "",
     impact_context: Optional[str] = "",
+    user_extra_context: Optional[str] = "",
 ) -> str:
     """Build the user prompt sent alongside the dataset for a single location."""
     detail_map = {
@@ -457,7 +476,7 @@ def build_spot_user_prompt(
     prompt_detail = detail_map.get(wordiness or "normal", "Write a succinct forecast.")
 
     instructions = "\n".join(filter(None, [short_period_instruction or "", impact_instruction or ""]))
-    context_block = f"\n\nADDITIONAL CONTEXT:\n{impact_context.strip()}\n" if impact_context else ""
+    context_block = _build_context_block(user_extra_context, impact_context)
 
     return f"""Write a weather forecast in a friendly and authoritative style, based only on the following information. Write only the forecast, not your instructions.
 
@@ -482,6 +501,7 @@ def build_area_user_prompt(
     short_period_instruction: Optional[str] = "",
     impact_instruction: Optional[str] = "",
     impact_context: Optional[str] = "",
+    user_extra_context: Optional[str] = "",
 ) -> str:
     """Compose the user prompt that instructs the LLM to write an area forecast."""
     detail_map = {
@@ -490,7 +510,7 @@ def build_area_user_prompt(
     }
     prompt_detail = detail_map.get(wordiness or "normal", "Write a succinct, authoritative area forecast.")
     instructions = "\n".join(filter(None, [short_period_instruction or "", impact_instruction or ""]))
-    context_block = f"\n\nADDITIONAL CONTEXT:\n{impact_context.strip()}\n" if impact_context else ""
+    context_block = _build_context_block(user_extra_context, impact_context)
     locations_line = ", ".join(location_names) if location_names else "not specified"
 
     return f"""Synthesize a day-by-day weather forecast for the entire area named "{area_name}". Use only the data below.
@@ -517,6 +537,7 @@ def build_regional_user_prompt(
     short_period_instruction: Optional[str] = "",
     impact_instruction: Optional[str] = "",
     impact_context: Optional[str] = "",
+    user_extra_context: Optional[str] = "",
 ) -> str:
     """Compose the user prompt for regional forecasts with sub-regional breakdowns."""
     detail_map = {
@@ -525,7 +546,7 @@ def build_regional_user_prompt(
     }
     prompt_detail = detail_map.get(wordiness or "normal", "Write a succinct regional breakdown.")
     instructions = "\n".join(filter(None, [short_period_instruction or "", impact_instruction or ""]))
-    context_block = f"\n\nADDITIONAL CONTEXT:\n{impact_context.strip()}\n" if impact_context else ""
+    context_block = _build_context_block(user_extra_context, impact_context)
     locations_line = ", ".join(location_names) if location_names else "not specified"
 
     return f"""Produce a day-by-day regional breakdown forecast for "{area_name}". Use only the data below.

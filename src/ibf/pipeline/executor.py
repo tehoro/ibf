@@ -298,6 +298,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
                 short_period_instruction=short_instr,
                 impact_instruction=impact_instr if ibf_context else "",
                 impact_context=ibf_context or "",
+                user_extra_context=location.extra_context,
             )
             logger.info("Requesting LLM forecast for '%s' using model %s", name, llm_settings.model)
             reasoning_enabled = _as_bool(config.enable_reasoning)
@@ -451,6 +452,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
                 short_period_instruction=short_instr,
                 impact_instruction=impact_instr if ibf_context else "",
                 impact_context=ibf_context or "",
+                user_extra_context=area.extra_context,
             )
             reasoning_enabled = _as_bool(config.enable_reasoning)
             reasoning_level = getattr(config, "area_reasoning", None)
@@ -605,6 +607,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
                 short_period_instruction=short_instr,
                 impact_instruction=impact_instr if ibf_context else "",
                 impact_context=ibf_context or "",
+                user_extra_context=area.extra_context,
             )
             reasoning_enabled = _as_bool(config.enable_reasoning)
             reasoning_level = getattr(config, "area_reasoning", None)
