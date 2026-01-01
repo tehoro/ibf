@@ -1,6 +1,6 @@
 [project]
 name = "ibf"
-version = "0.4.13"
+version = "0.4.14"
 description = "Unified impact-based forecast CLI and service"
 readme = "README.md"
 authors = [

@@ -4,6 +4,6 @@ title: "IBF (Impact-Based Forecast Toolkit)"
 authors:
   - family-names: "Gordon"
     given-names: "Neil"
-version: "0.2.9"
-date-released: "2025-12-22"
+version: "0.4.14"
+date-released: "2026-01-01"
 url: "https://github.com/tehoro/ibf"
