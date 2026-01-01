@@ -477,7 +477,11 @@ Apache-2.0. See LICENSE and NOTICE.
 
 Preferred citation
 ------------------
-If you use this toolkit in research or a product, please cite:
+If you use IBF in research, software, or documentation, please cite it using the repository’s citation metadata:
 
-Neil Gordon. IBF (Impact-Based Forecast Toolkit): LLM-ready impact-based forecast generation. 2025. GitHub repository.
-<https://github.com/tehoro/ibf>
+* **CITATION.cff** (preferred): [https://github.com/tehoro/ibf/blob/main/CITATION.cff](https://github.com/tehoro/ibf/blob/main/CITATION.cff)
+
+A suggested citation (from `CITATION.cff`) is:
+
+> Gordon, Neil. *IBF (Impact-Based Forecast Toolkit): LLM-assisted generation of impact-based weather forecasts* (v0.4.15). 2026. [https://github.com/tehoro/ibf](https://github.com/tehoro/ibf)
+
