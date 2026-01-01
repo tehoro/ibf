@@ -1,9 +1,40 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "IBF (Impact-Based Forecast Toolkit)"
+title: "IBF (Impact-Based Forecast Toolkit): LLM-assisted generation of impact-based weather forecasts"
 authors:
-  - family-names: "Gordon"
-    given-names: "Neil"
+  - family-names: Gordon
+    given-names: Neil
+    orcid: "https://orcid.org/0000-0002-7664-9434"
 version: "0.4.14"
 date-released: "2026-01-01"
+repository-code: "https://github.com/tehoro/ibf"
 url: "https://github.com/tehoro/ibf"
+license: Apache-2.0
+keywords:
+  - impact-based forecasting
+  - weather forecasting
+  - forecast communication
+  - large language models
+  - ensemble prediction
+  - decision support
+  - meteorology
+abstract: >
+  IBF is an open-source toolkit for generating plain-language,
+  impact-based weather forecasts from numerical weather prediction
+  model output. The system integrates ensemble or deterministic model
+  data with large language models to produce consistent, readable
+  forecast narratives, optionally enriched with alert information
+  and local impact context. IBF is designed for human-in-the-loop
+  forecasting workflows and operational experimentation in forecast
+  communication.
+preferred-citation:
+  type: software
+  authors:
+    - family-names: Gordon
+      given-names: Neil
+      orcid: "https://orcid.org/0000-0002-7664-9434"
+  title: "IBF (Impact-Based Forecast Toolkit): LLM-assisted generation of impact-based weather forecasts"
+  year: 2026
+  version: "0.4.14"
+  url: "https://github.com/tehoro/ibf"
+  license: Apache-2.0
