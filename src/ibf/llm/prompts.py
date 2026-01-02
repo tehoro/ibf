@@ -69,6 +69,8 @@ Describe the most likely conditions and also mention important alternative outco
 #RANGE SUMMARY
 - Always use the RANGE SUMMARY information when stating low/high temperatures and precipitation or snowfall ranges.
 - ALWAYS refer to temperatures as **low** and **high**; never use the plural words "highs" or "lows".
+- When a rainfall or snowfall range starts at 0 (or rounds to 0), express it as "up to X [unit]" in the narrative rather than "0 to X [unit]".
+- When reporting snowfall in cm, round to the nearest whole cm in the narrative; if the rounded low and high are the same, say "around X cm".
 
 #FORMAT FOR A DAY
 - Each day must start with the bolded header followed by the forecast in the same paragraph.
@@ -131,6 +133,7 @@ Describe expected conditions using the provided data. Do not imply spatial varia
 #SUMMARY
 - Use the provided Low/High and precipitation/snow totals shown for each day when stating temperatures and amounts.
 - ALWAYS refer to temperatures as **low** and **high**; never use the plural words "highs" or "lows".
+- When reporting snowfall in cm, round to the nearest whole cm in the narrative; if a nonzero amount rounds to 0, describe it as "up to 1 cm".
 
 #FORMAT FOR A DAY
 - Each day must start with the bolded header followed by the forecast in the same paragraph.
@@ -172,6 +175,8 @@ You will receive forecast datasets for several locations inside the target area.
 #STYLE & CONTENT
 - Use simple, clear language that a 12-year-old could understand.
 - Mention precipitation timing, type, and the likely range of amounts when wet weather is expected.
+- When a rainfall or snowfall range starts at 0 (or rounds to 0), express it as "up to X [unit]" in the narrative rather than "0 to X [unit]".
+- When reporting snowfall in cm, round to the nearest whole cm in the narrative; if the rounded low and high are the same, say "around X cm".
 - Always describe at least one wind direction and speed range using the required unit, and spell out the direction (e.g., "southwesterlies") instead of abbreviations.
 - Always mention both the low and high temperatures using the required unit, never the plural words "highs" or "lows".
 - If the datasets include ccNN (total cloud cover percent), use it only as a broad sky-cover cue (clear/partly/mostly/overcast). Do not infer low cloud or fog from ccNN alone unless the weather code already indicates it.
@@ -220,6 +225,8 @@ You will receive forecast datasets for several locations inside the target area.
 #STYLE & CONTENT
 - Use simple, clear language that a 12-year-old could understand.
 - Mention precipitation timing, type, and amounts when wet weather is expected.
+- When a rainfall or snowfall range starts at 0 (or rounds to 0), express it as "up to X [unit]" in the narrative rather than "0 to X [unit]".
+- When reporting snowfall in cm, round to the nearest whole cm in the narrative; if the rounded low and high are the same, say "around X cm".
 - Always describe at least one wind direction and speed range using the required unit, and spell out the direction (e.g., "southwesterlies") instead of abbreviations.
 - Always mention both the low and high temperatures using the required unit, never the plural words "highs" or "lows".
 - If the datasets include ccNN (total cloud cover percent), use it only as a broad sky-cover cue (clear/partly/mostly/overcast). Do not infer low cloud or fog from ccNN alone unless the weather code already indicates it.
@@ -259,6 +266,8 @@ You are an expert regional meteorologist. Use the supplied representative locati
 - For each day, start with the bolded date/day string exactly as provided (e.g., "**MONDAY 12 AUGUST:**"). Do NOT add extra day headers beyond the days in the data.
 - After the day header, write one paragraph per sub-region. Begin each paragraph with the bolded region name followed by a colon (e.g., "**South West England:** ...").
 - Describe weather, wind (with speed range), precipitation timing/amounts, and temperature low/high for each region using the required units. Use natural language to discuss uncertainty ("risk of", "could", "may").
+- When a rainfall or snowfall range starts at 0 (or rounds to 0), express it as "up to X [unit]" in the narrative rather than "0 to X [unit]".
+- When reporting snowfall in cm, round to the nearest whole cm in the narrative; if the rounded low and high are the same, say "around X cm".
 - If the datasets include snow-level notes (e.g., "(snow down to about 6500 ft)"), include them. Describe snow on higher terrain/mountains/hills above that elevation and avoid implying widespread lowland snow when levels are high.
 - If the datasets include ccNN (total cloud cover percent), use it only as a broad sky-cover cue (clear/partly/mostly/overcast). Do not infer low cloud or fog from ccNN alone unless the weather code already indicates it.
 - Do not list the raw input locations; infer region names from geography (coastal, inland, north, etc.) or well-known meteorological districts.
@@ -295,6 +304,8 @@ You are an expert regional meteorologist. Use the supplied representative locati
 - For each day, start with the bolded date/day string exactly as provided (e.g., "**MONDAY 12 AUGUST:**"). Do NOT add extra day headers beyond the days in the data.
 - After the day header, write one paragraph per sub-region. Begin each paragraph with the bolded region name followed by a colon (e.g., "**South West England:** ...").
 - Describe weather, wind (with speed range), precipitation timing/amounts, and temperature low/high for each region using the required units.
+- When a rainfall or snowfall range starts at 0 (or rounds to 0), express it as "up to X [unit]" in the narrative rather than "0 to X [unit]".
+- When reporting snowfall in cm, round to the nearest whole cm in the narrative; if the rounded low and high are the same, say "around X cm".
 - If the datasets include snow-level notes (e.g., "(snow down to about 6500 ft)"), include them. Describe snow on higher terrain/mountains/hills above that elevation and avoid implying widespread lowland snow when levels are high.
 - Do not list the raw input locations; infer region names from geography (coastal, inland, north, etc.) or well-known meteorological districts.
 - Keep the tone authoritative and concise. No bullet points, greetings, or closing remarks.

@@ -1344,7 +1344,9 @@ def _impact_instruction(enabled: bool) -> str:
     return (
         "This is an impact-based forecast. Use any additional context to explain vulnerabilities, "
         "upcoming events, or thresholds only when the forecast meets or exceeds them. "
-        "If conditions stay below thresholds, omit references to those impacts."
+        "If conditions stay below thresholds, omit references to those impacts. "
+        "Apply common sense to avoid overemphasizing impacts when forecast amounts are minimal or marginal; "
+        "only mention context-driven impacts when the magnitude makes them genuinely plausible."
     )
 
 

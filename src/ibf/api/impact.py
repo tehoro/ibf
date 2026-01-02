@@ -572,6 +572,63 @@ def _generate_context_gemini_search(
                 return marker
         return None
 
+    def _merge_context_chunks(existing: str, addition: str) -> str:
+        """Combine continuation chunks without introducing word breaks."""
+        if not existing:
+            return addition.strip()
+        if not addition:
+            return existing
+        existing = existing.rstrip()
+        addition = addition.lstrip()
+
+        def _should_join_words(left: str, right: str) -> bool:
+            left_match = re.search(r"([A-Za-z]+)$", left)
+            right_match = re.match(r"([A-Za-z]+)", right)
+            if not left_match or not right_match:
+                return False
+            left_word = left_match.group(1)
+            right_word = right_match.group(1).lower()
+            if right_word in {
+                "the",
+                "and",
+                "for",
+                "to",
+                "of",
+                "in",
+                "on",
+                "at",
+                "by",
+                "or",
+                "an",
+                "a",
+                "is",
+                "are",
+                "was",
+                "were",
+                "be",
+                "as",
+                "if",
+                "it",
+                "its",
+                "from",
+                "this",
+                "that",
+                "these",
+                "those",
+            }:
+                return False
+            if len(left_word) <= 2:
+                return True
+            if len(right_word) <= 3:
+                return True
+            return False
+
+        if _should_join_words(existing, addition):
+            return (existing + addition).strip()
+        if re.search(r"[A-Za-z0-9]$", existing) and re.match(r"[A-Za-z0-9]", addition):
+            return (existing + " " + addition).strip()
+        return (existing + "\n\n" + addition).strip()
+
     with _force_gemini_api_key(api_key):
         client = genai.Client(api_key=api_key)
     tool = types.Tool(google_search=types.GoogleSearch())
@@ -579,7 +636,7 @@ def _generate_context_gemini_search(
     config = types.GenerateContentConfig(
         tools=[tool],
         temperature=0.2,
-        max_output_tokens=6000,
+        max_output_tokens=15000,
     )
 
     def _call(contents: str) -> tuple[str, float]:
@@ -630,7 +687,7 @@ def _generate_context_gemini_search(
         if not next_text:
             break
         cost_cents += next_cost
-        combined = (combined + "\n\n" + next_text).strip()
+        combined = _merge_context_chunks(combined, next_text)
 
     return combined, cost_cents
 
