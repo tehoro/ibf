@@ -412,12 +412,12 @@ def _member_summary(
     """Produce a per-member summary of highs, lows, and precipitation totals."""
     if not (math.isfinite(high_temp) and math.isfinite(low_temp)):
         return " No valid temperature data found for summary.\n"
-    snow_unit_label = _format_unit_label(snowfall_unit)
     lines = [
         f" Low {round(low_temp)}°{temperature_unit.capitalize()[0]}, High {round(high_temp)}°{temperature_unit.capitalize()[0]}",
     ]
-    if total_snow > 0:
-        lines.append(f" Total snowfall: {round(total_snow)} {snow_unit_label}.")
+    snow_line = _format_total_snowfall_line(total_snow, snowfall_unit)
+    if snow_line:
+        lines.append(snow_line)
     rainfall_line = _format_total_amount_line(total_precip, precipitation_unit, label="rainfall")
     if rainfall_line:
         lines.append(rainfall_line)
@@ -486,6 +486,30 @@ def _format_total_amount_line(value: float, unit: str, *, label: str) -> str:
     if precision == 0:
         return f" Total {label}: {int(rounded)} {unit_label}."
     return f" Total {label}: {rounded:.{precision}f} {unit_label}."
+
+
+def _format_total_snowfall_line(value: float, unit: str) -> str:
+    """Format a "Total snowfall" line with sensible rounding for cm."""
+    if not isinstance(value, (int, float)):
+        return ""
+    v = float(value)
+    if v <= 0:
+        return ""
+
+    unit_label = _format_unit_label(unit)
+    if unit_label == "cm":
+        if v < 1.0:
+            return " Total snowfall: less than 1 cm."
+        rounded = int(round(v))
+        if rounded <= 0:
+            return ""
+        return f" Total snowfall: {rounded} cm."
+
+    rounded = round(v, 1)
+    if rounded == 0:
+        return ""
+    text = str(int(rounded)) if float(rounded).is_integer() else f"{rounded:.1f}".rstrip("0").rstrip(".")
+    return f" Total snowfall: {text} {unit_label}."
 
 
 def _should_use_only_low(hours: List[dict]) -> bool:
@@ -580,10 +604,35 @@ def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str)
     percentiles = estimate_percentiles(positive, 0.20)
     if any(math.isnan(x) for x in percentiles):
         return f"Estimated probability of {label}: {probability}%"
+    unit_label = _format_unit_label(unit)
+
+    if label == "snowfall" and unit_label == "cm":
+        lower_raw, upper_raw = percentiles
+        if upper_raw < 1.0:
+            return (
+                f"Estimated probability of {label}: {probability}%\n"
+                f"Likely {label} less than 1 {unit_label}"
+            )
+        lower = int(round(lower_raw))
+        upper = int(round(upper_raw))
+        if lower <= 0:
+            return (
+                f"Estimated probability of {label}: {probability}%\n"
+                f"Likely {label} up to {upper} {unit_label}"
+            )
+        if lower == upper:
+            return (
+                f"Estimated probability of {label}: {probability}%\n"
+                f"Likely {label} around {lower} {unit_label}"
+            )
+        return (
+            f"Estimated probability of {label}: {probability}%\n"
+            f"Likely {label} {lower} {unit_label} to {upper} {unit_label}"
+        )
+
     precision = 0 if unit == "mm" else 1
     lower = round(percentiles[0], precision)
     upper = round(percentiles[1], precision)
-    unit_label = _format_unit_label(unit)
 
     def _fmt(value: float) -> str:
         if precision == 0:

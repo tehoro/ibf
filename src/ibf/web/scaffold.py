@@ -14,11 +14,59 @@ from ..util.naming import generate_unique_location_names
 from ..api import resolve_model_spec, DEFAULT_ENSEMBLE_MODEL
 
 DEFAULT_WEB_ROOT = Path("outputs/forecasts")
+FAVICON_FILENAME = "favicon.svg"
+FAVICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="IBF favicon">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#bfe6ff"/>
+      <stop offset="1" stop-color="#4aa3ff"/>
+    </linearGradient>
+
+    <linearGradient id="gloss" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(32 32) scale(1.15) translate(-32 -32)">
+    <ellipse cx="32" cy="32" rx="27" ry="22" fill="url(#sky)"/>
+    <ellipse cx="32" cy="32" rx="27" ry="22" fill="none" stroke="#0a2a43" stroke-width="3"/>
+
+    <path d="M11 27 C15 15, 28 10, 40 12 C28 14, 19 19, 14 29 C13 31, 11 30, 11 27 Z"
+          fill="url(#gloss)"/>
+
+    <g transform="translate(17 39)">
+      <path d="M8 8
+               C4.5 8 1.8 5.4 1.8 2.3
+               C1.8 -0.2 3.6 -2.4 6.1 -3
+               C7.2 -6 10.1 -8 13.7 -8
+               C18.2 -8 21.9 -4.6 21.9 0
+               C24.7 0.4 26.8 2.6 26.8 5.1
+               C26.8 7.8 24.5 10 21.6 10
+               L8 10 Z"
+            fill="#ffffff" opacity="0.95"/>
+    </g>
+
+    <text x="32" y="33"
+          text-anchor="middle"
+          dominant-baseline="middle"
+          font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif"
+          font-size="20"
+          font-weight="800"
+          fill="#0a2a43"
+          letter-spacing="1">
+      IBF
+    </text>
+  </g>
+</svg>
+"""
 
 PLACEHOLDER_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml" sizes="any">
   <title>Forecast for {title}</title>
   <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -45,6 +93,7 @@ MENU_TEMPLATE = """<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" sizes="any">
   <title>Weather Forecast Menu</title>
   <style>
     body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -128,6 +177,16 @@ def ensure_directory(path: Path, report: ScaffoldReport) -> None:
         report.directories_created.append(path)
 
 
+def write_favicon(root: Path, force: bool) -> None:
+    """
+    Write the default favicon to the web root unless it already exists.
+    """
+    target = root / FAVICON_FILENAME
+    if target.exists() and not force:
+        return
+    write_text_file(target, FAVICON_SVG)
+
+
 def write_placeholder(target: Path, title: str, force: bool, report: ScaffoldReport) -> None:
     """
     Write a placeholder HTML file if it doesn't exist or if forced.
@@ -189,6 +248,7 @@ def generate_site_structure(config: ForecastConfig, *, force: bool = False) -> S
     root = resolve_web_root(config)
     report = ScaffoldReport(root=root)
     ensure_directory(root, report)
+    write_favicon(root, force)
 
     # Locations - generate unique names to avoid conflicts
     location_names = [location.name for location in config.locations]

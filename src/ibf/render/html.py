@@ -83,6 +83,7 @@ def render_forecast_page(page: ForecastPage) -> Path:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Forecast for {display_name}</title>
+  {_FAVICON_LINK}
   {_STYLE_BLOCK}
 </head>
 <body>
@@ -207,6 +208,8 @@ hr { display: none; }
 @media (max-width: 600px) { body { margin: 0.5em; padding: 0 0.8em; } h1 { font-size: 1.5em; } #forecast-content, #translated-forecast-content, #ibf-context-content { padding: 1em 1.2em; } h2 { font-size: 1.2em;} }
 </style>"""
 
+
+_FAVICON_LINK = '<link rel="icon" href="../favicon.svg" type="image/svg+xml" sizes="any">'
 
 _SCRIPT_BLOCK = """<script>
 function toggleIbfContext() {
