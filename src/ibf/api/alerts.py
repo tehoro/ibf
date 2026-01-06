@@ -8,22 +8,20 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from threading import Lock
 from typing import List, Optional
-from xml.etree import ElementTree as ET
+from defusedxml import ElementTree as ET
+from lxml import etree as LET
 
 import feedparser
 import requests
-from bs4 import BeautifulSoup, FeatureNotFound
 from shapely.geometry import Point, Polygon
 
 from ..config import Secrets, get_secrets
-from ..util import ensure_directory
+from ..util import ensure_directory, file_lock, format_request_exception, safe_unlink, write_text_file
 
 logger = logging.getLogger(__name__)
 
 COUNTRY_CACHE_PATH = ensure_directory("ibf_cache/geocode") / "country_cache.json"
-COUNTRY_CACHE_LOCK = Lock()
 
 
 @dataclass
@@ -146,7 +144,7 @@ def _fetch_openweather_alerts(latitude: float, longitude: float, secrets: Secret
         resp = requests.get("https://api.openweathermap.org/data/3.0/onecall", params=params, timeout=20)
         resp.raise_for_status()
     except requests.RequestException as exc:
-        logger.warning("OpenWeather alerts request failed: %s", exc)
+        logger.warning("OpenWeather alerts request failed: %s", format_request_exception(exc))
         return []
 
     try:
@@ -189,7 +187,7 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
     except requests.RequestException as exc:
         logger.warning("MetService RSS request failed: %s", exc)
         return []
-    except Exception as exc:  # feedparser can raise generic exceptions
+    except (AttributeError, KeyError, TypeError, UnicodeDecodeError, ValueError) as exc:
         logger.warning("MetService RSS parse failed: %s", exc)
         return []
 
@@ -219,18 +217,20 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
         onset = None
         expires = None
 
+        root = _parse_cap_xml(resp.content, link)
+        if root is None:
+            continue
+
         try:
-            # Parse XML with ElementTree for better namespace handling
-            root = ET.fromstring(resp.content)
             # CAP 1.2 namespace
             ns = {"cap": "urn:oasis:names:tc:emergency:cap:1.2"}
-            
+
             # Find all polygon elements using namespace
             polygon_elements = root.findall(".//cap:polygon", ns)
             if not polygon_elements:
-                # Fallback: try without namespace (some feeds might not use it)
-                polygon_elements = root.findall(".//polygon")
-            
+                # Fallback: try any namespace (some feeds might not use the CAP prefix)
+                polygon_elements = root.findall(".//{*}polygon")
+
             for poly_elem in polygon_elements:
                 poly_text = poly_elem.text
                 if poly_text:
@@ -241,36 +241,20 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
             if not polygons:
                 logger.debug("No valid polygons found in CAP alert %s", link)
                 continue
-            
+
             # Parse other fields using ElementTree as well
-            info_elem = root.find(".//cap:info", ns) or root.find(".//info")
+            info_elem = root.find(".//cap:info", ns) or root.find(".//{*}info")
             if info_elem is not None:
-                severity_elem = info_elem.find("cap:severity", ns) or info_elem.find("severity")
+                severity_elem = info_elem.find("cap:severity", ns) or info_elem.find("{*}severity")
                 if severity_elem is not None and severity_elem.text:
                     severity = severity_elem.text.strip()
-                onset_elem = info_elem.find("cap:onset", ns) or info_elem.find("onset")
+                onset_elem = info_elem.find("cap:onset", ns) or info_elem.find("{*}onset")
                 if onset_elem is not None and onset_elem.text:
                     onset = onset_elem.text.strip()
-                expires_elem = info_elem.find("cap:expires", ns) or info_elem.find("expires")
+                expires_elem = info_elem.find("cap:expires", ns) or info_elem.find("{*}expires")
                 if expires_elem is not None and expires_elem.text:
                     expires = expires_elem.text.strip()
-
-            # Fallback to BeautifulSoup for other fields if ElementTree didn't work
-            if severity is None or onset is None or expires is None:
-                try:
-                    soup = BeautifulSoup(resp.content, "xml")
-                    if severity is None:
-                        severity = _get_xml_text(soup, "severity")
-                    if onset is None:
-                        onset = _get_xml_text(soup, "onset")
-                    if expires is None:
-                        expires = _get_xml_text(soup, "expires")
-                except FeatureNotFound:
-                    pass
-        except ET.ParseError as exc:
-            logger.warning("Failed to parse CAP XML for %s: %s", link, exc)
-            continue
-        except Exception as exc:
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
             logger.debug("Error processing CAP alert %s: %s", link, exc)
             continue
 
@@ -325,21 +309,33 @@ def _cap_polygon_to_shape(polygon_text: Optional[str]) -> Optional[Polygon]:
     return polygon if polygon.is_valid else None
 
 
-def _get_xml_text(soup: BeautifulSoup, tag_name: str) -> Optional[str]:
-    """Return stripped text for the first matching tag in the CAP XML."""
-    tag = soup.find(tag_name)
-    if tag and tag.text:
-        return tag.text.strip()
-    return None
+def _parse_cap_xml(payload: bytes, link: str):
+    """Parse CAP XML with hardened defaults, falling back to a recovery parser."""
+    try:
+        return ET.fromstring(payload)
+    except ET.ParseError as exc:
+        logger.warning("Failed to parse CAP XML for %s with defusedxml: %s", link, exc)
+        try:
+            parser = LET.XMLParser(
+                resolve_entities=False,
+                no_network=True,
+                load_dtd=False,
+                recover=True,
+            )
+            return LET.fromstring(payload, parser=parser)
+        except LET.XMLSyntaxError as lex:
+            logger.warning("Failed to parse CAP XML for %s with lxml recover: %s", link, lex)
+            return None
 
 
 def _resolve_country_code(latitude: float, longitude: float, secrets: Secrets) -> Optional[str]:
     """Reverse geocode the coordinate to an ISO country code with caching."""
     cache_key = f"{latitude:.4f},{longitude:.4f}"
-    cached = _read_country_cache().get(cache_key)
-    if cached:
-        logger.debug("Country cache hit for %s -> %s", cache_key, cached)
-        return cached
+    with file_lock(COUNTRY_CACHE_PATH):
+        cached = _read_country_cache().get(cache_key)
+        if cached:
+            logger.debug("Country cache hit for %s -> %s", cache_key, cached)
+            return cached
     logger.debug("Country cache miss for %s", cache_key)
 
     if secrets.google_api_key:
@@ -347,7 +343,10 @@ def _resolve_country_code(latitude: float, longitude: float, secrets: Secrets) -
         code = _reverse_country_google(latitude, longitude, secrets.google_api_key)
         if code:
             logger.debug("Resolved country via Google: %s", code)
-            _write_country_cache(cache_key, code)
+            with file_lock(COUNTRY_CACHE_PATH):
+                cache = _read_country_cache()
+                cache[cache_key] = code
+                _write_country_cache(cache)
             return code
 
     if secrets.openweathermap_api_key:
@@ -355,7 +354,10 @@ def _resolve_country_code(latitude: float, longitude: float, secrets: Secrets) -
         code = _reverse_country_openweather(latitude, longitude, secrets.openweathermap_api_key)
         if code:
             logger.debug("Resolved country via OpenWeatherMap: %s", code)
-            _write_country_cache(cache_key, code)
+            with file_lock(COUNTRY_CACHE_PATH):
+                cache = _read_country_cache()
+                cache[cache_key] = code
+                _write_country_cache(cache)
             return code
 
     return None
@@ -363,24 +365,27 @@ def _resolve_country_code(latitude: float, longitude: float, secrets: Secrets) -
 
 def _read_country_cache() -> dict:
     """Load the cached country lookup table from disk."""
-    with COUNTRY_CACHE_LOCK:
-        if not COUNTRY_CACHE_PATH.exists():
-            return {}
-        try:
-            return json.loads(COUNTRY_CACHE_PATH.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            return {}
+    if not COUNTRY_CACHE_PATH.exists():
+        return {}
+    try:
+        data = json.loads(COUNTRY_CACHE_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Invalid country cache %s (%s). Deleting.", COUNTRY_CACHE_PATH, exc)
+        _delete_country_cache()
+        return {}
+    if not _is_valid_country_cache(data):
+        logger.warning("Invalid country cache %s (schema mismatch). Deleting.", COUNTRY_CACHE_PATH)
+        _delete_country_cache()
+        return {}
+    return data
 
 
-def _write_country_cache(key: str, code: str) -> None:
+def _write_country_cache(data: dict) -> None:
     """Persist a country code lookup keyed by coordinate."""
-    with COUNTRY_CACHE_LOCK:
-        data = _read_country_cache()
-        data[key] = code
-        try:
-            COUNTRY_CACHE_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        except OSError as exc:
-            logger.debug("Failed to update country cache: %s", exc)
+    try:
+        write_text_file(COUNTRY_CACHE_PATH, json.dumps(data, indent=2), lock=False)
+    except OSError as exc:
+        logger.debug("Failed to update country cache: %s", exc)
 
 
 def _unix_to_iso(value: float) -> str:
@@ -406,7 +411,7 @@ def _reverse_country_google(latitude: float, longitude: float, api_key: str) -> 
                     logger.debug("Google reverse geocode resolved country: %s", code)
                 return code
     except requests.RequestException as exc:
-        logger.debug("Google reverse geocode failed: %s", exc)
+        logger.debug("Google reverse geocode failed: %s", format_request_exception(exc))
     except (IndexError, KeyError, json.JSONDecodeError):
         logger.debug("Unexpected Google geocode response structure.")
     return None
@@ -427,7 +432,24 @@ def _reverse_country_openweather(latitude: float, longitude: float, api_key: str
             logger.debug("OpenWeatherMap reverse geocode resolved country: %s", code)
         return code
     except requests.RequestException as exc:
-        logger.debug("OpenWeatherMap reverse geocode failed: %s", exc)
+        logger.debug("OpenWeatherMap reverse geocode failed: %s", format_request_exception(exc))
     except (IndexError, KeyError, json.JSONDecodeError):
         logger.debug("Unexpected OpenWeatherMap geocode response structure.")
     return None
+
+
+def _is_valid_country_cache(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    for key, value in payload.items():
+        if not isinstance(key, str):
+            return False
+        if not isinstance(value, str):
+            return False
+        if len(value.strip()) != 2:
+            return False
+    return True
+
+
+def _delete_country_cache() -> None:
+    safe_unlink(COUNTRY_CACHE_PATH, base_dir=COUNTRY_CACHE_PATH.parent)

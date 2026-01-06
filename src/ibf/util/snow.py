@@ -240,7 +240,7 @@ def extract_pressure_profile(
             temps.append(float(t))
             rhs.append(float(r))
             geop.append(float(z))
-        except Exception:
+        except (TypeError, ValueError):
             continue
 
     if len(pressures) < 2:

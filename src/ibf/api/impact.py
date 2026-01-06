@@ -13,11 +13,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
-from openai import OpenAI
+from openai import OpenAI, OpenAIError
 
 from ..config.settings import Secrets, get_secrets
 from ..llm.costs import get_model_cost
-from ..util import ensure_directory, get_local_now
+from ..util import ensure_directory, get_local_now, safe_unlink, write_text_file
+from ..util.env import force_gemini_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -172,12 +173,12 @@ def store_impact_context(
         "extra_context": extra_context,
     }
     try:
-        cache_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        write_text_file(cache_path, json.dumps(payload, indent=2, ensure_ascii=False))
     except OSError as exc:
         logger.warning("Failed to write impact cache %s (%s)", cache_path, exc)
 
 
-def cleanup_impact_cache(max_age_days: int = MAX_CONTEXT_AGE_DAYS) -> None:
+def cleanup_impact_cache(max_age_days: int = MAX_CONTEXT_AGE_DAYS, *, dry_run: bool = False) -> None:
     """
     Remove old impact context files from the cache.
 
@@ -188,7 +189,7 @@ def cleanup_impact_cache(max_age_days: int = MAX_CONTEXT_AGE_DAYS) -> None:
     for path in CACHE_DIR.glob("*.json"):
         try:
             if datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc) < cutoff:
-                path.unlink()
+                safe_unlink(path, base_dir=CACHE_DIR, dry_run=dry_run)
         except OSError:
             continue
 
@@ -231,28 +232,43 @@ def _load_cache(path: Path) -> Optional[str]:
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Invalid impact cache %s (%s). Deleting.", path, exc)
+        _delete_cache_file(path)
         return None
 
     if not isinstance(data, dict):
+        logger.warning("Invalid impact cache %s (schema mismatch). Deleting.", path)
+        _delete_cache_file(path)
+        return None
+    if not isinstance(data.get("context"), str):
+        logger.warning("Invalid impact cache %s (missing context). Deleting.", path)
+        _delete_cache_file(path)
         return None
 
     timestamp_raw = data.get("timestamp")
     cached_ts = None
-    if timestamp_raw:
-        try:
-            cached_ts = datetime.fromisoformat(timestamp_raw)
-            if cached_ts.tzinfo is None:
-                cached_ts = cached_ts.replace(tzinfo=timezone.utc)
-        except ValueError:
-            cached_ts = None
-    if cached_ts is None:
-        cached_ts = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    if not timestamp_raw:
+        logger.warning("Invalid impact cache %s (missing timestamp). Deleting.", path)
+        _delete_cache_file(path)
+        return None
+    try:
+        cached_ts = datetime.fromisoformat(timestamp_raw)
+        if cached_ts.tzinfo is None:
+            cached_ts = cached_ts.replace(tzinfo=timezone.utc)
+    except ValueError:
+        logger.warning("Invalid impact cache %s (bad timestamp). Deleting.", path)
+        _delete_cache_file(path)
+        return None
 
     now_utc = datetime.now(timezone.utc)
     if now_utc - cached_ts.astimezone(timezone.utc) > timedelta(days=MAX_CONTEXT_AGE_DAYS):
         return None
     return data.get("context", "")
+
+
+def _delete_cache_file(path: Path) -> None:
+    safe_unlink(path, base_dir=CACHE_DIR)
 
 
 def _load_recent_cache(
@@ -484,7 +500,7 @@ def _generate_context_openai_web_search(
         cost_cents = _log_usage_and_cost(model_name, getattr(response, "usage", None))
         context_text = _extract_response_text(response)
         return context_text, cost_cents
-    except Exception as exc:
+    except (OpenAIError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
         logger.warning(
             "Responses API with web search failed for impact context (%s): %s. Falling back to chat completions.",
             name,
@@ -504,7 +520,7 @@ def _generate_context_openai_web_search(
             if fallback.choices:
                 return (fallback.choices[0].message.content or "").strip(), cost_cents
             return "", 0.0
-        except Exception as chat_exc:
+        except (OpenAIError, RuntimeError, TimeoutError, TypeError, ValueError) as chat_exc:
             logger.error("Chat completions fallback failed for impact context (%s): %s", name, chat_exc)
             return "", 0.0
 
@@ -521,34 +537,8 @@ def _generate_context_gemini_search(
         return "", 0.0
 
     # Lazy import so the rest of the system can run without this optional dependency.
-    import os
-    from contextlib import contextmanager
-
     from google import genai  # type: ignore[import-not-found]
     from google.genai import types  # type: ignore[import-not-found]
-
-    @contextmanager
-    def _force_gemini_api_key(key: str):
-        """
-        google-genai will prefer GOOGLE_API_KEY over GEMINI_API_KEY if both are set.
-        This repo uses GOOGLE_API_KEY for Maps/Geocoding, so for Gemini context calls we
-        temporarily hide GOOGLE_API_KEY and force GEMINI_API_KEY.
-        """
-        old_google_api_key = os.environ.get("GOOGLE_API_KEY")
-        old_gemini_api_key = os.environ.get("GEMINI_API_KEY")
-        try:
-            os.environ.pop("GOOGLE_API_KEY", None)
-            os.environ["GEMINI_API_KEY"] = key
-            yield
-        finally:
-            if old_google_api_key is not None:
-                os.environ["GOOGLE_API_KEY"] = old_google_api_key
-            else:
-                os.environ.pop("GOOGLE_API_KEY", None)
-            if old_gemini_api_key is not None:
-                os.environ["GEMINI_API_KEY"] = old_gemini_api_key
-            else:
-                os.environ.pop("GEMINI_API_KEY", None)
 
     def _is_complete(text: str) -> bool:
         if not text:
@@ -629,7 +619,7 @@ def _generate_context_gemini_search(
             return (existing + " " + addition).strip()
         return (existing + "\n\n" + addition).strip()
 
-    with _force_gemini_api_key(api_key):
+    with force_gemini_api_key(api_key):
         client = genai.Client(api_key=api_key)
     tool = types.Tool(google_search=types.GoogleSearch())
     # Allow a longer response; we enforce structure via post-checks/continuations.
@@ -641,13 +631,13 @@ def _generate_context_gemini_search(
 
     def _call(contents: str) -> tuple[str, float]:
         try:
-            with _force_gemini_api_key(api_key):
+            with force_gemini_api_key(api_key):
                 response = client.models.generate_content(
                     model=model_name,
                     contents=contents,
                     config=config,
                 )
-        except Exception as exc:
+        except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
             logger.error("Gemini Google Search grounding failed for impact context (%s): %s", name, exc)
             return "", 0.0
         text = (getattr(response, "text", None) or "").strip()
@@ -724,7 +714,7 @@ def _log_gemini_usage_and_cost(model_name: str, usage_metadata: Any) -> float:
         input_tokens_i = int(input_tokens or 0)
         output_tokens_i = int(output_tokens or 0)
         total_tokens_i = int(total_tokens or (input_tokens_i + output_tokens_i))
-    except Exception:
+    except (TypeError, ValueError):
         input_tokens_i, output_tokens_i, total_tokens_i = 0, 0, 0
 
     cost_entry = get_model_cost(model_name)
@@ -834,7 +824,7 @@ def _log_usage_and_cost(model_name: str, usage: Any) -> float:
 
     try:
         input_tokens, cached_input_tokens, output_tokens, total_tokens = _normalize_usage(usage)
-    except Exception as exc:  # pragma: no cover - defensive
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:  # pragma: no cover - defensive
         logger.debug("Unable to normalize LLM usage data (%s): %s", type(usage), exc)
         logger.info(
             "Impact context LLM usage – model=%s input_tokens=%s cached_input_tokens=%s output_tokens=%s total_tokens=%s cost_usd_cents=%s",

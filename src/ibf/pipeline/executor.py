@@ -9,11 +9,12 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Protocol, Iterable
-from zoneinfo import ZoneInfo
+from typing import Dict, Iterable, List, Optional, Protocol
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import math
 import re
 
+from openai import OpenAIError
 from ..config import ForecastConfig, LocationConfig, AreaConfig
 from ..api import (
     fetch_alerts,
@@ -34,7 +35,7 @@ from ..api import (
     resolve_model_spec,
 )
 from ..render import ForecastPage, render_forecast_page
-from ..util import slugify, write_text_file, ensure_directory, utc_now
+from ..util import ensure_directory, safe_unlink, slugify, utc_now, write_text_file
 from ..util.naming import generate_unique_location_names
 from ..util.elevation import get_highest_point
 from ..util.snow import should_check_snow_level
@@ -322,7 +323,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
                 thinking_level=thinking_level,
             )
             _record_cost("Location", unique_name, forecast=consume_last_cost_cents())
-        except Exception as exc:
+        except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
             logger.error("LLM generation failed for %s: %s", name, exc, exc_info=True)
 
     if not forecast_text:
@@ -476,7 +477,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
             )
             _record_cost("Area", area.name, forecast=consume_last_cost_cents())
             logger.info("Requesting area LLM forecast for '%s' using model %s", area.name, llm_settings.model)
-        except Exception as exc:
+        except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
             logger.error("LLM generation failed for area %s: %s", area.name, exc, exc_info=True)
 
     if not forecast_text:
@@ -637,7 +638,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
             )
             logger.info("Requesting regional LLM forecast for '%s' using model %s", area.name, llm_settings.model)
             _record_cost("Regional", area.name, forecast=consume_last_cost_cents())
-        except Exception as exc:
+        except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
             logger.error(
                 "Regional LLM generation failed for %s: %s", area.name, exc, exc_info=True
             )
@@ -754,7 +755,7 @@ def _collect_location_payload(
         else:
             try:
                 elevation = float(raw_forecast.get("elevation"))  # type: ignore[call-arg]
-            except Exception:
+            except (TypeError, ValueError):
                 elevation = 0.0
             if elevation > 0:
                 altitude_for_snow = elevation
@@ -825,7 +826,7 @@ def _collect_location_payload(
                             "disabling profile-based snow levels for this model.",
                             resolved_model.model_id,
                         )
-                except Exception as exc:
+                except (RuntimeError, TypeError, ValueError) as exc:
                     logger.info("Snow-profile fetch failed for '%s'; continuing without it (%s).", name, exc)
 
     dataset = build_processed_days(
@@ -1028,7 +1029,7 @@ def _has_any_freezing_level(forecast_raw: dict) -> bool:
         hourly = forecast_raw.get("hourly", {})
         series = hourly.get("freezing_level_height", [])
         return any(v is not None for v in series)
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return False
 
 
@@ -1062,10 +1063,10 @@ def _needs_snow_profile_request(forecast_raw: dict) -> bool:
                 precip_mm = _to_mm(float(p))
                 if should_check_snow_level(precip_mm, int(c), temp_c):
                     return True
-            except Exception:
+            except (TypeError, ValueError):
                 continue
         return False
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return False
 
 
@@ -1134,7 +1135,7 @@ def _has_any_pressure_level_profile(raw: dict) -> bool:
             if isinstance(series, list) and any(v is not None for v in series):
                 return True
         return False
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return False
 
 
@@ -1165,7 +1166,7 @@ def _log_snow_levels_summary(
                 t_val = float(t)
                 p_val = float(p)
                 c_i = int(c)
-            except Exception:
+            except (TypeError, ValueError):
                 continue
             t_c = t_val
             p_mm = p_val
@@ -1216,7 +1217,7 @@ def _log_snow_levels_summary(
 
             try:
                 tz = ZoneInfo(timezone_name)
-            except Exception:
+            except (TypeError, ValueError, ZoneInfoNotFoundError):
                 tz = ZoneInfo("UTC")
 
             log_candidates: list[tuple[str, str, float, float, int, int | None, str]] = []
@@ -1226,7 +1227,7 @@ def _log_snow_levels_summary(
                     dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(tz)
                     date_key = dt.strftime("%Y-%m-%d")
                     hour_key = dt.strftime("%H:00")
-                except Exception:
+                except (TypeError, ValueError):
                     date_key, hour_key = "?", "?"
                 sl = produced.get((date_key, hour_key))
                 dbg = debug_by_hour.get((date_key, hour_key))
@@ -1234,7 +1235,7 @@ def _log_snow_levels_summary(
                 if isinstance(dbg, dict) and dbg.get("raw_estimate_m") is not None:
                     try:
                         dbg_txt = f" raw_est={float(dbg['raw_estimate_m']):.0f}m"
-                    except Exception:
+                    except (TypeError, ValueError):
                         dbg_txt = ""
                 if not isinstance(sl, (int, float)) and not dbg_txt:
                     continue
@@ -1255,7 +1256,7 @@ def _log_snow_levels_summary(
                     level_text,
                     dbg_txt,
                 )
-    except Exception as exc:
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:
         logger.debug("Snow levels summary failed for '%s': %s", name, exc)
 
 
@@ -1322,7 +1323,7 @@ def _short_period_instruction(dataset: List[dict], tz_str: str) -> str:
         return ""
     try:
         tz = ZoneInfo(tz_str)
-    except Exception:
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
         tz = ZoneInfo("UTC")
     now_hour = datetime.now(tz).hour
     if now_hour >= 22:
@@ -1459,13 +1460,13 @@ def _snapshot_prompt(
                 user_prompt.strip(),
             ]
         )
-        path.write_text(body + "\n", encoding="utf-8")
+        write_text_file(path, body + "\n")
         _cleanup_prompt_cache()
-    except Exception as exc:
+    except (OSError, TypeError, ValueError) as exc:
         logger.debug("Failed to snapshot prompt for %s/%s: %s", kind, name, exc)
 
 
-def _cleanup_prompt_cache(max_age_days: int = 3, min_keep: int = 10) -> None:
+def _cleanup_prompt_cache(max_age_days: int = 3, min_keep: int = 10, *, dry_run: bool = False) -> None:
     """
     Remove old prompt snapshot files from the cache.
     
@@ -1509,14 +1510,14 @@ def _cleanup_prompt_cache(max_age_days: int = 3, min_keep: int = 10) -> None:
         for file_time, path in files_to_check:
             if file_time < cutoff_time:
                 try:
-                    path.unlink()
+                    safe_unlink(path, base_dir=PROMPT_SNAPSHOT_DIR, dry_run=dry_run)
                     deleted_count += 1
                 except OSError:
                     continue
         
         if deleted_count > 0:
             logger.debug("Cleaned up %d old prompt snapshot(s), kept %d", deleted_count, len(files_to_keep))
-    except Exception as exc:
+    except (OSError, TypeError, ValueError) as exc:
         logger.debug("Failed to cleanup prompt cache: %s", exc)
 
 
@@ -1663,7 +1664,7 @@ def _maybe_translate(
         user_prompt = build_translation_user_prompt(text)
         _snapshot_prompt("translation", language, settings.model, system_prompt, user_prompt)
         return generate_forecast_text(user_prompt, system_prompt, settings)
-    except Exception as exc:
+    except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
         logger.error("Translation failed (%s): %s", language, exc, exc_info=True)
         return None
 
@@ -1672,7 +1673,7 @@ def _format_issue_time(tz_name: Optional[str]) -> str:
     """Format the issue timestamp in the provided timezone."""
     try:
         zone = ZoneInfo(tz_name) if tz_name else ZoneInfo("UTC")
-    except Exception:
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
         zone = ZoneInfo("UTC")
     return datetime.now(zone).strftime("%Y-%m-%d %H:%M %Z")
 

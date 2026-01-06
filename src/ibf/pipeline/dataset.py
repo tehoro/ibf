@@ -5,7 +5,7 @@ Transform Open-Meteo hourly data into the legacy day/hour structure.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict, List
 import logging
 import math
@@ -363,7 +363,7 @@ def _build_member_record(
     if snow_levels_enabled:
         try:
             wx_code = int(weather_code) if weather_code is not None else 0
-        except Exception:
+        except (TypeError, ValueError):
             wx_code = 0
         # Avoid expensive or noisy calculations when snow is implausible.
         if (
@@ -395,7 +395,7 @@ def _build_member_record(
                 surface_pressure = _safe_get(indexed, f"surface_pressure{base}", index)
                 try:
                     surface_pressure_hpa = float(surface_pressure) if surface_pressure is not None else None
-                except Exception:
+                except (TypeError, ValueError):
                     surface_pressure_hpa = None
 
                 if surface_pressure_hpa is not None:
@@ -438,7 +438,7 @@ def _build_member_record(
                                     "method": "profile",
                                     "raw_estimate_m": float(raw_est) if math.isfinite(raw_est) else None,
                                 }
-                        except Exception:
+                        except (KeyError, TypeError, ValueError):
                             snow_level = None
 
     record: Dict[str, Any] = {
@@ -462,7 +462,7 @@ def _build_member_record(
             pop_int = int(round(float(precip_probability)))
             if 0 <= pop_int <= 100:
                 record["pop"] = pop_int
-        except Exception:
+        except (TypeError, ValueError):
             pass
 
     return record
@@ -574,5 +574,5 @@ def _resolve_timezone(name: str) -> ZoneInfo:
     """Return a ZoneInfo instance, falling back to UTC if the name is invalid."""
     try:
         return ZoneInfo(name)
-    except Exception:
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
         return ZoneInfo("UTC")

@@ -18,7 +18,7 @@ from typing import Dict, Optional, Literal, Any
 
 import requests
 
-from ..util import ensure_directory, is_file_stale
+from ..util import ensure_directory, is_file_stale, safe_unlink, write_text_file
 
 logger = logging.getLogger(__name__)
 
@@ -352,21 +352,33 @@ def _load_cache(path: Path, ttl_minutes: int) -> Optional[Dict[str, object]]:
     if is_file_stale(path, max_age_minutes=ttl_minutes):
         return None
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        logger.warning("Failed to read cache %s (%s). Ignoring.", path, exc)
+        logger.warning("Failed to read cache %s (%s). Deleting.", path, exc)
+        _delete_cache_file(path)
         return None
+    try:
+        _validate_response(data)
+    except ValueError as exc:
+        logger.warning("Invalid cache %s (%s). Deleting.", path, exc)
+        _delete_cache_file(path)
+        return None
+    return data
+
+
+def _delete_cache_file(path: Path) -> None:
+    safe_unlink(path, base_dir=path.parent)
 
 
 def _write_cache(path: Path, data: Dict[str, object]) -> None:
     """Persist JSON forecast data to the cache file."""
     try:
-        path.write_text(json.dumps(data), encoding="utf-8")
+        write_text_file(path, json.dumps(data))
     except OSError as exc:
         logger.warning("Failed to write cache %s (%s).", path, exc)
 
 
-def cleanup_forecast_cache(cache_dir: Path, max_age_hours: int = 48) -> None:
+def cleanup_forecast_cache(cache_dir: Path, max_age_hours: int = 48, *, dry_run: bool = False) -> None:
     """Delete forecast cache files older than the supplied age threshold."""
     if max_age_hours <= 0:
         return
@@ -375,7 +387,7 @@ def cleanup_forecast_cache(cache_dir: Path, max_age_hours: int = 48) -> None:
     for path in directory.glob("*.json"):
         try:
             if path.stat().st_mtime < cutoff:
-                path.unlink()
+                safe_unlink(path, base_dir=directory, dry_run=dry_run)
         except OSError:
             continue
 

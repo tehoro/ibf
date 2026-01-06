@@ -13,7 +13,7 @@ from typing import Optional
 import requests
 from timezonefinder import TimezoneFinder
 
-from ..util import ensure_directory
+from ..util import ensure_directory, file_lock, format_request_exception, safe_unlink, write_text_file
 from ..config.settings import get_secrets
 
 logger = logging.getLogger(__name__)
@@ -60,16 +60,17 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
     secrets = get_secrets()
 
     normalized = name.strip().lower()
-    cache = _read_cache()
-    if normalized in cache:
-        data = cache[normalized]
-        logger.info(
-            "Geocode cache hit for '%s' (lat=%.4f, lon=%.4f)",
-            name,
-            data["latitude"],
-            data["longitude"],
-        )
-        return GeocodeResult(**data)
+    with file_lock(CACHE_PATH):
+        cache = _read_cache()
+        data = cache.get(normalized)
+        if data:
+            logger.info(
+                "Geocode cache hit for '%s' (lat=%.4f, lon=%.4f)",
+                name,
+                data["latitude"],
+                data["longitude"],
+            )
+            return GeocodeResult(**data)
 
     params = {"name": name, "count": 1, "language": language, "format": "json"}
     try:
@@ -112,15 +113,17 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
         if result is None:
             return None
 
-    cache[normalized] = {
-        "name": result.name,
-        "latitude": result.latitude,
-        "longitude": result.longitude,
-        "timezone": result.timezone,
-        "country_code": result.country_code,
-        "altitude": result.altitude,
-    }
-    _write_cache(cache)
+    with file_lock(CACHE_PATH):
+        cache = _read_cache()
+        cache[normalized] = {
+            "name": result.name,
+            "latitude": result.latitude,
+            "longitude": result.longitude,
+            "timezone": result.timezone,
+            "country_code": result.country_code,
+            "altitude": result.altitude,
+        }
+        _write_cache(cache)
     return result
 
 
@@ -129,15 +132,22 @@ def _read_cache() -> dict:
     if not CACHE_PATH.exists():
         return {}
     try:
-        return json.loads(CACHE_PATH.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+        data = json.loads(CACHE_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Invalid geocode cache %s (%s). Deleting.", CACHE_PATH, exc)
+        _delete_cache_file()
         return {}
+    if not _is_valid_cache_payload(data):
+        logger.warning("Invalid geocode cache %s (schema mismatch). Deleting.", CACHE_PATH)
+        _delete_cache_file()
+        return {}
+    return data
 
 
 def _write_cache(data: dict) -> None:
     """Persist the geocode search cache to disk."""
     try:
-        CACHE_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        write_text_file(CACHE_PATH, json.dumps(data, indent=2), lock=False)
     except OSError:
         logger.debug("Failed to update geocode cache")
 
@@ -185,9 +195,9 @@ def _google_geocode(address: str, api_key: str) -> Optional[GeocodeResult]:
             altitude=altitude,
         )
     except requests.RequestException as exc:
-        logger.error("Google geocoding request failed for %s: %s", address, exc)
+        logger.error("Google geocoding request failed for %s: %s", address, format_request_exception(exc))
         return None
-    except Exception as exc:
+    except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
         logger.error("Unexpected Google geocoding failure for %s: %s", address, exc, exc_info=True)
         return None
 
@@ -198,3 +208,41 @@ def _extract_country_code(result_entry: dict) -> Optional[str]:
         if "country" in component.get("types", []):
             return component.get("short_name")
     return None
+
+
+def _is_valid_cache_payload(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    for key, value in payload.items():
+        if not isinstance(key, str):
+            return False
+        if not _is_valid_cache_entry(value):
+            return False
+    return True
+
+
+def _is_valid_cache_entry(entry: object) -> bool:
+    if not isinstance(entry, dict):
+        return False
+    required = {"name", "latitude", "longitude", "timezone"}
+    if not required.issubset(entry.keys()):
+        return False
+    if not isinstance(entry.get("name"), str):
+        return False
+    if not isinstance(entry.get("latitude"), (int, float)):
+        return False
+    if not isinstance(entry.get("longitude"), (int, float)):
+        return False
+    if not isinstance(entry.get("timezone"), str):
+        return False
+    country = entry.get("country_code")
+    if country is not None and not isinstance(country, str):
+        return False
+    altitude = entry.get("altitude")
+    if altitude is not None and not isinstance(altitude, (int, float)):
+        return False
+    return True
+
+
+def _delete_cache_file() -> None:
+    safe_unlink(CACHE_PATH, base_dir=CACHE_PATH.parent)

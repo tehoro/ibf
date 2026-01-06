@@ -14,7 +14,7 @@ from staticmap import CircleMarker, StaticMap
 
 from ..api import geocode_name
 from ..config import ForecastConfig
-from ..util import slugify
+from ..util import safe_unlink, slugify
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ def generate_area_maps(
             )
             if figure_path:
                 report.generated[area.name] = figure_path
-        except Exception as exc:
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
             logger.error("Failed to generate map for %s: %s", area.name, exc, exc_info=True)
             report.failures[area.name] = str(exc)
 
@@ -160,7 +160,7 @@ def _build_area_map(
 
     if _html_to_png(html_path, png_path, width=width, height=height):
         logger.info("Saved folium PNG for %s → %s", area_name, png_path)
-        html_path.unlink(missing_ok=True)
+        safe_unlink(html_path, base_dir=destination)
         return png_path
     logger.warning("PNG conversion failed for %s (%s); keeping HTML only.", area_name, png_path)
     return html_path
@@ -195,7 +195,7 @@ def _render_static_png(
         image = static_map.render()
         image.save(png_path, format="PNG")
         return True
-    except Exception as exc:
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
         logger.warning("Static map rendering failed: %s", exc)
         return False
 

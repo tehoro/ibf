@@ -129,7 +129,15 @@ class ForecastConfig(BaseModel):
     }
 
     @model_validator(mode="after")
-    def _validate_context_llm(self) -> "ForecastConfig":
+    def _validate_llm_settings(self) -> "ForecastConfig":
+        if self.llm is not None:
+            raw = str(self.llm).strip()
+            if not raw:
+                raise ValueError("llm cannot be blank.")
+        if self.translation_llm is not None:
+            raw = str(self.translation_llm).strip()
+            if not raw:
+                raise ValueError("translation_llm cannot be blank.")
         if self.context_llm:
             raw = str(self.context_llm).strip()
             if raw and not _is_supported_context_llm(raw):
@@ -348,6 +356,8 @@ def _is_supported_context_llm(value: str) -> bool:
     if re.match(r"^o[1-9]", lowered):
         return True
     return False
+
+
 
 
 def _warn_on_unknown_area_locations(config: ForecastConfig) -> None:

@@ -310,7 +310,7 @@ def _format_alerts(alerts: List[AlertSummary], dataset: List[dict], tz_str: str)
     first_date = dataset[0].get("date")
     try:
         earliest = datetime.strptime(first_date, "%Y-%m-%d").date() if first_date else None
-    except Exception:
+    except (TypeError, ValueError):
         earliest = None
 
     lines = []
@@ -339,7 +339,7 @@ def _hour_from_string(value: str) -> int:
     """Return the integer hour from strings like '06:00'."""
     try:
         return int(value.split(":")[0])
-    except Exception:
+    except (IndexError, TypeError, ValueError):
         return 0
 
 
@@ -729,7 +729,7 @@ def convert_date_string(date_str: str) -> str:
         month = parsed.strftime("%B").upper()
         descriptor = descriptor.strip()
         return f"{descriptor} {day} {month}" if descriptor else f"{parsed.strftime('%A').upper()} {day} {month}"
-    except Exception:
+    except (AttributeError, TypeError, ValueError):
         return date_str
 
 
