@@ -103,13 +103,16 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
             provider="openai",
         )
 
-    # Fallback to OpenRouter default if unknown
-    api_key = _require_env("OPENROUTER_API_KEY")
-    return LLMSettings(
-        model="google/gemini-2.5-pro-exp-03-25",
-        api_key=api_key,
-        provider="openrouter",
-        base_url="https://openrouter.ai/api/v1",
+    if choice_lower.startswith("gpt-") or (choice_lower.startswith("o") and len(choice_lower) > 1 and choice_lower[1].isdigit()):
+        api_key = _require_env("OPENAI_API_KEY")
+        return LLMSettings(
+            model=choice,
+            api_key=api_key,
+            provider="openai",
+        )
+
+    raise RuntimeError(
+        f"Unknown LLM '{choice}'. Use gemini-* for Gemini, gpt-*/o* for OpenAI, or prefix OpenRouter models with 'or:'."
     )
 
 

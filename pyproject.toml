@@ -1,6 +1,6 @@
 [project]
 name = "ibf"
-version = "0.4.17"
+version = "0.4.18"
 description = "Unified impact-based forecast CLI and service"
 readme = "README.md"
 authors = [
@@ -14,7 +14,9 @@ dependencies = [
     "pydantic>=2.9.2,<3.0.0",
     "python-dotenv>=1.0.1,<2.0",
     "requests>=2.32.3,<3.0",
+    "filelock>=3.16.1,<4.0",
     "beautifulsoup4>=4.12.3,<5.0",
+    "defusedxml>=0.7.1,<0.8",
     "feedparser>=6.0.11,<7.0",
     "openai>=1.53.0,<2.0",
     "google-generativeai>=0.8.4,<0.9",

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def utc_now() -> datetime:
@@ -43,7 +43,6 @@ def convert_hour_to_ampm(hour: int) -> str:
 def get_local_now(timezone_name: str) -> datetime:
     try:
         tz = ZoneInfo(timezone_name)
-    except Exception:
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
         tz = timezone.utc
     return datetime.now(tz)
-

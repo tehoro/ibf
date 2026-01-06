@@ -5,16 +5,15 @@ Wrappers around OpenAI-compatible APIs and Google Gemini.
 from __future__ import annotations
 
 import logging
-import os
 import re
 import json
 from typing import Any, Optional, Tuple
-from contextlib import contextmanager
 
 from openai import OpenAI
 
 from .settings import LLMSettings
 from .costs import get_model_cost
+from ..util.env import force_gemini_api_key
 
 logger = logging.getLogger(__name__)
 _LAST_COST_CENTS: float = 0.0
@@ -75,7 +74,7 @@ def _call_openai_compatible(
     if not raw_text and message is not None:
         try:
             payload = message.model_dump()
-        except Exception:
+        except (AttributeError, TypeError, ValueError):
             payload = repr(message)
         snippet = json.dumps(payload, default=str) if isinstance(payload, dict) else str(payload)
         logger.warning(
@@ -124,7 +123,7 @@ def _call_gemini(
     global _LAST_COST_CENTS
     _LAST_COST_CENTS = 0.0
 
-    with _force_gemini_api_key(settings.api_key):
+    with force_gemini_api_key(settings.api_key):
         client = genai.Client(api_key=settings.api_key)
         config = _build_gemini_config(types, system_prompt, settings, thinking_level=thinking_level)
         response = _call_gemini_once(client, settings.model, prompt, config, system_prompt, settings)
@@ -227,7 +226,7 @@ def _call_gemini_once(client, model_name: str, prompt: str, config, system_promp
             contents=prompt,
             config=config,
         )
-    except Exception as exc:
+    except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
         logger.warning("Gemini request failed with system instruction; retrying (%s)", exc)
         fallback_config = type(config)(
             temperature=settings.temperature,
@@ -331,7 +330,7 @@ def _log_gemini_usage_and_cost(model_name: str, usage_metadata: Any) -> float:
         prompt_tokens_i = int(prompt_tokens or 0)
         completion_tokens_i = int(completion_tokens or 0)
         total_tokens_i = int(total_tokens or (prompt_tokens_i + completion_tokens_i))
-    except Exception:
+    except (TypeError, ValueError):
         prompt_tokens_i, completion_tokens_i, total_tokens_i = 0, 0, 0
 
     cost_entry = get_model_cost(model_name)
@@ -356,30 +355,6 @@ def _log_gemini_usage_and_cost(model_name: str, usage_metadata: Any) -> float:
         cost_display,
     )
     return cost_cents
-
-
-@contextmanager
-def _force_gemini_api_key(api_key: str):
-    """
-    Temporarily hide GOOGLE_API_KEY so the Gemini SDK honors GEMINI_API_KEY.
-    """
-    old_google_api_key = os.environ.get("GOOGLE_API_KEY")
-    old_gemini_api_key = os.environ.get("GEMINI_API_KEY")
-    if api_key:
-        os.environ["GEMINI_API_KEY"] = api_key
-    if "GOOGLE_API_KEY" in os.environ:
-        os.environ.pop("GOOGLE_API_KEY", None)
-    try:
-        yield
-    finally:
-        if old_gemini_api_key is not None:
-            os.environ["GEMINI_API_KEY"] = old_gemini_api_key
-        else:
-            os.environ.pop("GEMINI_API_KEY", None)
-        if old_google_api_key is not None:
-            os.environ["GOOGLE_API_KEY"] = old_google_api_key
-        else:
-            os.environ.pop("GOOGLE_API_KEY", None)
 
 
 def _clean_llm_output(text: str) -> str:
@@ -463,7 +438,7 @@ def _log_usage_and_cost(model_name: str, usage: Any) -> None:
 
     try:
         prompt_tokens, cached_prompt_tokens, completion_tokens, total_tokens = _normalize_chat_usage(usage)
-    except Exception as exc:  # pragma: no cover - defensive
+    except (AttributeError, KeyError, TypeError, ValueError) as exc:  # pragma: no cover - defensive
         logger.debug("Unable to normalize LLM usage data (%s): %s", type(usage), exc)
         logger.info(
             "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
