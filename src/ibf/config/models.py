@@ -130,6 +130,7 @@ class ForecastConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_llm_settings(self) -> "ForecastConfig":
+        """Validate LLM-related fields and supported context models."""
         if self.llm is not None:
             raw = str(self.llm).strip()
             if not raw:
@@ -241,6 +242,7 @@ def _normalize_toml_schema(data: Any) -> Dict[str, Any]:
 
 
 def _coerce_table_array(value: Any, label: str) -> list[dict]:
+    """Coerce a TOML table or array-of-tables into a list of dicts."""
     if value is None:
         return []
     if isinstance(value, dict):
@@ -302,6 +304,7 @@ _UNIT_ALIASES: dict[str, dict[str, str]] = {
 
 
 def _extract_inline_units(payload: dict) -> Dict[str, Any]:
+    """Pop inline unit keys from a payload and normalize their values."""
     units: Dict[str, Any] = {}
     for key in _UNIT_KEYS:
         if key in payload:
@@ -310,6 +313,7 @@ def _extract_inline_units(payload: dict) -> Dict[str, Any]:
 
 
 def _raise_on_disallowed_units(payload: dict, scope: str) -> None:
+    """Reject disallowed unit keys for the given config scope."""
     disallowed = sorted(key for key in _DISALLOWED_UNIT_KEYS if key in payload)
     if not disallowed:
         return
@@ -321,6 +325,7 @@ def _raise_on_disallowed_units(payload: dict, scope: str) -> None:
 
 
 def _normalize_unit_value(value: Any, key: str) -> str:
+    """Normalize a unit value, supporting primary(secondary) syntax."""
     if not isinstance(value, str):
         raise ConfigError(f"{key} must be a string (got {type(value).__name__}).")
     raw = value.strip()
@@ -339,6 +344,7 @@ def _normalize_unit_value(value: Any, key: str) -> str:
 
 
 def _normalize_unit_token(token: str, key: str) -> str:
+    """Normalize a unit token to its canonical value."""
     normalized = token.strip().lower()
     mapping = _UNIT_ALIASES.get(key, {})
     if normalized in mapping:
@@ -348,6 +354,7 @@ def _normalize_unit_token(token: str, key: str) -> str:
 
 
 def _is_supported_context_llm(value: str) -> bool:
+    """Return True if the LLM name is supported for context web search."""
     lowered = value.strip().lower()
     if lowered.startswith("gemini-") or lowered.startswith("google/gemini-"):
         return True
@@ -361,15 +368,16 @@ def _is_supported_context_llm(value: str) -> bool:
 
 
 def _warn_on_unknown_area_locations(config: ForecastConfig) -> None:
+    """Log debug info when an area references a location missing from [[location]]."""
     if not config.areas:
         return
     known = {loc.name.strip() for loc in config.locations}
     for area in config.areas:
         for entry in area.locations:
             if entry.strip() not in known:
-                logger.warning(
-                    "Area '%s' references location '%s' that is not defined in [[location]]. "
-                    "Per-location overrides will not apply for this area member.",
+                logger.debug(
+                    "Area '%s' references location '%s' that is not defined in [[location]]; "
+                    "area-level settings apply for this member.",
                     area.name,
                     entry,
                 )

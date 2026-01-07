@@ -3,6 +3,8 @@
 
 IBF is a command-line tool that turns weather model data into clear, impact-based forecast text and publishes it as simple HTML pages.
 
+IBF uses raw model output without bias correction or calibration to local observations. Treat forecasts as guidance, not definitive.
+
 What IBF Does
 ------------
  - Reads a TOML configuration file (locations, areas, output folder, model choices).
@@ -28,14 +30,18 @@ ibf/
   ibf
   config/
   outputs/
-  ibf_cache/
 ```
 
-The cache folders are created automatically the first time you run IBF.
+Working folder note:
+- The “working folder” is the folder where you run the `ibf` command.
+- IBF also creates `ibf_cache/` and `logs/` in that working folder.
+- Your config file can be anywhere; the `--config` path tells IBF where to find it.
+
+The cache and log folders are created automatically the first time you run IBF.
 On Windows the binary is named ibf.exe.
 
 Step 3: Set up your .env file
-Create a .env file in your working folder. Example:
+Create a .env file in your working folder. Either copy the existing .env.example in the repo, or use this:
 
 ```text
 GOOGLE_API_KEY=
@@ -47,6 +53,7 @@ OPENAI_API_KEY=
 
 Notes:
 - IBF reads `.env` from the current working directory.
+Tip (Windows): make sure the file is named `.env` (not `.env.txt`). You may need to enable “File name extensions” in File Explorer.
 
 Step 4: Create a config file
 Create a TOML config file in your config folder. You can name it anything; it just needs
@@ -68,7 +75,8 @@ Windows:
 .\ibf.exe run --config config\my-config.toml
 ```
 
-Outputs will be written to the web_root specified in the config.
+Web page outputs will be written to the web_root specified in the config.
+Success check: open `<web_root>/index.html` in your browser (or `outputs/forecasts/index.html` if you didn’t set `web_root`).
 
 API Keys (Simple Guidance)
 --------------------------
@@ -128,6 +136,11 @@ Caches (created automatically under ./ibf_cache):
 
 It is safe to delete the ibf_cache folder; IBF will rebuild it as needed.
 
+Logs (created under ./logs):
+- Each `ibf run` writes a timestamped `.log` file.
+- The log includes the full config file text at the top for troubleshooting.
+- These files will build up with time - delete if they are no longer needed.
+
 Configuration File Guide
 ------------------------
 
@@ -173,6 +186,8 @@ Each [[location]] block supports:
 - temperature_unit / precipitation_unit / windspeed_unit (per-location overrides)
 
 Areas
+Areas define their own list of point names for the area forecast. Those names may or may not also appear as standalone [[location]] entries; area-level settings (including units) apply within the area forecast.
+
 Each [[area]] block supports:
 - name (required)
 - locations (list of location names)
@@ -185,6 +200,7 @@ Each [[area]] block supports:
 - temperature_unit / precipitation_unit / windspeed_unit (per-area overrides)
 
 Available ensemble models
+Ensemble models are lower‑resolution but capture uncertainty by providing a spread of possible outcomes.
 - ens:ecmwf_ifs025
 - ens:ecmwf_aifs025
 - ens:gem_global
@@ -470,6 +486,7 @@ Troubleshooting (technical)
 - LLM errors: confirm the model string matches the provider and that the correct API key is set.
 - Outputs not updating: check `minimum_refresh_minutes` or delete the target HTML.
 - Maps not regenerating: use `--force-maps` or delete `<web_root>/.ibf_maps_hash`.
+- If something fails, rerun with `--log-level debug` and check the terminal output and the latest file in `./logs/`.
 
 License
 -------
@@ -483,5 +500,4 @@ If you use IBF in research, software, or documentation, please cite it using the
 
 A suggested citation (from `CITATION.cff`) is:
 
-> Gordon, Neil. *IBF (Impact-Based Forecast Toolkit): LLM-assisted generation of impact-based weather forecasts* (v0.4.15). 2026. [https://github.com/tehoro/ibf](https://github.com/tehoro/ibf)
-
+> Gordon, Neil. *IBF (Impact-Based Forecast Toolkit): LLM-assisted generation of impact-based weather forecasts* (v0.5.0). 2026. [https://github.com/tehoro/ibf](https://github.com/tehoro/ibf)

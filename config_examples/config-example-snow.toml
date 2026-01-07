@@ -30,7 +30,7 @@ windspeed_unit = "kph"
 precipitation_unit = "mm"
 
 # The base index.html file is written to this location
-web_root = "./outputs/example"
+web_root = "./outputs/snow-example"
 
 # If 0 this is ignored, but if greater than zero then we don't refresh any forecasts
 # which were produced within this last number of minutes
@@ -53,7 +53,6 @@ snow_levels = true
 temperature_unit = "fahrenheit"
 precipitation_unit = "in"
 windspeed_unit = "mph"
-
 
 [[location]]
 name = "Boulder, Colorado"

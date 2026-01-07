@@ -22,12 +22,14 @@ _INCH_UNITS = {"inch", "in", "inches"}
 
 
 def _snow_level_unit_label(temp_unit: str, precip_unit: str) -> str:
+    """Return the display unit label for snow level based on requested units."""
     if temp_unit.lower() in _FAHRENHEIT_UNITS or precip_unit.lower() in _INCH_UNITS:
         return "ft"
     return "m"
 
 
 def _convert_temperature(value: Any, unit: str) -> float | None:
+    """Convert Celsius to the configured temperature unit."""
     if not isinstance(value, (int, float)):
         return None
     unit = (unit or "").lower()
@@ -37,6 +39,7 @@ def _convert_temperature(value: Any, unit: str) -> float | None:
 
 
 def _convert_precipitation(value: Any, unit: str) -> float | None:
+    """Convert millimeters to the configured precipitation unit."""
     if not isinstance(value, (int, float)):
         return None
     unit = (unit or "").lower()
@@ -46,6 +49,7 @@ def _convert_precipitation(value: Any, unit: str) -> float | None:
 
 
 def _convert_snowfall(value: Any, unit: str) -> float | None:
+    """Convert centimeters to the configured snowfall unit."""
     if not isinstance(value, (int, float)):
         return None
     unit = (unit or "").lower()
@@ -55,6 +59,7 @@ def _convert_snowfall(value: Any, unit: str) -> float | None:
 
 
 def _convert_wind(value: Any, unit: str) -> float | None:
+    """Convert kph to the configured windspeed unit."""
     if not isinstance(value, (int, float)):
         return None
     unit = (unit or "").lower()
@@ -68,6 +73,7 @@ def _convert_wind(value: Any, unit: str) -> float | None:
 
 
 def _convert_snow_level(value_m: Any, temperature_unit: str, precipitation_unit: str) -> int | None:
+    """Convert snow level (meters) to rounded feet/meters based on unit context."""
     if not isinstance(value_m, (int, float)) or value_m <= 0:
         return None
     temp_unit = (temperature_unit or "").lower()
@@ -79,10 +85,18 @@ def _convert_snow_level(value_m: Any, temperature_unit: str, precipitation_unit:
 
 
 def _format_unit_label(unit: str) -> str:
+    """Normalize unit strings for display (e.g., inch -> in)."""
     normalized = (unit or "").strip().lower()
     if normalized in {"inch", "in"}:
         return "in"
     return normalized
+
+
+def _round_half_up(value: float) -> int:
+    """Round half-up for positive values to avoid bankers rounding."""
+    if value >= 0:
+        return int(math.floor(value + 0.5))
+    return int(math.ceil(value - 0.5))
 
 def format_location_dataset(
     dataset: List[dict],
@@ -317,8 +331,12 @@ def _format_alerts(alerts: List[AlertSummary], dataset: List[dict], tz_str: str)
     for alert in alerts:
         if not alert.onset or not alert.expires:
             continue
-        onset = arrow.get(alert.onset).to(tz_str)
-        expires = arrow.get(alert.expires).to(tz_str)
+        try:
+            onset = arrow.get(alert.onset).to(tz_str)
+            expires = arrow.get(alert.expires).to(tz_str)
+        except (arrow.parser.ParserError, TypeError, ValueError) as exc:
+            logger.warning("Skipping alert with invalid timestamps (%s): %s", alert.title or "N/A", exc)
+            continue
         if earliest and expires.date() < earliest:
             continue
         lines.append(
@@ -489,7 +507,7 @@ def _format_total_amount_line(value: float, unit: str, *, label: str) -> str:
 
 
 def _format_total_snowfall_line(value: float, unit: str) -> str:
-    """Format a "Total snowfall" line with sensible rounding for cm."""
+    """Format a "Total snowfall" line with sensible rounding for cm/in."""
     if not isinstance(value, (int, float)):
         return ""
     v = float(value)
@@ -504,6 +522,13 @@ def _format_total_snowfall_line(value: float, unit: str) -> str:
         if rounded <= 0:
             return ""
         return f" Total snowfall: {rounded} cm."
+    if unit_label == "in":
+        if v < 1.0:
+            return " Total snowfall: less than 1 in."
+        rounded = _round_half_up(v)
+        if rounded <= 0:
+            return ""
+        return f" Total snowfall: {rounded} in."
 
     rounded = round(v, 1)
     if rounded == 0:
@@ -629,12 +654,36 @@ def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str)
             f"Estimated probability of {label}: {probability}%\n"
             f"Likely {label} {lower} {unit_label} to {upper} {unit_label}"
         )
+    if label == "snowfall" and unit_label == "in":
+        lower_raw, upper_raw = percentiles
+        if upper_raw < 1.0:
+            return (
+                f"Estimated probability of {label}: {probability}%\n"
+                f"Likely {label} less than 1 {unit_label}"
+            )
+        lower = _round_half_up(lower_raw)
+        upper = _round_half_up(upper_raw)
+        if lower <= 0:
+            return (
+                f"Estimated probability of {label}: {probability}%\n"
+                f"Likely {label} up to {upper} {unit_label}"
+            )
+        if lower == upper:
+            return (
+                f"Estimated probability of {label}: {probability}%\n"
+                f"Likely {label} around {lower} {unit_label}"
+            )
+        return (
+            f"Estimated probability of {label}: {probability}%\n"
+            f"Likely {label} {lower} {unit_label} to {upper} {unit_label}"
+        )
 
     precision = 0 if unit == "mm" else 1
     lower = round(percentiles[0], precision)
     upper = round(percentiles[1], precision)
 
     def _fmt(value: float) -> str:
+        """Format values with the desired decimal precision."""
         if precision == 0:
             return f"{int(value)}"
         return f"{value:.1f}"

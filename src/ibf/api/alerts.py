@@ -64,6 +64,10 @@ def fetch_alerts(latitude: float, longitude: float, *, country_code: Optional[st
     Returns:
         A list of AlertSummary objects.
     """
+    if not _validate_coordinates(latitude, longitude):
+        logger.warning("Invalid alert coordinates lat=%.4f lon=%.4f; skipping alerts.", latitude, longitude)
+        return []
+
     secrets = secrets or get_secrets()
     resolved_country = country_code or _resolve_country_code(latitude, longitude, secrets)
     country = (resolved_country or "").upper()
@@ -105,7 +109,7 @@ def _fetch_us_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
         resp.raise_for_status()
         payload = resp.json()
     except requests.RequestException as exc:
-        logger.warning("NWS alerts API failed: %s", exc)
+        logger.warning("NWS alerts API failed: %s", format_request_exception(exc))
         return []
     except json.JSONDecodeError as exc:
         logger.warning("NWS alerts returned invalid JSON: %s", exc)
@@ -185,7 +189,7 @@ def _fetch_nz_alerts(latitude: float, longitude: float) -> List[AlertSummary]:
         )
         feed = feedparser.parse(resp.content)
     except requests.RequestException as exc:
-        logger.warning("MetService RSS request failed: %s", exc)
+        logger.warning("MetService RSS request failed: %s", format_request_exception(exc))
         return []
     except (AttributeError, KeyError, TypeError, UnicodeDecodeError, ValueError) as exc:
         logger.warning("MetService RSS parse failed: %s", exc)
@@ -297,6 +301,8 @@ def _cap_polygon_to_shape(polygon_text: Optional[str]) -> Optional[Polygon]:
             lat = float(parts[0])
             lon = float(parts[1])
         except ValueError:
+            continue
+        if not _validate_coordinates(lat, lon):
             continue
         coords.append((lon, lat))
 
@@ -439,6 +445,7 @@ def _reverse_country_openweather(latitude: float, longitude: float, api_key: str
 
 
 def _is_valid_country_cache(payload: object) -> bool:
+    """Validate the cached country mapping payload structure."""
     if not isinstance(payload, dict):
         return False
     for key, value in payload.items():
@@ -452,4 +459,19 @@ def _is_valid_country_cache(payload: object) -> bool:
 
 
 def _delete_country_cache() -> None:
+    """Delete the cached country mapping file if present."""
     safe_unlink(COUNTRY_CACHE_PATH, base_dir=COUNTRY_CACHE_PATH.parent)
+
+
+def _validate_coordinates(latitude: float, longitude: float) -> bool:
+    """Return True when latitude/longitude are numeric and within bounds."""
+    try:
+        lat = float(latitude)
+        lon = float(longitude)
+    except (TypeError, ValueError):
+        return False
+    if not (-90.0 <= lat <= 90.0):
+        return False
+    if not (-180.0 <= lon <= 180.0):
+        return False
+    return True

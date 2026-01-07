@@ -77,7 +77,7 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
         resp = requests.get("https://geocoding-api.open-meteo.com/v1/search", params=params, timeout=20)
         resp.raise_for_status()
     except requests.RequestException as exc:
-        logger.warning("Open-Meteo geocoding failed for %s: %s", name, exc)
+        logger.warning("Open-Meteo geocoding failed for %s: %s", name, format_request_exception(exc))
         result = None
     else:
         payload = resp.json()
@@ -211,6 +211,7 @@ def _extract_country_code(result_entry: dict) -> Optional[str]:
 
 
 def _is_valid_cache_payload(payload: object) -> bool:
+    """Return True if the geocode cache payload structure is valid."""
     if not isinstance(payload, dict):
         return False
     for key, value in payload.items():
@@ -222,6 +223,7 @@ def _is_valid_cache_payload(payload: object) -> bool:
 
 
 def _is_valid_cache_entry(entry: object) -> bool:
+    """Return True if a cached geocode entry contains the required fields."""
     if not isinstance(entry, dict):
         return False
     required = {"name", "latitude", "longitude", "timezone"}
@@ -245,4 +247,5 @@ def _is_valid_cache_entry(entry: object) -> bool:
 
 
 def _delete_cache_file() -> None:
+    """Delete the geocode cache file if present."""
     safe_unlink(CACHE_PATH, base_dir=CACHE_PATH.parent)

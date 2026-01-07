@@ -133,6 +133,7 @@ def get_model_cost(model_name: str, *, registry: Optional[Dict[str, ModelCost]] 
 
 @lru_cache(maxsize=1)
 def _load_external_costs() -> Optional[Dict[str, ModelCost]]:
+    """Load model cost overrides from llm_costs.toml if present."""
     if not _EXTERNAL_COSTS_PATH.exists():
         return None
     try:

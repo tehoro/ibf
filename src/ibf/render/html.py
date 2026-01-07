@@ -14,6 +14,21 @@ from ..util import ensure_directory, write_text_file
 
 @dataclass
 class ForecastPage:
+    """
+    Container describing a single HTML forecast page.
+
+    Attributes:
+        destination: Output path for the rendered HTML.
+        display_name: Location name used in page headings.
+        issue_time: Human-readable issue timestamp.
+        forecast_text: Markdown forecast body.
+        translated_text: Optional translated forecast body.
+        translation_language: Language code for the translated forecast.
+        ibf_context: Optional IBF context block in Markdown.
+        map_link: Optional link to a generated map.
+        model_label: Label for the data source/model.
+        model_ack_url: Optional acknowledgement URL for the model data.
+    """
     destination: Path
     display_name: str
     issue_time: str
@@ -97,21 +112,25 @@ def render_forecast_page(page: ForecastPage) -> Path:
 
 
 def _markdown_to_html(text: str) -> str:
+    """Convert a minimal markdown subset into HTML for the forecast pages."""
     import re
 
     bullet_regex = re.compile(r"^([*\-•])\s+(.*)")
 
     def convert_lists(md: str) -> str:
+        """Convert markdown bullet lists into HTML <ul> blocks."""
         lines = md.splitlines()
         result = []
         in_list = False
 
         def start_list():
+            """Append a <ul> tag and mark list context."""
             nonlocal in_list
             result.append("<ul>")
             in_list = True
 
         def end_list():
+            """Append a </ul> tag and clear list context."""
             nonlocal in_list
             result.append("</ul>")
             in_list = False
@@ -148,6 +167,7 @@ def _markdown_to_html(text: str) -> str:
 
 
 def _render_translation_block(text: Optional[str], language: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    """Return translated forecast HTML and a header for the given language."""
     if not text or not language:
         return None, None
 
@@ -166,6 +186,7 @@ def _render_translation_block(text: Optional[str], language: Optional[str]) -> t
 
 
 def _render_ibf_block(context: Optional[str]) -> Optional[str]:
+    """Render the optional IBF context block for the forecast page."""
     if not context:
         return None
     context_html = _markdown_to_html(context)

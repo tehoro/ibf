@@ -1,8 +1,8 @@
-from __future__ import annotations
-
 """
 Generate static or interactive maps that visualize configured forecast areas.
 """
+
+from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
@@ -34,6 +34,7 @@ class AreaMapReport:
     failures: Dict[str, str] = field(default_factory=dict)
 
     def summary_lines(self) -> Iterable[str]:
+        """Yield human-readable summary lines for map generation output."""
         yield f"Output directory: {self.root}"
         yield f"Maps created: {len(self.generated)}"
         if self.failures:
@@ -195,7 +196,7 @@ def _render_static_png(
         image = static_map.render()
         image.save(png_path, format="PNG")
         return True
-    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+    except Exception as exc:
         logger.warning("Static map rendering failed: %s", exc)
         return False
 
@@ -288,6 +289,9 @@ def _html_to_png(html_path: Path, png_path: Path, *, width: int, height: int) ->
         WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "leaflet-container")))
         driver.save_screenshot(str(png_path))
         return True
+    except Exception as exc:
+        logger.warning("Folium PNG rendering failed (%s)", exc)
+        return False
     finally:
         if driver:
             driver.quit()

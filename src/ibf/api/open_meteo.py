@@ -18,7 +18,7 @@ from typing import Dict, Optional, Literal, Any
 
 import requests
 
-from ..util import ensure_directory, is_file_stale, safe_unlink, write_text_file
+from ..util import ensure_directory, format_request_exception, is_file_stale, safe_unlink, write_text_file
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +255,7 @@ class ForecastRequest:
     cache_dir: Path = field(default_factory=lambda: Path("ibf_cache/forecasts"))
 
     def __post_init__(self) -> None:
+        """Normalize overridden units back to Open-Meteo defaults."""
         if (
             self.temperature_unit != STANDARD_TEMPERATURE_UNIT
             or self.precipitation_unit != STANDARD_PRECIPITATION_UNIT
@@ -367,6 +368,7 @@ def _load_cache(path: Path, ttl_minutes: int) -> Optional[Dict[str, object]]:
 
 
 def _delete_cache_file(path: Path) -> None:
+    """Delete a cached Open-Meteo response file if present."""
     safe_unlink(path, base_dir=path.parent)
 
 
@@ -452,7 +454,7 @@ def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
                 return data
             except requests.HTTPError as exc:
                 status = exc.response.status_code if exc.response is not None else None
-                last_error = f"HTTP error calling Open-Meteo: {exc}"
+                last_error = f"HTTP error calling Open-Meteo: {format_request_exception(exc)}"
                 if status == 400 and candidate_idx < len(hourly_candidates):
                     logger.info(
                         "Open-Meteo rejected hourly field-set (candidate %s/%s); retrying with fallback.",
@@ -462,7 +464,7 @@ def _download_forecast(request: ForecastRequest) -> Dict[str, object]:
                     break
                 logger.warning("%s (attempt %s/3)", last_error, attempt)
             except requests.RequestException as exc:
-                last_error = f"HTTP error calling Open-Meteo: {exc}"
+                last_error = f"HTTP error calling Open-Meteo: {format_request_exception(exc)}"
                 logger.warning("%s (attempt %s/3)", last_error, attempt)
             except json.JSONDecodeError as exc:
                 last_error = f"Invalid JSON from Open-Meteo: {exc}"

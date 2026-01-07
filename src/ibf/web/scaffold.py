@@ -143,6 +143,7 @@ class ScaffoldReport:
     menu_written: bool = False
 
     def summary_rows(self) -> Iterable[tuple[str, str]]:
+        """Yield summary rows for scaffold reporting output."""
         yield ("Root", str(self.root))
         yield ("Directories created", str(len(self.directories_created)))
         yield ("Placeholders written", str(len(self.placeholders_written)))

@@ -25,11 +25,13 @@ def ensure_directory(path: Path | str) -> Path:
 
 
 def _ensure_parent(target: Path) -> None:
+    """Ensure the parent directory for target exists."""
     if target.parent and not target.parent.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _is_relative_to(path: Path, base: Path) -> bool:
+    """Return True if path is under base."""
     try:
         path.relative_to(base)
     except ValueError:
@@ -38,6 +40,7 @@ def _is_relative_to(path: Path, base: Path) -> bool:
 
 
 def safe_unlink(path: Path | str, *, base_dir: Path | str, dry_run: bool = False) -> bool:
+    """Safely delete a file within base_dir, optionally dry-running."""
     target = Path(path).expanduser().resolve()
     base = Path(base_dir).expanduser().resolve()
     if not _is_relative_to(target, base):
@@ -58,6 +61,7 @@ def safe_unlink(path: Path | str, *, base_dir: Path | str, dry_run: bool = False
 
 @contextmanager
 def file_lock(path: Path | str):
+    """Context manager for a filesystem lock file alongside the target."""
     target = Path(path).expanduser().resolve()
     lock_path = target.with_suffix(f"{target.suffix}.lock")
     _ensure_parent(lock_path)
@@ -66,6 +70,7 @@ def file_lock(path: Path | str):
 
 
 def _atomic_write_text(target: Path, content: str, encoding: str) -> None:
+    """Write text atomically by staging a temp file and renaming."""
     _ensure_parent(target)
     fd, tmp_path = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
     try:

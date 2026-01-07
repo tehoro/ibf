@@ -7,16 +7,28 @@ from __future__ import annotations
 import logging
 import re
 import json
-from typing import Any, Optional, Tuple
+from contextvars import ContextVar
+from typing import Any, Optional
 
 from openai import OpenAI
 
 from .settings import LLMSettings
-from .costs import get_model_cost
+from .usage import log_gemini_usage_and_cost, log_openai_usage_and_cost
 from ..util.env import force_gemini_api_key
 
 logger = logging.getLogger(__name__)
-_LAST_COST_CENTS: float = 0.0
+_LAST_COST_CENTS: ContextVar[float] = ContextVar("ibf_last_cost_cents", default=0.0)
+
+
+def _reset_last_cost() -> None:
+    """Reset the per-call cost tracker for the current context."""
+    _LAST_COST_CENTS.set(0.0)
+
+
+def _add_last_cost(amount: float) -> None:
+    """Accumulate cost (USD cents) into the current context tracker."""
+    current = _LAST_COST_CENTS.get()
+    _LAST_COST_CENTS.set(current + amount)
 
 
 def generate_forecast_text(
@@ -68,7 +80,8 @@ def _call_openai_compatible(
     if reasoning:
         request_kwargs["extra_body"] = reasoning
     response = client.chat.completions.create(**request_kwargs)
-    _log_usage_and_cost(settings.model, getattr(response, "usage", None))
+    cost_cents = log_openai_usage_and_cost(settings.model, getattr(response, "usage", None))
+    _LAST_COST_CENTS.set(cost_cents)
     message = response.choices[0].message if response.choices else None
     raw_text = _coerce_message_content(getattr(message, "content", None))
     if not raw_text and message is not None:
@@ -120,14 +133,17 @@ def _call_gemini(
 
     logging.getLogger("google_genai.models").setLevel(logging.WARNING)
 
-    global _LAST_COST_CENTS
-    _LAST_COST_CENTS = 0.0
+    _reset_last_cost()
 
-    with force_gemini_api_key(settings.api_key):
-        client = genai.Client(api_key=settings.api_key)
-        config = _build_gemini_config(types, system_prompt, settings, thinking_level=thinking_level)
-        response = _call_gemini_once(client, settings.model, prompt, config, system_prompt, settings)
-        _LAST_COST_CENTS += _log_gemini_usage_and_cost(settings.model, getattr(response, "usage_metadata", None))
+    try:
+        with force_gemini_api_key(settings.api_key):
+            client = genai.Client(api_key=settings.api_key)
+            config = _build_gemini_config(types, system_prompt, settings, thinking_level=thinking_level)
+            response = _call_gemini_once(client, settings.model, prompt, config, system_prompt, settings)
+            _add_last_cost(log_gemini_usage_and_cost(settings.model, getattr(response, "usage_metadata", None)))
+    except Exception as exc:
+        logger.error("Gemini request failed: %s", exc, exc_info=True)
+        raise RuntimeError("Gemini request failed") from exc
 
     text = (getattr(response, "text", None) or "").strip()
     if text:
@@ -276,8 +292,7 @@ def _maybe_continue_gemini(
             system_prompt,
             settings,
         )
-        global _LAST_COST_CENTS
-        _LAST_COST_CENTS += _log_gemini_usage_and_cost(settings.model, getattr(next_response, "usage_metadata", None))
+        _add_last_cost(log_gemini_usage_and_cost(settings.model, getattr(next_response, "usage_metadata", None)))
         next_text = (getattr(next_response, "text", None) or "").strip()
         if not next_text:
             break
@@ -300,61 +315,6 @@ def _gemini_finished_by_limit(response) -> bool:
     else:
         reason_name = getattr(reason, "name", str(reason))
     return reason_name.upper() in {"MAX_TOKENS", "MAX_TOKEN", "LENGTH", "TOKEN_LIMIT"}
-
-
-def _log_gemini_usage_and_cost(model_name: str, usage_metadata: Any) -> float:
-    """Log Gemini usage and return estimated cost in USD cents."""
-    if not usage_metadata:
-        logger.info(
-            "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
-            model_name,
-            "n/a",
-            "n/a",
-            "n/a",
-            "n/a",
-            "n/a",
-        )
-        return 0.0
-
-    def _get(obj: Any, key: str) -> Any:
-        if hasattr(obj, key):
-            return getattr(obj, key)
-        if isinstance(obj, dict):
-            return obj.get(key)
-        return None
-
-    prompt_tokens = _get(usage_metadata, "prompt_token_count")
-    completion_tokens = _get(usage_metadata, "candidates_token_count")
-    total_tokens = _get(usage_metadata, "total_token_count")
-    try:
-        prompt_tokens_i = int(prompt_tokens or 0)
-        completion_tokens_i = int(completion_tokens or 0)
-        total_tokens_i = int(total_tokens or (prompt_tokens_i + completion_tokens_i))
-    except (TypeError, ValueError):
-        prompt_tokens_i, completion_tokens_i, total_tokens_i = 0, 0, 0
-
-    cost_entry = get_model_cost(model_name)
-    cost_display = "n/a"
-    cost_cents = 0.0
-    if cost_entry:
-        usd = cost_entry.cost_for_usage(
-            input_tokens=prompt_tokens_i,
-            output_tokens=completion_tokens_i,
-            cached_input_tokens=0,
-        )
-        cost_cents = usd * 100
-        cost_display = f"{cost_cents:.2f}"
-
-    logger.info(
-        "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
-        model_name,
-        prompt_tokens_i,
-        0,
-        completion_tokens_i,
-        total_tokens_i,
-        cost_display,
-    )
-    return cost_cents
 
 
 def _clean_llm_output(text: str) -> str:
@@ -422,92 +382,10 @@ def _coerce_message_content(content: Any) -> str:
     return str(content)
 
 
-def _log_usage_and_cost(model_name: str, usage: Any) -> None:
-    """Log prompt/completion/cached tokens and estimated USD cents for a chat call."""
-    if not usage:
-        logger.info(
-            "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
-            model_name,
-            "n/a",
-            "n/a",
-            "n/a",
-            "n/a",
-            "n/a",
-        )
-        return
-
-    try:
-        prompt_tokens, cached_prompt_tokens, completion_tokens, total_tokens = _normalize_chat_usage(usage)
-    except (AttributeError, KeyError, TypeError, ValueError) as exc:  # pragma: no cover - defensive
-        logger.debug("Unable to normalize LLM usage data (%s): %s", type(usage), exc)
-        logger.info(
-            "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
-            model_name,
-            getattr(usage, "prompt_tokens", getattr(usage, "input_tokens", "n/a")),
-            "n/a",
-            getattr(usage, "completion_tokens", getattr(usage, "output_tokens", "n/a")),
-            getattr(usage, "total_tokens", "n/a"),
-            "n/a",
-        )
-        return
-
-    cost_entry = get_model_cost(model_name)
-    cost_display = "n/a"
-    cost_cents = 0.0
-    if cost_entry:
-        usd = cost_entry.cost_for_usage(
-            input_tokens=prompt_tokens,
-            output_tokens=completion_tokens,
-            cached_input_tokens=cached_prompt_tokens,
-        )
-        cost_cents = usd * 100
-        cost_display = f"{cost_cents:.2f}"
-    else:
-        cost_cents = 0.0
-
-    logger.info(
-        "LLM usage – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
-        model_name,
-        prompt_tokens,
-        cached_prompt_tokens,
-        completion_tokens,
-        total_tokens,
-        cost_display,
-    )
-    global _LAST_COST_CENTS
-    _LAST_COST_CENTS = cost_cents
-
-
-def _normalize_chat_usage(usage: Any) -> Tuple[int, int, int, int]:
-    """Return (prompt_tokens, cached_prompt_tokens, completion_tokens, total_tokens)."""
-
-    def _get_attr(obj: Any, attr: str) -> Any:
-        if hasattr(obj, attr):
-            return getattr(obj, attr)
-        if isinstance(obj, dict):
-            return obj.get(attr)
-        return None
-
-    input_tokens = _get_attr(usage, "input_tokens")
-    if input_tokens is not None:
-        cached = _get_attr(_get_attr(usage, "input_tokens_details") or {}, "cached_tokens") or 0
-        output_tokens = _get_attr(usage, "output_tokens") or 0
-        total_tokens = _get_attr(usage, "total_tokens") or (int(input_tokens) + int(output_tokens))
-        return int(input_tokens), int(cached), int(output_tokens), int(total_tokens)
-
-    prompt_tokens = _get_attr(usage, "prompt_tokens")
-    if prompt_tokens is not None:
-        cached = _get_attr(_get_attr(usage, "prompt_tokens_details") or {}, "cached_tokens") or 0
-        completion_tokens = _get_attr(usage, "completion_tokens") or 0
-        total_tokens = _get_attr(usage, "total_tokens") or (int(prompt_tokens) + int(completion_tokens))
-        return int(prompt_tokens), int(cached), int(completion_tokens), int(total_tokens)
-
-    raise ValueError("Unsupported usage payload structure")
 
 
 def consume_last_cost_cents() -> float:
     """Return and reset the most recent LLM cost (in USD cents)."""
-    global _LAST_COST_CENTS
-    value = _LAST_COST_CENTS
-    _LAST_COST_CENTS = 0.0
+    value = _LAST_COST_CENTS.get()
+    _LAST_COST_CENTS.set(0.0)
     return value

@@ -43,6 +43,7 @@ _WMO_CODES = {
 
 
 def wmo_weather(code: int | float | None) -> str:
+    """Return a human-readable description for a WMO weather code."""
     if code is None:
         return "unknown"
     try:
@@ -64,6 +65,7 @@ _DIRECTIONS = [
 
 
 def degrees_to_compass(value: float | int | None) -> str:
+    """Convert degrees into an 8-point compass direction."""
     try:
         degrees = float(value)
     except (ValueError, TypeError):
@@ -74,6 +76,7 @@ def degrees_to_compass(value: float | int | None) -> str:
 
 
 def round_windspeed(speed: float | int | None, unit: str = "kph") -> int:
+    """Round windspeed to sensible increments based on unit."""
     try:
         speed_float = float(speed)
     except (ValueError, TypeError):
@@ -94,6 +97,7 @@ def round_windspeed(speed: float | int | None, unit: str = "kph") -> int:
 
 
 def calculate_relative_humidity(temp_c: float, dewpoint_c: float) -> float:
+    """Calculate relative humidity (%) from temperature and dewpoint."""
     try:
         t = float(temp_c)
         td = float(dewpoint_c)
@@ -112,6 +116,7 @@ def calculate_relative_humidity(temp_c: float, dewpoint_c: float) -> float:
 
 
 def calculate_wet_bulb(temp_c: float, dewpoint_c: float) -> float:
+    """Estimate wet-bulb temperature (C) using Stull's approximation."""
     try:
         t = float(temp_c)
         td = float(dewpoint_c)
@@ -136,4 +141,3 @@ def calculate_wet_bulb(temp_c: float, dewpoint_c: float) -> float:
         return math.nan
 
     return (tw_f - 32) / 1.8
-

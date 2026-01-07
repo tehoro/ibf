@@ -11,6 +11,7 @@ from typing import Iterable, Optional
 
 @contextmanager
 def temporary_environ(*, set_vars: dict[str, Optional[str]], remove: Iterable[str] = ()):
+    """Temporarily set and/or remove environment variables with cleanup."""
     keys = set(set_vars.keys()) | set(remove)
     previous = {key: os.environ.get(key) for key in keys}
     try:

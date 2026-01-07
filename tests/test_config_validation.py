@@ -65,7 +65,7 @@ def test_rejects_openrouter_context_llm(tmp_path: Path) -> None:
     assert "context_llm" in str(exc.value)
 
 
-def test_warns_on_unknown_area_locations(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_logs_unknown_area_locations(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     path = _write_config(
         tmp_path,
         """
@@ -78,7 +78,7 @@ def test_warns_on_unknown_area_locations(tmp_path: Path, caplog: pytest.LogCaptu
         """,
     )
 
-    caplog.set_level(logging.WARNING)
+    caplog.set_level(logging.DEBUG)
     load_config(path)
 
     assert "references location" in caplog.text

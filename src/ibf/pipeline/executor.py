@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass, replace
+from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Protocol
@@ -63,7 +64,10 @@ logger = logging.getLogger(__name__)
 DATASET_CACHE_DIR = ensure_directory("ibf_cache/processed")
 PROMPT_SNAPSHOT_DIR = ensure_directory("ibf_cache/prompts")
 
-_SNOW_PROFILE_UNSUPPORTED_MODELS: set[str] = set()
+_SNOW_PROFILE_UNSUPPORTED_MODELS: ContextVar[Optional[set[str]]] = ContextVar(
+    "ibf_snow_profile_unsupported_models",
+    default=None,
+)
 _DAY_HEADER_RE = re.compile(
     r"(?im)^(?!date:)(?:\*\*\s*)?(?:rest of the evening|this evening|this afternoon and evening|rest of today|today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)[^\n]*?\b\d{1,2}\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)[^\n]*?:"
 )
@@ -71,35 +75,69 @@ _DAY_HEADER_RE = re.compile(
 
 @dataclass
 class CostBreakdown:
+    """Track LLM costs (USD cents) for context, forecast, and translation."""
     context_cents: float = 0.0
     forecast_cents: float = 0.0
     translation_cents: float = 0.0
 
 
-_COST_TRACKER: Dict[str, CostBreakdown] = {}
+_COST_TRACKER: ContextVar[Optional[Dict[str, CostBreakdown]]] = ContextVar(
+    "ibf_cost_tracker",
+    default=None,
+)
 
 
 def _reset_cost_tracker() -> None:
-    _COST_TRACKER.clear()
+    """Initialize the per-run cost tracker."""
+    _COST_TRACKER.set({})
+
+
+def _reset_snow_profile_tracker() -> None:
+    """Initialize the per-run set of snow-profile unsupported models."""
+    _SNOW_PROFILE_UNSUPPORTED_MODELS.set(set())
+
+
+def _get_cost_tracker() -> Dict[str, CostBreakdown]:
+    """Return the current cost tracker, creating it if needed."""
+    tracker = _COST_TRACKER.get()
+    if tracker is None:
+        tracker = {}
+        _COST_TRACKER.set(tracker)
+    return tracker
+
+
+def _get_snow_profile_unsupported_models() -> set[str]:
+    """Return the set of models that lack pressure-level snow data in this run."""
+    models = _SNOW_PROFILE_UNSUPPORTED_MODELS.get()
+    if models is None:
+        models = set()
+        _SNOW_PROFILE_UNSUPPORTED_MODELS.set(models)
+    return models
 
 
 def _record_cost(kind: str, name: str, *, context: float = 0.0, forecast: float = 0.0, translation: float = 0.0) -> None:
+    """Accumulate per-location/area cost totals."""
     label = f"{kind}: {name}"
-    entry = _COST_TRACKER.setdefault(label, CostBreakdown())
+    tracker = _get_cost_tracker()
+    entry = tracker.setdefault(label, CostBreakdown())
     entry.context_cents += context
     entry.forecast_cents += forecast
     entry.translation_cents += translation
 
 
 def _log_cost_summary() -> None:
-    if not _COST_TRACKER:
+    """Log a summary table of all tracked LLM costs for this run."""
+    tracker = _get_cost_tracker()
+    if not tracker:
         logger.info("LLM cost summary – no tracked costs this run.")
         return
 
     def _clamp_width(value: int, *, min_width: int, max_width: int) -> int:
+        """Clamp a width between minimum and maximum bounds."""
         return max(min_width, min(max_width, value))
 
     def _format_label(label: str, width: int) -> str:
+        """Trim or pad a label to fit within the column width."""
         if len(label) <= width:
             return f"{label:<{width}}"
         if width <= 3:
@@ -108,15 +146,15 @@ def _log_cost_summary() -> None:
 
     # Keep the log readable while ensuring columns align.
     label_header = "Location or Area"
-    widest_label = max((len(k) for k in _COST_TRACKER.keys()), default=len(label_header))
+    widest_label = max((len(k) for k in tracker.keys()), default=len(label_header))
     label_width = _clamp_width(max(len(label_header), widest_label), min_width=40, max_width=70)
 
     header = f"{label_header:<{label_width}} {'Context':>12} {'Forecast':>12} {'Translation':>12}"
     lines = [header, "-" * len(header)]
     total_context = total_forecast = total_translation = 0.0
 
-    for label in sorted(_COST_TRACKER.keys()):
-        entry = _COST_TRACKER[label]
+    for label in sorted(tracker.keys()):
+        entry = tracker[label]
         total_context += entry.context_cents
         total_forecast += entry.forecast_cents
         total_translation += entry.translation_cents
@@ -209,6 +247,7 @@ def execute_pipeline(config: ForecastConfig) -> None:
         return
 
     _reset_cost_tracker()
+    _reset_snow_profile_tracker()
     # Generate unique names for locations to avoid conflicts
     location_names = [location.name for location in config.locations]
     location_kinds = [_resolve_model_spec(location, config).kind for location in config.locations]
@@ -795,7 +834,8 @@ def _collect_location_payload(
     # Optional second request to fetch pressure-level profiles for snow-level calculations.
     if units.snow_levels_enabled and resolved_model.kind == "deterministic":
         if not _has_any_freezing_level(raw_forecast):
-            if resolved_model.model_id in _SNOW_PROFILE_UNSUPPORTED_MODELS:
+            unsupported_models = _get_snow_profile_unsupported_models()
+            if resolved_model.model_id in unsupported_models:
                 logger.info(
                     "Snow levels: skipping profile fetch (model '%s' has no pressure-level data in this environment)",
                     resolved_model.model_id,
@@ -820,7 +860,7 @@ def _collect_location_payload(
                     if _has_any_pressure_level_profile(profile.raw):
                         raw_forecast = _merge_open_meteo_hourly(raw_forecast, profile.raw)
                     else:
-                        _SNOW_PROFILE_UNSUPPORTED_MODELS.add(resolved_model.model_id)
+                        unsupported_models.add(resolved_model.model_id)
                         logger.info(
                             "Snow levels: pressure-level variables returned all-null/undefined for model '%s'; "
                             "disabling profile-based snow levels for this model.",
@@ -946,6 +986,7 @@ def _resolve_units(
     units.update(getattr(config_obj, "units", {}) or {})
 
     def _split(value: Optional[str], default: str) -> tuple[str, Optional[str]]:
+        """Split a value into (text, annotation) or return default."""
         if not value:
             return default, None
         if "(" in value and value.endswith(")"):
@@ -1439,7 +1480,7 @@ def _snapshot_prompt(
 ) -> None:
     """Persist the full LLM prompt payload for later inspection."""
     try:
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         slug_base = slugify(f"{kind}-{name}") or kind or "prompt"
         filename = f"{timestamp}_{slug_base}.txt"
         path = PROMPT_SNAPSHOT_DIR / filename
@@ -1484,12 +1525,21 @@ def _cleanup_prompt_cache(max_age_days: int = 3, min_keep: int = 10, *, dry_run:
         # Collect all prompt files with their parsed timestamps
         for path in PROMPT_SNAPSHOT_DIR.glob("*.txt"):
             try:
-                # Extract timestamp from filename: YYYYMMDDTHHMMSSZ_*.txt
+                # Extract timestamp from filename: YYYYMMDDTHHMMSSZ_*.txt or YYYYMMDDTHHMMSSffffffZ_*.txt
                 filename = path.name
                 if "_" not in filename:
                     continue
                 timestamp_str = filename.split("_", 1)[0]
-                file_time = datetime.strptime(timestamp_str, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+                parsed = None
+                for fmt in ("%Y%m%dT%H%M%S%fZ", "%Y%m%dT%H%M%SZ"):
+                    try:
+                        parsed = datetime.strptime(timestamp_str, fmt)
+                        break
+                    except ValueError:
+                        continue
+                if parsed is None:
+                    continue
+                file_time = parsed.replace(tzinfo=timezone.utc)
                 prompt_files.append((file_time, path))
             except (ValueError, OSError):
                 # Skip files with invalid timestamps or other errors

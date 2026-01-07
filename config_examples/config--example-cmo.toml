@@ -1,10 +1,10 @@
-# Sample Configration for Carribean Meteorological Oragnisation
+# Sample Configuration for Caribbean Meteorological Organisation
 
 # Language Models to use
 llm = "gemini-3-flash-preview"
 context_llm = "gemini-3-flash-preview"
 translation_llm = "gemini-3-flash-preview"
-enable_reasoning = true   # use reasoning or thjnking where supported
+enable_reasoning = true   # use reasoning or thinking where supported
 
 # Default NWP model unless over-ridden - standard ECMWF ensemble at 0.25 degree resolution
 model = "ens:ecmwf_ifs025"
@@ -30,16 +30,17 @@ windspeed_unit = "kph"
 precipitation_unit = "mm"
 
 # The base index.html file is written to this location
-web_root = "./output/cmo"
+web_root = "./output/cmo-example"
 
 # If 0 this is ignored, but if greater than zero then we don't refresh any forecasts
 # which were produced within this last number of minutes
 # Useful for testing
 
-minimum_refresh_minutes = 60
+minimum_refresh_minutes = 600
 
 
 # A list of locations with their specific settings
+# Global settings are used for units unless over-ridden for the location
 
 [[location]]
 name = "St John's, Antigua and Barbuda"
@@ -104,7 +105,6 @@ windspeed_unit = "mph(kph)"
 name = "Kingstown, Saint Vincent and the Grenadines"
 translation_language = "Vincentian Creole English"
 windspeed_unit = "kph(mph)"
-
 
 [[location]]
 name = "Port of Spain, Trinidad and Tobago"

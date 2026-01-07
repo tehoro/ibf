@@ -36,7 +36,13 @@ def esat_pa(Tc: float) -> float:
 
 def inv_esat_to_TdC(e_pa: float) -> float:
     """Return dewpoint (°C) from vapor pressure (Pa)."""
-    e_hpa = e_pa / 100.0
+    try:
+        e_value = float(e_pa)
+    except (TypeError, ValueError):
+        return float("nan")
+    if e_value <= 0 or not math.isfinite(e_value):
+        return float("nan")
+    e_hpa = e_value / 100.0
     lnratio = math.log(e_hpa / 6.112)
     return (243.5 * lnratio) / (17.67 - lnratio)
 
@@ -85,6 +91,7 @@ def wet_bulb_dj(Tc: float, rh_pct: float, p_pa: float, tol: float = 1e-3) -> flo
     h_parcel = moist_enthalpy_per_kg_dry(Tk, r)
 
     def f(TwK: float) -> float:
+        """Enthalpy balance function evaluated at wet-bulb temperature."""
         rsw = sat_mixing_ratio(p_pa, TwK - 273.15)
         return h_parcel - moist_enthalpy_per_kg_dry(TwK, rsw)
 

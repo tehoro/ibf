@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 
 
 def _load_dotenv() -> None:
+    """Load a local .env file from the current working directory if present."""
     cwd_env = Path.cwd() / ".env"
     if cwd_env.exists():
         load_dotenv(dotenv_path=cwd_env, override=True)

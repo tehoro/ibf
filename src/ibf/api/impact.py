@@ -16,7 +16,7 @@ from typing import Any, Optional, Tuple
 from openai import OpenAI, OpenAIError
 
 from ..config.settings import Secrets, get_secrets
-from ..llm.costs import get_model_cost
+from ..llm.usage import log_gemini_usage_and_cost, log_openai_usage_and_cost
 from ..util import ensure_directory, get_local_now, safe_unlink, write_text_file
 from ..util.env import force_gemini_api_key
 
@@ -268,6 +268,7 @@ def _load_cache(path: Path) -> Optional[str]:
 
 
 def _delete_cache_file(path: Path) -> None:
+    """Delete a cached impact context file if present."""
     safe_unlink(path, base_dir=CACHE_DIR)
 
 
@@ -458,6 +459,7 @@ IMPORTANT: Provide only the structured context information as plain text. Do NOT
 
 
 def _is_gemini_model(model_name: str) -> bool:
+    """Return True if the model name references a Gemini family model."""
     lowered = (model_name or "").strip().lower()
     return lowered.startswith("gemini-") or lowered.startswith("google/gemini-")
 
@@ -483,6 +485,7 @@ def _generate_context_openai_web_search(
     api_key: Optional[str],
     name: str,
 ) -> tuple[str, float]:
+    """Generate context via OpenAI web search with a chat fallback."""
     if not api_key:
         logger.warning("OPENAI_API_KEY is required to generate impact context.")
         return "", 0.0
@@ -497,7 +500,11 @@ def _generate_context_openai_web_search(
             tools=[{"type": "web_search"}],
             timeout=60.0,
         )
-        cost_cents = _log_usage_and_cost(model_name, getattr(response, "usage", None))
+        cost_cents = log_openai_usage_and_cost(
+            model_name,
+            getattr(response, "usage", None),
+            label="Impact context LLM usage",
+        )
         context_text = _extract_response_text(response)
         return context_text, cost_cents
     except (OpenAIError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
@@ -516,7 +523,11 @@ def _generate_context_openai_web_search(
                 temperature=0.2,
                 max_tokens=1800,
             )
-            cost_cents = _log_usage_and_cost(model_name, getattr(fallback, "usage", None))
+            cost_cents = log_openai_usage_and_cost(
+                model_name,
+                getattr(fallback, "usage", None),
+                label="Impact context LLM usage",
+            )
             if fallback.choices:
                 return (fallback.choices[0].message.content or "").strip(), cost_cents
             return "", 0.0
@@ -532,6 +543,7 @@ def _generate_context_gemini_search(
     api_key: Optional[str],
     name: str,
 ) -> tuple[str, float]:
+    """Generate context via Gemini search grounding."""
     if not api_key:
         logger.warning("GEMINI_API_KEY is required to generate impact context with %s.", model_name)
         return "", 0.0
@@ -541,12 +553,14 @@ def _generate_context_gemini_search(
     from google.genai import types  # type: ignore[import-not-found]
 
     def _is_complete(text: str) -> bool:
+        """Return True if all required section headings are present."""
         if not text:
             return False
         normalized = _standardize_context_headings(text)
         return all(f"### {heading}" in normalized for heading in CONTEXT_SECTION_HEADINGS)
 
     def _looks_truncated(text: str) -> bool:
+        """Heuristic check for an abruptly truncated output tail."""
         if not text:
             return False
         tail = text.strip()[-12:]
@@ -556,6 +570,7 @@ def _generate_context_gemini_search(
         return False
 
     def _first_missing_heading(text: str) -> Optional[str]:
+        """Return the first required heading missing from the text."""
         for heading in CONTEXT_SECTION_HEADINGS:
             marker = f"### {heading}"
             if marker not in text:
@@ -572,6 +587,7 @@ def _generate_context_gemini_search(
         addition = addition.lstrip()
 
         def _should_join_words(left: str, right: str) -> bool:
+            """Return True when adjacent fragments should join without a space."""
             left_match = re.search(r"([A-Za-z]+)$", left)
             right_match = re.match(r"([A-Za-z]+)", right)
             if not left_match or not right_match:
@@ -630,6 +646,7 @@ def _generate_context_gemini_search(
     )
 
     def _call(contents: str) -> tuple[str, float]:
+        """Call Gemini generate_content and return text with cost."""
         try:
             with force_gemini_api_key(api_key):
                 response = client.models.generate_content(
@@ -642,7 +659,7 @@ def _generate_context_gemini_search(
             return "", 0.0
         text = (getattr(response, "text", None) or "").strip()
         usage = getattr(response, "usage_metadata", None)
-        return text, _log_gemini_usage_and_cost(model_name, usage)
+        return text, log_gemini_usage_and_cost(model_name, usage, label="Impact context LLM usage")
 
     # First pass.
     combined, cost_cents = _call(prompt)
@@ -680,64 +697,6 @@ def _generate_context_gemini_search(
         combined = _merge_context_chunks(combined, next_text)
 
     return combined, cost_cents
-
-
-def _log_gemini_usage_and_cost(model_name: str, usage_metadata: Any) -> float:
-    """
-    Log Gemini usage and estimated cost (in USD cents) for the impact context call.
-
-    The google-genai SDK exposes usage as `usage_metadata` (prompt/candidates/total token counts).
-    """
-    if not usage_metadata:
-        logger.info(
-            "Impact context LLM usage – model=%s input_tokens=%s cached_input_tokens=%s output_tokens=%s total_tokens=%s cost_usd_cents=%s",
-            model_name,
-            "n/a",
-            "n/a",
-            "n/a",
-            "n/a",
-            "n/a",
-        )
-        return 0.0
-
-    def _get(obj: Any, key: str) -> Any:
-        if hasattr(obj, key):
-            return getattr(obj, key)
-        if isinstance(obj, dict):
-            return obj.get(key)
-        return None
-
-    input_tokens = _get(usage_metadata, "prompt_token_count")
-    output_tokens = _get(usage_metadata, "candidates_token_count")
-    total_tokens = _get(usage_metadata, "total_token_count")
-    try:
-        input_tokens_i = int(input_tokens or 0)
-        output_tokens_i = int(output_tokens or 0)
-        total_tokens_i = int(total_tokens or (input_tokens_i + output_tokens_i))
-    except (TypeError, ValueError):
-        input_tokens_i, output_tokens_i, total_tokens_i = 0, 0, 0
-
-    cost_entry = get_model_cost(model_name)
-    cost_display = "n/a"
-    usd = 0.0
-    if cost_entry:
-        usd = cost_entry.cost_for_usage(
-            input_tokens=input_tokens_i,
-            output_tokens=output_tokens_i,
-            cached_input_tokens=0,
-        )
-        cost_display = f"{usd * 100:.2f}"
-
-    logger.info(
-        "Impact context LLM usage – model=%s input_tokens=%s cached_input_tokens=%s output_tokens=%s total_tokens=%s cost_usd_cents=%s",
-        model_name,
-        input_tokens_i,
-        0,
-        output_tokens_i,
-        total_tokens_i,
-        cost_display,
-    )
-    return usd * 100 if cost_entry else 0.0
 
 
 def _extract_response_text(response) -> str:
@@ -806,82 +765,3 @@ def _trim_before_first_heading(text: str) -> str:
     if first_idx > 0:
         return text[first_idx:]
     return text
-
-
-def _log_usage_and_cost(model_name: str, usage: Any) -> float:
-    """Log token usage and estimated cost (in USD cents) for the impact context call."""
-    if not usage:
-        logger.info(
-            "Impact context LLM usage – model=%s input_tokens=%s cached_input_tokens=%s output_tokens=%s total_tokens=%s cost_usd_cents=%s",
-            model_name,
-            "n/a",
-            "n/a",
-            "n/a",
-            "n/a",
-            "n/a",
-        )
-        return 0.0
-
-    try:
-        input_tokens, cached_input_tokens, output_tokens, total_tokens = _normalize_usage(usage)
-    except (AttributeError, KeyError, TypeError, ValueError) as exc:  # pragma: no cover - defensive
-        logger.debug("Unable to normalize LLM usage data (%s): %s", type(usage), exc)
-        logger.info(
-            "Impact context LLM usage – model=%s input_tokens=%s cached_input_tokens=%s output_tokens=%s total_tokens=%s cost_usd_cents=%s",
-            model_name,
-            getattr(usage, "input_tokens", "n/a"),
-            "n/a",
-            getattr(usage, "output_tokens", "n/a"),
-            getattr(usage, "total_tokens", "n/a"),
-            "n/a",
-        )
-        return 0.0
-
-    cost_entry = get_model_cost(model_name)
-    cost_display = "n/a"
-    usd = 0.0
-    if cost_entry:
-        usd = cost_entry.cost_for_usage(
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cached_input_tokens=cached_input_tokens,
-        )
-        cost_display = f"{usd * 100:.2f}"
-
-    logger.info(
-        "Impact context LLM usage – model=%s input_tokens=%s cached_input_tokens=%s output_tokens=%s total_tokens=%s cost_usd_cents=%s",
-        model_name,
-        input_tokens,
-        cached_input_tokens,
-        output_tokens,
-        total_tokens,
-        cost_display,
-    )
-    return usd * 100 if cost_entry else 0.0
-
-
-def _normalize_usage(usage: Any) -> tuple[int, int, int, int]:
-    """Return (input, cached_input, output, total) tokens from Responses or Chat usage payloads."""
-    def _get_attr(obj: Any, attr: str) -> Any:
-        if hasattr(obj, attr):
-            return getattr(obj, attr)
-        if isinstance(obj, dict):
-            return obj.get(attr)
-        return None
-
-    input_tokens = _get_attr(usage, "input_tokens")
-    if input_tokens is not None:
-        cached = _get_attr(_get_attr(usage, "input_tokens_details"), "cached_tokens") or 0
-        output = _get_attr(usage, "output_tokens") or 0
-        total = _get_attr(usage, "total_tokens") or (input_tokens + output)
-        return int(input_tokens), int(cached), int(output), int(total)
-
-    prompt_tokens = _get_attr(usage, "prompt_tokens")
-    completion_tokens = _get_attr(usage, "completion_tokens")
-    if prompt_tokens is not None or completion_tokens is not None:
-        input_tokens = int(prompt_tokens or 0)
-        output_tokens = int(completion_tokens or 0)
-        total_tokens = int(_get_attr(usage, "total_tokens") or (input_tokens + output_tokens))
-        return input_tokens, 0, output_tokens, total_tokens
-
-    raise ValueError("Unsupported usage payload structure")

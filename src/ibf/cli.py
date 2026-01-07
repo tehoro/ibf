@@ -8,6 +8,8 @@ import hashlib
 import json
 import logging
 import os
+import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -20,25 +22,93 @@ from .config import ConfigError, ForecastConfig, load_config
 from .pipeline import execute_pipeline
 from .web import ScaffoldReport, generate_site_structure, resolve_web_root
 from .maps import generate_area_maps
-from .util import slugify
+from .util import ensure_directory, slugify
 
 console = Console()
 app = typer.Typer(help="Run and manage the unified Impact-Based Forecast workflow.")
 logger = logging.getLogger(__name__)
 
 LOG_LEVELS = ["critical", "error", "warning", "info", "debug"]
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 
 
 def _configure_logging(level_name: str) -> None:
+    """Configure logging with optional environment override."""
     env_override = os.getenv("IBF_LOG_LEVEL")
     level_str = (env_override or level_name or "info").upper()
     if level_str not in {lvl.upper() for lvl in LOG_LEVELS}:
         level_str = "INFO"
     logging.basicConfig(
         level=getattr(logging, level_str, logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        format=LOG_FORMAT,
     )
     logger.debug("Logging configured at %s", level_str)
+
+
+def _build_log_path(config_path: Path) -> Path:
+    """Return a unique log path under the working directory logs/."""
+    logs_dir = ensure_directory(Path.cwd() / "logs")
+    timestamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+    config_stem = slugify(config_path.stem or "config")
+    if not config_stem:
+        config_stem = "config"
+    base = logs_dir / f"{timestamp}-{config_stem}.log"
+    if not base.exists():
+        return base
+    counter = 1
+    while True:
+        candidate = logs_dir / f"{timestamp}-{config_stem}-{counter}.log"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def _write_log_header(log_path: Path, config_path: Path) -> None:
+    """Write the run header and full config contents to the log file."""
+    try:
+        config_text = config_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        config_text = f"<<Failed to read config file: {exc}>>"
+    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    header = (
+        "IBF run log\n"
+        f"Timestamp: {timestamp}\n"
+        f"IBF version: {__version__}\n"
+        f"Config path: {config_path}\n"
+        f"Command: {' '.join(sys.argv)}\n"
+        "----- BEGIN CONFIG -----\n"
+        f"{config_text.rstrip()}\n"
+        "----- END CONFIG -----\n\n"
+    )
+    log_path.write_text(header, encoding="utf-8")
+
+
+def _attach_file_logger(log_path: Path) -> None:
+    """Attach a file handler to the root logger for this run."""
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers:
+        if isinstance(handler, logging.FileHandler):
+            try:
+                if Path(handler.baseFilename) == log_path:
+                    return
+            except (AttributeError, OSError, TypeError):
+                continue
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setLevel(root_logger.getEffectiveLevel())
+    file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    root_logger.addHandler(file_handler)
+
+
+def _prepare_run_logging(config_path: Path) -> Optional[Path]:
+    """Initialize file logging for a run and return the log path if created."""
+    log_path = _build_log_path(config_path)
+    try:
+        _write_log_header(log_path, config_path)
+        _attach_file_logger(log_path)
+    except OSError as exc:
+        logger.warning("Unable to initialize log file %s (%s).", log_path, exc)
+        return None
+    return log_path
 
 
 def _resolve_config_path(value: Path) -> Path:
@@ -52,6 +122,7 @@ def _resolve_config_path(value: Path) -> Path:
 
 
 def _load_config_or_exit(path: Path) -> ForecastConfig:
+    """Load configuration or exit with a user-facing error."""
     try:
         return load_config(path)
     except ConfigError as exc:
@@ -60,6 +131,7 @@ def _load_config_or_exit(path: Path) -> ForecastConfig:
 
 
 def _print_scaffold_report(report: ScaffoldReport) -> None:
+    """Render the scaffold report as a rich table."""
     table = Table(title="Scaffold Summary")
     table.add_column("Key")
     table.add_column("Value")
@@ -69,6 +141,7 @@ def _print_scaffold_report(report: ScaffoldReport) -> None:
 
 
 def _load_map_state(path: Path) -> tuple[Optional[str], Dict[str, str]]:
+    """Load the cached map state file, returning config and area hashes."""
     if not path.exists():
         return None, {}
     raw = path.read_text(encoding="utf-8").strip()
@@ -87,6 +160,7 @@ def _load_map_state(path: Path) -> tuple[Optional[str], Dict[str, str]]:
 
 
 def _write_map_state(path: Path, config_hash: str, area_hashes: Dict[str, str]) -> None:
+    """Persist the cached map state to disk."""
     payload = {
         "config_hash": config_hash,
         "areas": area_hashes,
@@ -95,6 +169,7 @@ def _write_map_state(path: Path, config_hash: str, area_hashes: Dict[str, str]) 
 
 
 def _area_points_hash(area) -> str:
+    """Return a stable hash for the area's locations and name."""
     payload = {
         "name": area.name,
         "locations": area.locations,
@@ -104,6 +179,7 @@ def _area_points_hash(area) -> str:
 
 
 def _area_map_exists(web_root: Path, slug: str) -> bool:
+    """Return True if an area map PNG or HTML exists under the web root."""
     maps_dir = web_root / "maps"
     png = maps_dir / f"{slug}.png"
     html = maps_dir / f"{slug}.html"
@@ -186,6 +262,9 @@ def run(
     """
     Validate the configuration and (eventually) execute the forecast workflow.
     """
+    log_path = _prepare_run_logging(config)
+    if log_path:
+        logger.info("Logging to %s", log_path)
     logger.info("Loading configuration from %s", config)
     forecast_config = _load_config_or_exit(config)
     logger.info("Loaded configuration with %d locations and %d areas", len(forecast_config.locations), len(forecast_config.areas))

@@ -9,6 +9,7 @@ import logging
 import math
 import pickle
 import sys
+import threading
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
@@ -18,6 +19,7 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 def _resolve_assets_root() -> Path:
+    """Resolve the assets root, honoring PyInstaller bundle paths when present."""
     bundle_root = getattr(sys, "_MEIPASS", None)
     if bundle_root:
         return Path(bundle_root)
@@ -34,6 +36,7 @@ class TerrainLookup:
     ELEVATION_SCALE = 30.0  # meters per unit
 
     def __init__(self, db_path: Path = DEFAULT_TERRAIN_DB) -> None:
+        """Initialize the terrain lookup with the given database path."""
         self.db_path = db_path
         self.h3_resolution: Optional[int] = None
         self.elevation_data: Optional[np.ndarray] = None
@@ -41,6 +44,7 @@ class TerrainLookup:
         self._loaded = False
 
     def _load(self) -> None:
+        """Load the terrain dataset into memory on first use."""
         if self._loaded:
             return
         if not self.db_path.exists():
@@ -61,11 +65,13 @@ class TerrainLookup:
         )
 
     def _byte_to_elevation(self, value: int) -> Optional[float]:
+        """Convert stored byte values to meters, treating 0 as missing."""
         if value == 0:
             return None
         return float(value) * self.ELEVATION_SCALE
 
     def get_elevation(self, latitude: float, longitude: float) -> Optional[float]:
+        """Return elevation (meters) for a single coordinate, if available."""
         self._load()
         assert self.h3_resolution is not None and self.h3_lookup is not None and self.elevation_data is not None
 
@@ -76,9 +82,11 @@ class TerrainLookup:
         return self._interpolate(latitude, longitude, h3_index)
 
     def get_elevations(self, coordinates: Sequence[Tuple[float, float]]) -> List[Optional[float]]:
+        """Return elevations (meters) for a sequence of coordinates."""
         return [self.get_elevation(lat, lon) for lat, lon in coordinates]
 
     def _interpolate(self, latitude: float, longitude: float, center_h3: str) -> Optional[float]:
+        """Interpolate elevation using neighboring H3 cells."""
         assert self.h3_resolution is not None and self.h3_lookup is not None and self.elevation_data is not None
         neighbors = h3.grid_disk(center_h3, 1)
         elevations: List[float] = []
@@ -107,6 +115,7 @@ class TerrainLookup:
         return sum(e * w for e, w in zip(elevations, weights)) / total_weight
 
     def _nearest(self, latitude: float, longitude: float, center_h3: str) -> Optional[float]:
+        """Find the nearest available elevation in surrounding H3 rings."""
         assert self.h3_resolution is not None and self.h3_lookup is not None and self.elevation_data is not None
         for ring in range(1, 4):
             for neighbor in h3.grid_ring(center_h3, ring):
@@ -120,18 +129,21 @@ class TerrainLookup:
 
 
 _LOOKUP: Optional[TerrainLookup] = None
+_LOOKUP_LOCK = threading.Lock()
 
 
 def _get_lookup() -> Optional[TerrainLookup]:
+    """Return the shared TerrainLookup instance if the dataset is available."""
     global _LOOKUP
-    if _LOOKUP is None:
-        _LOOKUP = TerrainLookup()
-    try:
-        _LOOKUP._load()
-    except FileNotFoundError as exc:
-        logger.warning("%s", exc)
-        return None
-    return _LOOKUP
+    with _LOOKUP_LOCK:
+        if _LOOKUP is None:
+            _LOOKUP = TerrainLookup()
+        try:
+            _LOOKUP._load()
+        except FileNotFoundError as exc:
+            logger.warning("%s", exc)
+            return None
+        return _LOOKUP
 
 
 def get_highest_point(latitude: float, longitude: float, radius_km: int = 50) -> float:
@@ -156,6 +168,7 @@ def get_highest_point(latitude: float, longitude: float, radius_km: int = 50) ->
 
 
 def _points_in_radius(lat: float, lon: float, radius_km: int) -> List[Tuple[float, float]]:
+    """Return sample points within the radius to estimate maximum elevation."""
     lat_per_km = 1.0 / 111.0
     cos_lat = math.cos(math.radians(lat))
     lon_per_km = lat_per_km if cos_lat == 0 else 1.0 / (111.0 * cos_lat)
@@ -173,4 +186,5 @@ def _points_in_radius(lat: float, lon: float, radius_km: int) -> List[Tuple[floa
 
 
 def _approx_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Approximate planar distance between two coordinates (degrees)."""
     return math.sqrt((lat1 - lat2) ** 2 + (lon1 - lon2) ** 2)

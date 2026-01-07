@@ -1,10 +1,10 @@
-# Sample Configration Showing Different Types
+# Sample Configration Showing Different Options
 
 # Language Models to use
 llm = "gemini-3-flash-preview"
 context_llm = "gemini-3-flash-preview"
 translation_llm = "gemini-3-flash-preview"
-enable_reasoning = true   # use reasoning or thjnking where supported
+enable_reasoning = true   # use reasoning or thinking where supported
 
 # Default NWP model unless over-ridden - standard ECMWF ensemble at 0.25 degree resolution
 model = "ens:ecmwf_ifs025"
@@ -55,22 +55,11 @@ translation_language = "Maori"
 name = "Otaki, New Zealand"
 model = "det:ecmwf_ifs"
 
-
-[[location]]
-name = "Burbank, California"
-temperature_unit = "fahrenheit"
-precipitation_unit = "in"
-windspeed_unit = "mph"
-
-
 [[location]]
 name = "Seattle, Washington"
-model = "det:icon_seamless"
-snow_levels = true
 temperature_unit = "fahrenheit"
 precipitation_unit = "in"
 windspeed_unit = "mph"
-
 
 [[location]]
 name = "Boulder, Colorado"
@@ -79,6 +68,12 @@ snow_levels = true
 temperature_unit = "fahrenheit"
 precipitation_unit = "in"
 windspeed_unit = "mph"
+
+[[location]]
+name = "Edmonton, Alberta"
+
+[[location]]
+name = "Halifax, Nova Scotia"
 
 [[location]]
 name = "Exeter, England"

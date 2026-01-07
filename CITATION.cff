@@ -5,7 +5,7 @@ authors:
   - family-names: Gordon
     given-names: Neil
     orcid: "https://orcid.org/0000-0002-7664-9434"
-version: "0.4.18"
+version: "0.5.0"
 date-released: "2026-01-07"
 repository-code: "https://github.com/tehoro/ibf"
 url: "https://github.com/tehoro/ibf"

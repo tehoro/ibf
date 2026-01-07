@@ -200,6 +200,7 @@ _STANDARD_WIND_UNIT = "kph"
 
 
 def _normalize_unit_token(value: Any) -> str:
+    """Normalize a unit token to lowercase with degree symbols removed."""
     if not isinstance(value, str):
         return ""
     token = value.strip().lower()
@@ -207,11 +208,13 @@ def _normalize_unit_token(value: Any) -> str:
 
 
 def _resolve_unit_token(hourly_units: Dict[str, Any], key: str, fallback: str) -> str:
+    """Resolve a unit token from hourly_units or fallback."""
     token = _normalize_unit_token(hourly_units.get(key))
     return token or _normalize_unit_token(fallback)
 
 
 def _resolve_snowfall_unit(hourly_units: Dict[str, Any], precip_unit: str) -> str:
+    """Resolve snowfall unit, falling back to precip-driven defaults."""
     token = _normalize_unit_token(hourly_units.get("snowfall"))
     if token:
         return token
@@ -221,6 +224,7 @@ def _resolve_snowfall_unit(hourly_units: Dict[str, Any], precip_unit: str) -> st
 
 
 def _to_celsius(value: Any, unit: str) -> float | None:
+    """Convert a temperature reading to Celsius."""
     try:
         numeric = float(value)
     except (TypeError, ValueError):
@@ -231,6 +235,7 @@ def _to_celsius(value: Any, unit: str) -> float | None:
 
 
 def _to_mm(value: Any, unit: str) -> float | None:
+    """Convert precipitation values to millimeters."""
     try:
         numeric = float(value)
     except (TypeError, ValueError):
@@ -243,6 +248,7 @@ def _to_mm(value: Any, unit: str) -> float | None:
 
 
 def _to_cm(value: Any, unit: str) -> float | None:
+    """Convert snowfall values to centimeters."""
     try:
         numeric = float(value)
     except (TypeError, ValueError):
@@ -255,6 +261,7 @@ def _to_cm(value: Any, unit: str) -> float | None:
 
 
 def _to_kph(value: Any, unit: str) -> float | None:
+    """Convert windspeed values to kph."""
     try:
         numeric = float(value)
     except (TypeError, ValueError):
@@ -269,6 +276,7 @@ def _to_kph(value: Any, unit: str) -> float | None:
 
 
 def _to_meters(value: Any, unit: str) -> float | None:
+    """Convert length values to meters."""
     try:
         numeric = float(value)
     except (TypeError, ValueError):
@@ -279,6 +287,7 @@ def _to_meters(value: Any, unit: str) -> float | None:
 
 
 def _resolve_freezing_level_unit(hourly_units: Dict[str, Any]) -> str:
+    """Resolve the unit token for freezing level fields."""
     if not isinstance(hourly_units, dict):
         return "m"
     unit_value = hourly_units.get("freezing_level_height")

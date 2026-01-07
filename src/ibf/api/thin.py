@@ -80,6 +80,7 @@ def _run_selection(members: Dict[str, MemberSeries], thin_select: int, weight_te
     min_precip, max_precip = min(all_precip), max(all_precip)
 
     def normalize(series: List[float], min_value: float, max_value: float) -> List[float]:
+        """Normalize a series to 0..1 using the provided bounds."""
         if max_value == min_value:
             return [0.0] * len(series)
         return [(value - min_value) / (max_value - min_value) for value in series]
@@ -93,6 +94,7 @@ def _run_selection(members: Dict[str, MemberSeries], thin_select: int, weight_te
     }
 
     def rms(a: List[float], b: List[float]) -> float:
+        """Compute RMS distance between two sequences."""
         if not a or not b:
             return 0.0
         diffs = [(x - y) ** 2 for x, y in zip(a, b)]
@@ -124,4 +126,3 @@ def _run_selection(members: Dict[str, MemberSeries], thin_select: int, weight_te
         remaining.remove(best_member)
 
     return selected
-

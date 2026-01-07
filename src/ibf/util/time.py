@@ -31,6 +31,7 @@ def is_file_stale(path: Path, *, max_age_minutes: int) -> bool:
 
 
 def convert_hour_to_ampm(hour: int) -> str:
+    """Convert 24-hour clock values to a friendly am/pm label."""
     if hour == 0:
         return "midnight"
     if hour == 12:
@@ -41,6 +42,7 @@ def convert_hour_to_ampm(hour: int) -> str:
 
 
 def get_local_now(timezone_name: str) -> datetime:
+    """Return the current time in the supplied timezone (UTC on failure)."""
     try:
         tz = ZoneInfo(timezone_name)
     except (TypeError, ValueError, ZoneInfoNotFoundError):
