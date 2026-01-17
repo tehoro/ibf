@@ -31,7 +31,7 @@ dependencies = [
     "staticmap>=0.5.5,<0.6",
     "Pillow>=10.4.0,<11.0",
     "timezonefinder>=6.4.0,<7.0",
-    "pytest>=8.3.3,<9.0",
+    "pytest>=8.3.3,<10.0",
     "pytest-mock>=3.14.0,<4.0",
     "google-genai>=1.56.0",
 ]
