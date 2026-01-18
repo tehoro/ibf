@@ -1,4 +1,4 @@
-# Impact-Based Forecast (IBF) Toolkit [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.18112311.svg)](https://zenodo.org/records/18112311)
+# Impact-Based Forecast (IBF) Toolkit [![DOI](https://zenodo.org/badge/1106400523.svg)](https://zenodo.org/badge/latestdoi/1106400523)
 
 
 IBF is a command-line tool that turns weather model data into clear, impact-based forecast text and publishes it as simple HTML pages.
