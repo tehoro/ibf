@@ -326,6 +326,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
                 _unit_instructions(payload.units),
                 model_kind=payload.model_kind,
             )
+            system_prompt = _apply_provider_prompt_profile(system_prompt, llm_settings)
             short_instr = _short_period_instruction(dataset, geocode.timezone or "UTC")
             impact_instr = _impact_instruction(impact_enabled)
             prompt = build_spot_user_prompt(
@@ -480,6 +481,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
                 _unit_instructions(base_units),
                 model_kind=area_kind,
             )
+            system_prompt = _apply_provider_prompt_profile(system_prompt, llm_settings)
             short_instr = _short_period_instruction(
                 payloads[0].dataset, payloads[0].geocode.timezone or "UTC"
             )
@@ -635,6 +637,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
                 _unit_instructions(base_units),
                 model_kind=area_kind,
             )
+            system_prompt = _apply_provider_prompt_profile(system_prompt, llm_settings)
             short_instr = _short_period_instruction(
                 payloads[0].dataset, payloads[0].geocode.timezone or "UTC"
             )
@@ -1732,6 +1735,15 @@ _REASONING_DISABLE = {"off", "disable", "disabled", "none", "false"}
 _REASONING_LEVELS = {"minimal", "low", "medium", "high", "auto"}
 _OPENAI_REASONING_MODEL_KEYWORDS = ("o1", "o3", "o4", "gpt-4.1", "gpt-5")
 _OPENROUTER_REASONING_MODEL_KEYWORDS = ("o1", "o3", "gpt-5", "grok")
+_LM_STUDIO_SYSTEM_ADDENDUM = (
+    "Additional local-model output rules:\n"
+    "- Use digits for all numeric values (temperatures, rainfall, wind speeds, dates, times). "
+    "Do not spell numbers out in words.\n"
+    "- Keep meteorological units compact (for example: 20C, 35 km/h, 12 mm).\n"
+    "- Avoid repeating the same sentence opener across days.\n"
+    "- Do not invent impacts or local damage claims. Mention impacts only when supported by the provided "
+    "forecast values or the supplied impact context."
+)
 
 
 def _reasoning_payload(enabled: bool, level: Optional[str]) -> Optional[dict]:
@@ -1800,3 +1812,10 @@ def _gemini_thinking_level(enabled: bool, level: Optional[str]) -> Optional[str]
     if effort in {"minimal", "low", "medium", "high"}:
         return effort
     return None
+
+
+def _apply_provider_prompt_profile(system_prompt: str, settings: Optional[LLMSettings]) -> str:
+    """Append provider-specific prompt guidance while leaving other providers untouched."""
+    if not settings or settings.provider != "lmstudio":
+        return system_prompt
+    return f"{system_prompt.rstrip()}\n\n{_LM_STUDIO_SYSTEM_ADDENDUM}"
