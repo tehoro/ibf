@@ -5,6 +5,8 @@ llm = "gemini-3-flash-preview"
 context_llm = "gemini-3-flash-preview"
 translation_llm = "gemini-3-flash-preview"
 enable_reasoning = true   # use reasoning or thinking where supported
+# For local LM Studio models, use llm = "lm:<model>" and set:
+# lm_studio_base_url = "http://192.168.1.79:1234"
 
 # Default NWP model unless over-ridden - standard ECMWF ensemble at 0.25 degree resolution
 model = "ens:ecmwf_ifs025"

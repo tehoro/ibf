@@ -65,6 +65,24 @@ def test_rejects_openrouter_context_llm(tmp_path: Path) -> None:
     assert "context_llm" in str(exc.value)
 
 
+def test_rejects_blank_lm_studio_base_url(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        """
+        llm = "lm:qwen3.5"
+        lm_studio_base_url = "   "
+
+        [[location]]
+        name = "Test City"
+        """,
+    )
+
+    with pytest.raises(ConfigError) as exc:
+        load_config(path)
+
+    assert "lm_studio_base_url" in str(exc.value)
+
+
 def test_logs_unknown_area_locations(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     path = _write_config(
         tmp_path,

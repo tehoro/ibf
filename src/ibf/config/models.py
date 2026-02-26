@@ -93,6 +93,7 @@ class ForecastConfig(BaseModel):
         location_thin_select: Number of ensemble members to select for locations.
         area_thin_select: Number of ensemble members to select for areas.
         llm: LLM model identifier (e.g., "gemini-3-flash-preview").
+        lm_studio_base_url: Optional LM Studio/OpenAI-compatible base URL for `lm:*` models.
         context_llm: LLM model identifier to use for impact-context web search (default "gemini-3-flash-preview").
         translation_language: Global default translation language.
         translation_llm: Specific LLM to use for translation.
@@ -114,6 +115,7 @@ class ForecastConfig(BaseModel):
     location_thin_select: Optional[int] = None
     area_thin_select: Optional[int] = None
     llm: Optional[str] = None
+    lm_studio_base_url: Optional[str] = None
     context_llm: Optional[str] = None
     translation_language: Optional[str] = None
     translation_llm: Optional[str] = None
@@ -135,6 +137,10 @@ class ForecastConfig(BaseModel):
             raw = str(self.llm).strip()
             if not raw:
                 raise ValueError("llm cannot be blank.")
+        if self.lm_studio_base_url is not None:
+            raw = str(self.lm_studio_base_url).strip()
+            if not raw:
+                raise ValueError("lm_studio_base_url cannot be blank.")
         if self.translation_llm is not None:
             raw = str(self.translation_llm).strip()
             if not raw:

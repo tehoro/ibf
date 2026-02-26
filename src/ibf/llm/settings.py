@@ -10,6 +10,8 @@ from typing import Optional
 
 from ..config import ForecastConfig
 
+LM_STUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1"
+
 
 @dataclass
 class LLMSettings:
@@ -19,7 +21,7 @@ class LLMSettings:
     Attributes:
         model: Model identifier (e.g., "gpt-4o-mini").
         api_key: API key for authentication.
-        provider: "openai", "openrouter", or "gemini".
+        provider: "openai", "openrouter", "gemini", or "lmstudio".
         base_url: Optional custom API base URL.
         is_google: True if using the Google Generative AI SDK.
         temperature: Sampling temperature.
@@ -39,7 +41,7 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
     Inspect the forecast config and environment variables to determine which LLM to use.
 
     Prioritizes `override_choice`, then `config.llm`, then `IBF_DEFAULT_LLM` env var,
-    and finally defaults to a specific OpenRouter model.
+    and finally defaults to a bundled Gemini default.
 
     Args:
         config: The forecast configuration.
@@ -74,6 +76,29 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
             provider="gemini",
             is_google=True,
             max_tokens=10000,
+        )
+
+    if choice_lower.startswith("lm:"):
+        model_name = choice.split(":", 1)[1].strip()
+        if not model_name:
+            raise RuntimeError("Local model must be specified as 'lm:<model_name>'.")
+        config_base_url = getattr(config, "lm_studio_base_url", None)
+        base_url = _normalize_openai_base_url(
+            config_base_url
+            or os.environ.get("LM_STUDIO_BASE_URL")
+            or os.environ.get("OPENAI_BASE_URL")
+            or LM_STUDIO_DEFAULT_BASE_URL
+        )
+        api_key = (
+            os.environ.get("LM_STUDIO_API_KEY")
+            or os.environ.get("OPENAI_API_KEY")
+            or "lm-studio"
+        )
+        return LLMSettings(
+            model=model_name,
+            api_key=api_key,
+            provider="lmstudio",
+            base_url=base_url,
         )
 
     if choice_lower == "gpt-4o-mini":
@@ -112,7 +137,7 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
         )
 
     raise RuntimeError(
-        f"Unknown LLM '{choice}'. Use gemini-* for Gemini, gpt-*/o* for OpenAI, or prefix OpenRouter models with 'or:'."
+        f"Unknown LLM '{choice}'. Use gemini-* for Gemini, lm:* for local LM Studio, gpt-*/o* for OpenAI, or prefix OpenRouter models with 'or:'."
     )
 
 
@@ -122,3 +147,20 @@ def _require_env(name: str) -> str:
     if not value:
         raise RuntimeError(f"Environment variable {name} is required for the selected LLM.")
     return value
+
+
+def _normalize_openai_base_url(value: str) -> str:
+    """
+    Normalize an OpenAI-compatible base URL to include a trailing /v1 segment.
+
+    Examples:
+    - http://192.168.1.79:1234 -> http://192.168.1.79:1234/v1
+    - http://localhost:1234/v1 -> http://localhost:1234/v1
+    """
+    raw = (value or "").strip()
+    if not raw:
+        return LM_STUDIO_DEFAULT_BASE_URL
+    trimmed = raw.rstrip("/")
+    if trimmed.lower().endswith("/v1"):
+        return trimmed
+    return f"{trimmed}/v1"

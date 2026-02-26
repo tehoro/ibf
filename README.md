@@ -270,9 +270,11 @@ Environment variables:
 | --- | --- | --- |
 | `GOOGLE_API_KEY` | Geocoding and optional elevation lookup. Also used for reverse geocoding when resolving alert country codes. | Recommended for reliable geocoding/elevation. |
 | `OPENWEATHERMAP_API_KEY` | Alerts (OpenWeatherMap One Call for non‑US/NZ) and fallback reverse geocoding. | Required for non‑US/NZ alerts, otherwise optional. |
-| `OPENROUTER_API_KEY` | Any model name with an `or:` prefix or unknown model names (OpenRouter). | Required for OpenRouter usage. |
+| `OPENROUTER_API_KEY` | Models with an `or:` prefix (OpenRouter). | Required for OpenRouter usage. |
 | `OPENAI_API_KEY` | OpenAI models such as `gpt-4o-mini` or `gpt-4o-latest`. | Required if using OpenAI models. |
 | `GEMINI_API_KEY` | Direct Gemini SDK usage (`gemini-*` or `google/gemini-*`). | Required if using direct Gemini models. |
+| `LM_STUDIO_BASE_URL` | LM Studio/OpenAI-compatible local endpoint for `lm:*` models. | Optional; defaults to `http://localhost:1234/v1`. |
+| `LM_STUDIO_API_KEY` | Optional API key for LM Studio/OpenAI-compatible local endpoint. | Optional; falls back to `OPENAI_API_KEY` or `lm-studio`. |
 | `IBF_DEFAULT_LLM` | Optional env override for the default model when config omits `llm`. | Optional. |
 
 Notes:
@@ -280,7 +282,10 @@ Notes:
 - Impact context supports Gemini or OpenAI models only (`context_llm`). OpenRouter models are not supported for impact context.
 - Impact context uses Gemini search when `context_llm` is a Gemini model (the default).
 - Impact context uses OpenAI web search when `context_llm` is an OpenAI model and requires `OPENAI_API_KEY`.
-- If a forecast/translation model string is unrecognized, IBF falls back to an OpenRouter model and will require `OPENROUTER_API_KEY`.
+- Local/LAN LM Studio is supported for forecast/translation with `lm:<model_name>`.
+- You can set LM Studio URL in config with `lm_studio_base_url = "http://192.168.1.79:1234"` (IBF appends `/v1` automatically if missing).
+- `lm_studio_base_url` (config) takes precedence over `LM_STUDIO_BASE_URL` (env).
+- If a forecast/translation model string is unrecognized, IBF raises an LLM selection error.
 - Keep `GOOGLE_API_KEY` (Geocoding/Elevation) and `GEMINI_API_KEY` (Gemini) separate; they are issued in different consoles and are not interchangeable.
 
 Google Geocoding API key (step-by-step)
@@ -318,7 +323,8 @@ Global settings:
 | --- | --- | --- |
 | `model` | Default forecast model for all locations/areas. | Use `ens:<id>` or `det:<id>`. Defaults to `ens:ecmwf_ifs025`. |
 | `snow_levels` | Enable snow-level estimates. | Only applies to deterministic models. |
-| `llm` | Model used for forecast text. | Supports OpenRouter, OpenAI, and Gemini naming. |
+| `llm` | Model used for forecast text. | Supports OpenRouter, OpenAI, Gemini, and LM Studio (`lm:`) naming. |
+| `lm_studio_base_url` | Optional base URL for LM Studio when using `lm:*` models. | Example: `http://192.168.1.79:1234` (IBF normalizes to `/v1`). |
 | `context_llm` | Model used for impact context. | Gemini or OpenAI only. Defaults to `gemini-3-flash-preview` if omitted. |
 | `translation_llm` | Optional model used for translations only. | Used only if translation is enabled. |
 | `translation_language` | Default translation language. | English output is always produced; translations are additional. |
@@ -425,6 +431,7 @@ Provider naming:
 - OpenRouter: `or:provider/model` (requires `OPENROUTER_API_KEY`)
 - OpenAI: `gpt-4o-mini`, `gpt-4o-latest` (requires `OPENAI_API_KEY`)
 - Gemini direct: `gemini-3-flash-preview` or `google/gemini-3-flash-preview` (requires `GEMINI_API_KEY`)
+- LM Studio local/OpenAI-compatible: `lm:<model_name>` (uses `LM_STUDIO_BASE_URL`, default `http://localhost:1234/v1`)
 
 Impact context is separate: it uses Gemini search by default (`context_llm = gemini-3-flash-preview`),
 or OpenAI web search when `context_llm` is an OpenAI model.

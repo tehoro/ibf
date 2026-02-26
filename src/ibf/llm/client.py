@@ -80,7 +80,11 @@ def _call_openai_compatible(
     if reasoning:
         request_kwargs["extra_body"] = reasoning
     response = client.chat.completions.create(**request_kwargs)
-    cost_cents = log_openai_usage_and_cost(settings.model, getattr(response, "usage", None))
+    usage = getattr(response, "usage", None)
+    cost_model_name = settings.model if settings.provider != "lmstudio" else f"lm:{settings.model}"
+    cost_cents = log_openai_usage_and_cost(cost_model_name, usage)
+    if settings.provider == "lmstudio":
+        cost_cents = 0.0
     _LAST_COST_CENTS.set(cost_cents)
     message = response.choices[0].message if response.choices else None
     raw_text = _coerce_message_content(getattr(message, "content", None))
