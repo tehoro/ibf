@@ -1265,7 +1265,11 @@ def _log_snow_levels_summary(
             for _, ts, t_c, p_mm, c_i in candidates:
                 # Open-Meteo times can be either "YYYY-MM-DDTHH:MM" or include "Z"/offset.
                 try:
-                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(tz)
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=tz)
+                    else:
+                        dt = dt.astimezone(tz)
                     date_key = dt.strftime("%Y-%m-%d")
                     hour_key = dt.strftime("%H:00")
                 except (TypeError, ValueError):

@@ -313,6 +313,8 @@ def _parse_timestamp(value: str, tz: ZoneInfo) -> datetime | None:
             base = datetime.fromisoformat(value.replace("Z", "+00:00"))
         else:
             base = datetime.fromisoformat(value)
+        if base.tzinfo is None:
+            return base.replace(tzinfo=tz)
         return base.astimezone(tz)
     except ValueError:
         return None
