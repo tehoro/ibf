@@ -93,9 +93,14 @@ class ForecastConfig(BaseModel):
         location_thin_select: Number of ensemble members to select for locations.
         area_thin_select: Number of ensemble members to select for areas.
         llm: LLM model identifier (e.g., "gemini-3-flash-preview").
-        context_llm: LLM model identifier to use for impact-context web search (default "gemini-3-flash-preview").
+        llm_fallback: Optional model used when the primary forecast model fails.
+        lm_studio_base_url: Optional LM Studio server URL for ``lms:`` models.
+        context_provider: Impact-context research provider (``llm-search`` or ``brave``).
+        context_llm: Model used for impact-context search or Brave evidence synthesis.
+        context_fallback_llm: Hosted-search model used if the Brave path fails.
         translation_language: Global default translation language.
         translation_llm: Specific LLM to use for translation.
+        translation_llm_fallback: Optional model used when the primary translation model fails.
         minimum_refresh_minutes: Minimum minutes between refreshes (global default).
     """
     locations: List[LocationConfig] = Field(default_factory=list)
@@ -114,9 +119,14 @@ class ForecastConfig(BaseModel):
     location_thin_select: Optional[int] = None
     area_thin_select: Optional[int] = None
     llm: Optional[str] = None
+    llm_fallback: Optional[str] = None
+    lm_studio_base_url: Optional[str] = None
+    context_provider: Literal["llm-search", "brave"] = "llm-search"
     context_llm: Optional[str] = None
+    context_fallback_llm: Optional[str] = None
     translation_language: Optional[str] = None
     translation_llm: Optional[str] = None
+    translation_llm_fallback: Optional[str] = None
     minimum_refresh_minutes: int = 0
     snow_levels: bool = False
     # Global default forecast model. This name matches the per-location/per-area override field.
@@ -135,17 +145,31 @@ class ForecastConfig(BaseModel):
             raw = str(self.llm).strip()
             if not raw:
                 raise ValueError("llm cannot be blank.")
-        if self.translation_llm is not None:
-            raw = str(self.translation_llm).strip()
-            if not raw:
-                raise ValueError("translation_llm cannot be blank.")
+        for field_name in (
+            "llm_fallback",
+            "context_llm",
+            "translation_llm",
+            "translation_llm_fallback",
+            "context_fallback_llm",
+        ):
+            value = getattr(self, field_name)
+            if value is not None and not str(value).strip():
+                raise ValueError(f"{field_name} cannot be blank.")
+        if self.lm_studio_base_url is not None and not str(self.lm_studio_base_url).strip():
+            raise ValueError("lm_studio_base_url cannot be blank.")
         if self.context_llm:
             raw = str(self.context_llm).strip()
-            if raw and not _is_supported_context_llm(raw):
+            if self.context_provider == "llm-search" and raw and not _is_search_capable_context_llm(raw):
                 raise ValueError(
-                    "context_llm must be a Gemini or OpenAI model name; OpenRouter models are not supported "
-                    "for impact-context web search."
+                    "context_llm must be a Gemini or OpenAI model when context_provider is "
+                    "'llm-search'. Use context_provider = 'brave' to synthesize Brave evidence "
+                    "with OpenRouter or LM Studio."
                 )
+        if self.context_fallback_llm and not _is_search_capable_context_llm(self.context_fallback_llm):
+            raise ValueError(
+                "context_fallback_llm must be a Gemini or OpenAI model because it uses the "
+                "hosted web-search context path."
+            )
         return self
 
     @property
@@ -353,8 +377,8 @@ def _normalize_unit_token(token: str, key: str) -> str:
     raise ConfigError(f"Invalid {key} value '{token}'. Allowed: {allowed}.")
 
 
-def _is_supported_context_llm(value: str) -> bool:
-    """Return True if the LLM name is supported for context web search."""
+def _is_search_capable_context_llm(value: str) -> bool:
+    """Return True if the LLM name is supported for hosted context web search."""
     lowered = value.strip().lower()
     if lowered.startswith("gemini-") or lowered.startswith("google/gemini-"):
         return True

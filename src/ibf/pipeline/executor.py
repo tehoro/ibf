@@ -306,6 +306,17 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
             timezone_name=timezone_name,
             context_llm=context_llm,
             extra_context=location.extra_context,
+            context_provider=config.context_provider,
+            context_fallback_llm=config.context_fallback_llm,
+            llm_config=config,
+            representative_locations=[
+                {
+                    "name": name,
+                    "latitude": geocode.latitude,
+                    "longitude": geocode.longitude,
+                    "country_code": geocode.country_code,
+                }
+            ],
         )
         ibf_context = impact_context.content
         _record_cost("Location", unique_name, context=impact_context.cost_cents)
@@ -321,7 +332,6 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
     forecast_text: Optional[str] = None
     if formatted_dataset and not formatted_dataset.startswith("Error"):
         try:
-            llm_settings = resolve_llm_settings(config)
             system_prompt = build_spot_system_prompt(
                 _unit_instructions(payload.units),
                 model_kind=payload.model_kind,
@@ -340,28 +350,21 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
                 impact_context=ibf_context or "",
                 user_extra_context=location.extra_context,
             )
-            logger.info("Requesting LLM forecast for '%s' using model %s", name, llm_settings.model)
             reasoning_enabled = _as_bool(config.enable_reasoning)
             reasoning_level = getattr(config, "location_reasoning", None)
-            reasoning_payload = (
-                _reasoning_payload(reasoning_enabled, reasoning_level)
-                if _supports_reasoning(llm_settings)
-                else None
-            )
-            thinking_level = (
-                _gemini_thinking_level(reasoning_enabled, reasoning_level)
-                if llm_settings and llm_settings.is_google
-                else None
-            )
-            _snapshot_prompt("location", name, llm_settings.model, system_prompt, prompt)
-            forecast_text = generate_forecast_text(
+            forecast_text, llm_settings, forecast_cost = _generate_text_with_fallback(
+                config,
                 prompt,
                 system_prompt,
-                llm_settings,
-                reasoning=reasoning_payload,
-                thinking_level=thinking_level,
+                primary_choice=config.llm,
+                fallback_choice=config.llm_fallback,
+                snapshot_kind="location",
+                snapshot_name=name,
+                operation_label=f"forecast for {name}",
+                reasoning_enabled=reasoning_enabled,
+                reasoning_level=reasoning_level,
             )
-            _record_cost("Location", unique_name, forecast=consume_last_cost_cents())
+            _record_cost("Location", unique_name, forecast=forecast_cost)
         except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
             logger.error("LLM generation failed for %s: %s", name, exc, exc_info=True)
 
@@ -377,14 +380,14 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
         )
 
     translation_target = _location_translation_language(location, config)
-    translated_text = _maybe_translate(
+    translated_text, translation_cost = _maybe_translate(
         forecast_text,
         translation_target,
         config,
         llm_settings,
     )
     if translated_text is not None:
-        _record_cost("Location", unique_name, translation=consume_last_cost_cents())
+        _record_cost("Location", unique_name, translation=translation_cost)
 
     destination = _build_destination_path(config, unique_name)
     logger.info("Writing forecast page for '%s' → %s", unique_name, destination)
@@ -450,6 +453,18 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
             timezone_name=area_timezone,
             context_llm=context_llm,
             extra_context=area.extra_context,
+            context_provider=config.context_provider,
+            context_fallback_llm=config.context_fallback_llm,
+            llm_config=config,
+            representative_locations=[
+                {
+                    "name": payload.name,
+                    "latitude": payload.geocode.latitude,
+                    "longitude": payload.geocode.longitude,
+                    "country_code": payload.geocode.country_code,
+                }
+                for payload in payloads
+            ],
         )
         ibf_context = impact_context.content
         _record_cost("Area", area.name, context=impact_context.cost_cents)
@@ -474,7 +489,6 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     forecast_text: Optional[str] = None
     if formatted_dataset:
         try:
-            llm_settings = resolve_llm_settings(config)
             area_kind = "ensemble" if any(p.model_kind == "ensemble" for p in payloads) else "deterministic"
             system_prompt = build_area_system_prompt(
                 _unit_instructions(base_units),
@@ -496,25 +510,19 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
             )
             reasoning_enabled = _as_bool(config.enable_reasoning)
             reasoning_level = getattr(config, "area_reasoning", None)
-            reasoning_payload = (
-                _reasoning_payload(reasoning_enabled, reasoning_level)
-                if _supports_reasoning(llm_settings)
-                else None
-            )
-            thinking_level = (
-                _gemini_thinking_level(reasoning_enabled, reasoning_level)
-                if llm_settings and llm_settings.is_google
-                else None
-            )
-            _snapshot_prompt("area", area.name, llm_settings.model, system_prompt, prompt)
-            forecast_text = generate_forecast_text(
+            forecast_text, llm_settings, forecast_cost = _generate_text_with_fallback(
+                config,
                 prompt,
                 system_prompt,
-                llm_settings,
-                reasoning=reasoning_payload,
-                thinking_level=thinking_level,
+                primary_choice=config.llm,
+                fallback_choice=config.llm_fallback,
+                snapshot_kind="area",
+                snapshot_name=area.name,
+                operation_label=f"area forecast for {area.name}",
+                reasoning_enabled=reasoning_enabled,
+                reasoning_level=reasoning_level,
             )
-            _record_cost("Area", area.name, forecast=consume_last_cost_cents())
+            _record_cost("Area", area.name, forecast=forecast_cost)
             logger.info("Requesting area LLM forecast for '%s' using model %s", area.name, llm_settings.model)
         except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
             logger.error("LLM generation failed for area %s: %s", area.name, exc, exc_info=True)
@@ -531,14 +539,14 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
         )
 
     translation_target = _area_translation_language(area, config)
-    translated_text = _maybe_translate(
+    translated_text, translation_cost = _maybe_translate(
         forecast_text,
         translation_target,
         config,
         llm_settings,
     )
     if translated_text is not None:
-        _record_cost("Area", area.name, translation=consume_last_cost_cents())
+        _record_cost("Area", area.name, translation=translation_cost)
 
     destination = _build_destination_path(config, area.name)
     logger.info("Writing area forecast page for '%s' → %s", area.name, destination)
@@ -605,6 +613,18 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
             timezone_name=area_timezone,
             context_llm=context_llm,
             extra_context=area.extra_context,
+            context_provider=config.context_provider,
+            context_fallback_llm=config.context_fallback_llm,
+            llm_config=config,
+            representative_locations=[
+                {
+                    "name": payload.name,
+                    "latitude": payload.geocode.latitude,
+                    "longitude": payload.geocode.longitude,
+                    "country_code": payload.geocode.country_code,
+                }
+                for payload in payloads
+            ],
         )
         ibf_context = regional_context.content
         _record_cost("Regional", area.name, context=regional_context.cost_cents)
@@ -629,7 +649,6 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     forecast_text: Optional[str] = None
     if formatted_dataset:
         try:
-            llm_settings = resolve_llm_settings(config)
             area_kind = "ensemble" if any(p.model_kind == "ensemble" for p in payloads) else "deterministic"
             system_prompt = build_regional_system_prompt(
                 _unit_instructions(base_units),
@@ -651,32 +670,20 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
             )
             reasoning_enabled = _as_bool(config.enable_reasoning)
             reasoning_level = getattr(config, "area_reasoning", None)
-            reasoning_payload = (
-                _reasoning_payload(reasoning_enabled, reasoning_level)
-                if _supports_reasoning(llm_settings)
-                else None
-            )
-            thinking_level = (
-                _gemini_thinking_level(reasoning_enabled, reasoning_level)
-                if llm_settings and llm_settings.is_google
-                else None
-            )
-            _snapshot_prompt(
-                "regional-area",
-                area.name,
-                llm_settings.model,
-                system_prompt,
-                prompt,
-            )
-            forecast_text = generate_forecast_text(
+            forecast_text, llm_settings, forecast_cost = _generate_text_with_fallback(
+                config,
                 prompt,
                 system_prompt,
-                llm_settings,
-                reasoning=reasoning_payload,
-                thinking_level=thinking_level,
+                primary_choice=config.llm,
+                fallback_choice=config.llm_fallback,
+                snapshot_kind="regional-area",
+                snapshot_name=area.name,
+                operation_label=f"regional forecast for {area.name}",
+                reasoning_enabled=reasoning_enabled,
+                reasoning_level=reasoning_level,
             )
             logger.info("Requesting regional LLM forecast for '%s' using model %s", area.name, llm_settings.model)
-            _record_cost("Regional", area.name, forecast=consume_last_cost_cents())
+            _record_cost("Regional", area.name, forecast=forecast_cost)
         except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
             logger.error(
                 "Regional LLM generation failed for %s: %s", area.name, exc, exc_info=True
@@ -694,14 +701,14 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
         )
 
     translation_target = _area_translation_language(area, config)
-    translated_text = _maybe_translate(
+    translated_text, translation_cost = _maybe_translate(
         forecast_text,
         translation_target,
         config,
         llm_settings,
     )
     if translated_text is not None:
-        _record_cost("Regional", area.name, translation=consume_last_cost_cents())
+        _record_cost("Regional", area.name, translation=translation_cost)
 
     destination = _build_destination_path(config, area.name)
     logger.info("Writing regional forecast page for '%s' → %s", area.name, destination)
@@ -1697,30 +1704,140 @@ def _maybe_translate(
     language: Optional[str],
     config: ForecastConfig,
     llm_settings: Optional[LLMSettings],
-) -> Optional[str]:
+) -> tuple[Optional[str], float]:
     """Translate finished forecast text when a non-English target language is requested."""
     if not language:
-        return None
+        return None, 0.0
     if language.lower().startswith("en"):
-        return None
+        return None, 0.0
     if not text:
-        return None
+        return None, 0.0
     try:
         chosen_model = config.translation_llm
-        if chosen_model is None:
-            settings = llm_settings or resolve_llm_settings(config)
-            model_name = settings.model
-        else:
-            settings = resolve_llm_settings(config, chosen_model)
-            model_name = chosen_model
-        logger.info("Translating forecast into %s using %s", language, model_name)
         system_prompt = build_translation_system_prompt(language)
         user_prompt = build_translation_user_prompt(text)
-        _snapshot_prompt("translation", language, settings.model, system_prompt, user_prompt)
-        return generate_forecast_text(user_prompt, system_prompt, settings)
+        translated, _, translation_cost = _generate_text_with_fallback(
+            config,
+            user_prompt,
+            system_prompt,
+            primary_choice=chosen_model,
+            primary_settings=llm_settings if chosen_model is None else None,
+            fallback_choice=config.translation_llm_fallback,
+            snapshot_kind="translation",
+            snapshot_name=language,
+            operation_label=f"translation into {language}",
+        )
+        return translated, translation_cost
     except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
         logger.error("Translation failed (%s): %s", language, exc, exc_info=True)
-        return None
+        return None, 0.0
+
+
+def _generate_text_with_fallback(
+    config: ForecastConfig,
+    prompt: str,
+    system_prompt: str,
+    *,
+    primary_choice: Optional[str],
+    fallback_choice: Optional[str],
+    snapshot_kind: str,
+    snapshot_name: str,
+    operation_label: str,
+    primary_settings: Optional[LLMSettings] = None,
+    reasoning_enabled: bool = False,
+    reasoning_level: Optional[str] = None,
+) -> tuple[str, LLMSettings, float]:
+    """Generate text, loudly trying one configured fallback after primary failure."""
+    attempts: list[tuple[str, Optional[str], Optional[LLMSettings]]] = [
+        ("primary", primary_choice, primary_settings),
+    ]
+    effective_primary_choice = primary_choice or config.llm or ""
+    fallback_repeats_primary = bool(
+        fallback_choice
+        and (
+            fallback_choice.strip() == effective_primary_choice.strip()
+            or _choice_targets_settings(fallback_choice, primary_settings)
+        )
+    )
+    if fallback_choice and not fallback_repeats_primary:
+        attempts.append(("fallback", fallback_choice, None))
+
+    failures: list[str] = []
+    total_cost_cents = 0.0
+    for index, (role, choice, supplied_settings) in enumerate(attempts):
+        settings: Optional[LLMSettings] = None
+        try:
+            settings = supplied_settings or resolve_llm_settings(config, choice)
+            logger.info(
+                "Requesting %s using %s model %s",
+                operation_label,
+                role,
+                settings.model,
+            )
+            reasoning_payload = (
+                _reasoning_payload(reasoning_enabled, reasoning_level)
+                if _supports_reasoning(settings)
+                else None
+            )
+            thinking_level = (
+                _gemini_thinking_level(reasoning_enabled, reasoning_level)
+                if settings.is_google
+                else None
+            )
+            _snapshot_prompt(snapshot_kind, snapshot_name, settings.model, system_prompt, prompt)
+            generated = generate_forecast_text(
+                prompt,
+                system_prompt,
+                settings,
+                reasoning=reasoning_payload,
+                thinking_level=thinking_level,
+            )
+            total_cost_cents += consume_last_cost_cents()
+            if not generated:
+                raise RuntimeError("the model returned no usable text")
+            return generated, settings, total_cost_cents
+        except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
+            total_cost_cents += consume_last_cost_cents()
+            model_label = settings.model if settings else (choice or "configured default")
+            failures.append(f"{model_label}: {exc}")
+            has_next = index + 1 < len(attempts)
+            if has_next:
+                logger.error(
+                    "PRIMARY LLM FAILURE for %s using %s: %s. Trying configured fallback '%s'.",
+                    operation_label,
+                    model_label,
+                    exc,
+                    fallback_choice,
+                    exc_info=True,
+                )
+            else:
+                logger.error(
+                    "LLM FAILURE for %s using %s: %s. No further model fallback is available.",
+                    operation_label,
+                    model_label,
+                    exc,
+                    exc_info=True,
+                )
+
+    raise RuntimeError(f"All LLM attempts failed for {operation_label}: {'; '.join(failures)}")
+
+
+def _choice_targets_settings(choice: str, settings: Optional[LLMSettings]) -> bool:
+    """Return True when a configured model string names the supplied resolved settings."""
+    if settings is None:
+        return False
+    raw = choice.strip()
+    lowered = raw.lower()
+    if settings.provider == "lmstudio" and lowered.startswith("lms:"):
+        return raw[4:].strip() == settings.model
+    if settings.provider == "openrouter" and lowered.startswith("or:"):
+        return raw[3:].strip() == settings.model
+    if settings.provider == "gemini":
+        model = raw.split("/", 1)[-1] if lowered.startswith("google/gemini-") else raw
+        return model == settings.model
+    if settings.provider == "openai":
+        return raw == settings.model
+    return False
 
 
 def _format_issue_time(tz_name: Optional[str]) -> str:

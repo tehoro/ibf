@@ -19,11 +19,12 @@ class LLMSettings:
     Attributes:
         model: Model identifier (e.g., "gpt-4o-mini").
         api_key: API key for authentication.
-        provider: "openai", "openrouter", or "gemini".
+        provider: "openai", "openrouter", "gemini", or "lmstudio".
         base_url: Optional custom API base URL.
         is_google: True if using the Google Generative AI SDK.
         temperature: Sampling temperature.
         max_tokens: Maximum output tokens.
+        timeout_seconds: Optional request timeout override.
     """
     model: str
     api_key: str
@@ -32,6 +33,7 @@ class LLMSettings:
     is_google: bool = False
     temperature: float = 0.2
     max_tokens: int = 8000
+    timeout_seconds: Optional[float] = None
 
 
 def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] = None) -> LLMSettings:
@@ -59,6 +61,24 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
     )
     choice = base_choice.strip()
     choice_lower = choice.lower()
+
+    if choice_lower.startswith("lms:"):
+        model_name = choice[4:].strip()
+        if not model_name:
+            raise RuntimeError("LM Studio model names must use lms:<model-id> with a non-empty model id.")
+        base_url = _normalize_lm_studio_base_url(
+            config.lm_studio_base_url
+            or os.environ.get("LM_STUDIO_BASE_URL")
+            or "http://localhost:1234/v1"
+        )
+        return LLMSettings(
+            model=model_name,
+            api_key=os.environ.get("LM_STUDIO_API_KEY") or "lm-studio",
+            provider="lmstudio",
+            base_url=base_url,
+            max_tokens=8000,
+            timeout_seconds=3600.0,
+        )
 
     # Direct Google Gemini SDK:
     # - allow "gemini-*" (native Gemini model names)
@@ -112,8 +132,21 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
         )
 
     raise RuntimeError(
-        f"Unknown LLM '{choice}'. Use gemini-* for Gemini, gpt-*/o* for OpenAI, or prefix OpenRouter models with 'or:'."
+        f"Unknown LLM '{choice}'. Use gemini-* for Gemini, gpt-*/o* for OpenAI, "
+        "prefix OpenRouter models with 'or:', or use 'lms:<model-id>' for LM Studio."
     )
+
+
+def _normalize_lm_studio_base_url(value: str) -> str:
+    """Return an LM Studio OpenAI-compatible base URL ending in ``/v1``."""
+    raw = str(value or "").strip().rstrip("/")
+    if not raw:
+        raise RuntimeError("LM Studio base URL cannot be blank.")
+    if "://" not in raw:
+        raw = f"http://{raw}"
+    if not raw.lower().endswith("/v1"):
+        raw = f"{raw}/v1"
+    return raw
 
 
 def _require_env(name: str) -> str:

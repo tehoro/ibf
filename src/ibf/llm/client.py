@@ -8,6 +8,7 @@ import logging
 import re
 import json
 from contextvars import ContextVar
+from functools import lru_cache
 from typing import Any, Optional
 
 from openai import OpenAI
@@ -53,6 +54,7 @@ def generate_forecast_text(
     Returns:
         The generated forecast text, cleaned of any "thinking" artifacts.
     """
+    _reset_last_cost()
     if settings.is_google:
         return _call_gemini(prompt, system_prompt, settings, thinking_level=thinking_level)
     return _call_openai_compatible(prompt, system_prompt, settings, reasoning=reasoning)
@@ -66,7 +68,19 @@ def _call_openai_compatible(
     reasoning: Optional[dict],
 ) -> str:
     """Call an OpenAI-compatible Chat Completions endpoint and clean the result."""
-    client = OpenAI(api_key=settings.api_key, base_url=settings.base_url)
+    if settings.provider == "lmstudio":
+        _validate_lm_studio_model(
+            settings.base_url or "http://localhost:1234/v1",
+            settings.api_key,
+            settings.model,
+        )
+    client_kwargs: dict[str, Any] = {
+        "api_key": settings.api_key,
+        "base_url": settings.base_url,
+    }
+    if settings.timeout_seconds is not None:
+        client_kwargs["timeout"] = settings.timeout_seconds
+    client = OpenAI(**client_kwargs)
     request_kwargs = {
         "model": settings.model,
         "messages": [
@@ -80,7 +94,11 @@ def _call_openai_compatible(
     if reasoning:
         request_kwargs["extra_body"] = reasoning
     response = client.chat.completions.create(**request_kwargs)
-    cost_cents = log_openai_usage_and_cost(settings.model, getattr(response, "usage", None))
+    cost_cents = log_openai_usage_and_cost(
+        settings.model,
+        getattr(response, "usage", None),
+        provider=settings.provider,
+    )
     _LAST_COST_CENTS.set(cost_cents)
     message = response.choices[0].message if response.choices else None
     raw_text = _coerce_message_content(getattr(message, "content", None))
@@ -120,6 +138,43 @@ def _call_openai_compatible(
     return cleaned
 
 
+@lru_cache(maxsize=32)
+def _validate_lm_studio_model(base_url: str, api_key: str, model_name: str) -> None:
+    """Fail clearly unless the exact configured model is visible to LM Studio."""
+    try:
+        client = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=15.0,
+            max_retries=0,
+        )
+        response = client.models.list()
+    except Exception as exc:
+        raise RuntimeError(
+            f"Cannot reach the LM Studio server at {base_url}. Ensure its API server is "
+            "running, reachable on the network, and authentication is configured correctly."
+        ) from exc
+
+    available = sorted(
+        {
+            str(getattr(item, "id", "")).strip()
+            for item in getattr(response, "data", []) or []
+            if str(getattr(item, "id", "")).strip()
+        }
+    )
+    if model_name in available:
+        return
+
+    visible = ", ".join(available[:20]) if available else "none"
+    if len(available) > 20:
+        visible += f", … ({len(available)} total)"
+    raise RuntimeError(
+        f"LM Studio model '{model_name}' is not available from {base_url}. "
+        f"Models reported by /v1/models: {visible}. Check the exact model identifier "
+        "shown in LM Studio and its Just-In-Time model loading setting."
+    )
+
+
 def _call_gemini(
     prompt: str,
     system_prompt: str,
@@ -132,8 +187,6 @@ def _call_gemini(
     from google.genai import types
 
     logging.getLogger("google_genai.models").setLevel(logging.WARNING)
-
-    _reset_last_cost()
 
     try:
         with force_gemini_api_key(settings.api_key):

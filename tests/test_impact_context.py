@@ -1,0 +1,257 @@
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from ibf.api.context_research import (
+    ContextResearchError,
+    EvidenceItem,
+    ResearchBatch,
+    ResearchLocation,
+    ResearchResult,
+)
+from ibf.api.impact import (
+    _cache_path,
+    _generate_context,
+    _generate_context_brave,
+    _generate_context_openai_web_search,
+    _strip_private_source_markers,
+    _validate_brave_synthesis,
+    fetch_impact_context,
+)
+from ibf.config.models import ForecastConfig
+from ibf.config.settings import Secrets
+from ibf.llm.settings import LLMSettings
+
+
+def _research_result(tmp_path: Path) -> ResearchResult:
+    retrieved = datetime.now(timezone.utc).isoformat()
+    evidence = EvidenceItem(
+        bucket="dynamic",
+        query="controlled query",
+        url="https://council.govt.nz/flood-plan",
+        title="District flood plan",
+        hostname="council.govt.nz",
+        published_date="2026-07-20",
+        source_age=["2026-07-20"],
+        retrieved_at=retrieved,
+        passages=["The river road closes when water reaches the marked flood level."],
+    )
+    return ResearchResult(
+        name="Otaki",
+        context_type="location",
+        batches=[
+            ResearchBatch(
+                bucket="dynamic",
+                query="controlled query",
+                retrieved_at=retrieved,
+                local_date="2026-07-26",
+                evidence=[evidence],
+                request_count=1,
+                cache_path=tmp_path / "dynamic.json",
+            )
+        ],
+    )
+
+
+def _valid_synthesis() -> str:
+    return """### Existing Vulnerabilities
+• River Road is vulnerable to flooding. [S1]
+
+### Weather Impact Thresholds
+• No relevant items found.
+
+### Exposed Populations and Assets
+• River Road is an exposed transport route. [S1]
+
+### Upcoming Events
+• No relevant items found."""
+
+
+@pytest.mark.parametrize(
+    ("choice", "provider"),
+    [
+        ("lms:local-context-model", "lmstudio"),
+        ("or:google/gemini-3-flash-preview", "openrouter"),
+        ("gpt-5-mini", "openai"),
+    ],
+)
+def test_brave_evidence_can_be_synthesized_by_local_or_cloud_llm(
+    tmp_path,
+    monkeypatch,
+    choice,
+    provider,
+) -> None:
+    research = _research_result(tmp_path)
+    fake_provider = SimpleNamespace(research=lambda *args, **kwargs: research)
+    monkeypatch.setattr(
+        "ibf.api.impact.BraveContextResearchProvider",
+        lambda api_key: fake_provider,
+    )
+    resolved = LLMSettings(
+        model="resolved-model",
+        api_key="key",
+        provider=provider,
+        base_url="http://localhost:1234/v1" if provider == "lmstudio" else None,
+    )
+    seen = {}
+
+    def fake_resolve(config, override):
+        seen["override"] = override
+        return resolved
+
+    monkeypatch.setattr("ibf.api.impact.resolve_llm_settings", fake_resolve)
+    monkeypatch.setattr("ibf.api.impact.generate_forecast_text", lambda *args, **kwargs: _valid_synthesis())
+    monkeypatch.setattr("ibf.api.impact.consume_last_cost_cents", lambda: 0.25)
+    monkeypatch.setattr("ibf.api.impact._store_brave_synthesis_sidecar", lambda *args, **kwargs: None)
+
+    text, cost = _generate_context_brave(
+        "location",
+        "Otaki",
+        4,
+        "Pacific/Auckland",
+        Secrets(BRAVE_SEARCH_API_KEY="brave-key"),
+        context_llm=choice,
+        extra_context=None,
+        llm_config=ForecastConfig(context_provider="brave", context_llm=choice),
+        representative_locations=(),
+    )
+
+    assert seen["override"] == choice
+    assert "[S1]" not in text
+    assert "River Road" in text
+    assert cost == pytest.approx(0.75)  # 0.25c synthesis + one 0.5c Brave request.
+
+
+def test_brave_synthesis_validation_requires_citations_and_exact_event_dates() -> None:
+    invalid = """### Existing Vulnerabilities
+• Unsupported vulnerability.
+### Weather Impact Thresholds
+• 50 mm in 24 hours. [S2]
+### Exposed Populations and Assets
+• No relevant items found.
+### Upcoming Events
+• Major festival next week. [S1]"""
+
+    errors = _validate_brave_synthesis(invalid, source_count=1)
+
+    assert "uncited bullet in Existing Vulnerabilities" in errors
+    assert "invalid source marker S2" in errors
+    assert "upcoming event without an exact date" in errors
+
+
+def test_brave_synthesis_validation_rejects_event_outside_window() -> None:
+    text = _valid_synthesis().rsplit("• No relevant items found.", 1)[0] + (
+        "• Major festival on 20 August 2026. [S1]"
+    )
+
+    errors = _validate_brave_synthesis(
+        text,
+        source_count=1,
+        event_start=datetime(2026, 7, 26, tzinfo=timezone.utc).date(),
+        event_end=datetime(2026, 8, 5, tzinfo=timezone.utc).date(),
+    )
+
+    assert "upcoming event outside the allowed date window" in errors
+
+
+def test_private_source_markers_are_removed_from_public_context() -> None:
+    assert _strip_private_source_markers("Flood risk. [S1] [S2]\nLocal note. [LOCAL]") == (
+        "Flood risk.\nLocal note."
+    )
+
+
+def test_openai_web_search_failure_does_not_use_ungrounded_chat(monkeypatch) -> None:
+    fake_client = SimpleNamespace(
+        responses=SimpleNamespace(create=lambda **kwargs: (_ for _ in ()).throw(RuntimeError("search down"))),
+        chat=SimpleNamespace(
+            completions=SimpleNamespace(
+                create=lambda **kwargs: pytest.fail("chat fallback must not be called")
+            )
+        ),
+    )
+    monkeypatch.setattr("ibf.api.impact.OpenAI", lambda **kwargs: fake_client)
+
+    text, cost = _generate_context_openai_web_search(
+        "prompt",
+        model_name="gpt-5-mini",
+        api_key="key",
+        name="Otaki",
+    )
+
+    assert text == ""
+    assert cost == 0.0
+
+
+def test_hosted_search_regional_prompt_includes_representative_places(monkeypatch) -> None:
+    captured = {}
+
+    def fake_search(prompt, **kwargs):
+        captured["prompt"] = prompt
+        return "### Existing Vulnerabilities\n• No relevant items found.", 0.0
+
+    monkeypatch.setattr("ibf.api.impact._generate_context_gemini_search", fake_search)
+
+    _generate_context(
+        "regional",
+        "Kapiti Coast",
+        4,
+        "Pacific/Auckland",
+        Secrets(GEMINI_API_KEY="key"),
+        context_llm="gemini-3-flash-preview",
+        representative_locations=(
+            ResearchLocation("Otaki", -40.75, 175.15, "NZ"),
+            ResearchLocation("Waikanae", -40.88, 175.07, "NZ"),
+        ),
+    )
+
+    assert "Otaki, Waikanae" in captured["prompt"]
+    assert "not only for the area name" in captured["prompt"]
+
+
+def test_modern_impact_cache_key_includes_forecast_days(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("ibf.api.impact.CACHE_DIR", tmp_path)
+    date = datetime(2026, 7, 26, tzinfo=timezone.utc)
+
+    four_days = _cache_path("location", "Otaki", 4, "UTC", date_override=date)
+    seven_days = _cache_path("location", "Otaki", 7, "UTC", date_override=date)
+
+    assert four_days != seven_days
+    assert "_4" in four_days.name
+    assert "_7" in seven_days.name
+
+
+def test_brave_failure_can_fall_back_to_explicit_hosted_search_model(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(
+        "ibf.api.impact._load_recent_cache",
+        lambda *args, **kwargs: (None, tmp_path / "context.json"),
+    )
+    monkeypatch.setattr(
+        "ibf.api.impact._generate_context_brave",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            ContextResearchError("Brave down", cost_cents=0.75)
+        ),
+    )
+    seen = {}
+
+    def fake_hosted(*args, **kwargs):
+        seen["model"] = kwargs["context_llm"]
+        return "### Existing Vulnerabilities\n• Hosted fallback.", 1.5
+
+    monkeypatch.setattr("ibf.api.impact._generate_context", fake_hosted)
+    monkeypatch.setattr("ibf.api.impact.store_impact_context", lambda *args, **kwargs: None)
+
+    result = fetch_impact_context(
+        "Otaki",
+        context_provider="brave",
+        context_llm="lms:local-context-model",
+        context_fallback_llm="gemini-3-flash-preview",
+        secrets=Secrets(BRAVE_SEARCH_API_KEY="brave-key"),
+    )
+
+    assert seen["model"] == "gemini-3-flash-preview"
+    assert result.content.endswith("Hosted fallback.")
+    assert result.cost_cents == 2.25

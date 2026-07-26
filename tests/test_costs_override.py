@@ -20,3 +20,4 @@ output = 3.3
     assert entry.input_per_million == 0.9
     assert entry.cached_input_per_million == 0.4
     assert entry.output_per_million == 3.3
+    costs._load_external_costs.cache_clear()

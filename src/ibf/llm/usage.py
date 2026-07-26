@@ -36,14 +36,16 @@ def log_gemini_usage_and_cost(model_name: str, usage_metadata: Any, *, label: st
         return None
 
     prompt_tokens = _get(usage_metadata, "prompt_token_count")
+    cached_prompt_tokens = _get(usage_metadata, "cached_content_token_count")
     completion_tokens = _get(usage_metadata, "candidates_token_count")
     total_tokens = _get(usage_metadata, "total_token_count")
     try:
         prompt_tokens_i = int(prompt_tokens or 0)
+        cached_prompt_tokens_i = int(cached_prompt_tokens or 0)
         completion_tokens_i = int(completion_tokens or 0)
         total_tokens_i = int(total_tokens or (prompt_tokens_i + completion_tokens_i))
     except (TypeError, ValueError):
-        prompt_tokens_i, completion_tokens_i, total_tokens_i = 0, 0, 0
+        prompt_tokens_i, cached_prompt_tokens_i, completion_tokens_i, total_tokens_i = 0, 0, 0, 0
 
     cost_entry = get_model_cost(model_name)
     cost_display = "n/a"
@@ -52,7 +54,7 @@ def log_gemini_usage_and_cost(model_name: str, usage_metadata: Any, *, label: st
         usd = cost_entry.cost_for_usage(
             input_tokens=prompt_tokens_i,
             output_tokens=completion_tokens_i,
-            cached_input_tokens=0,
+            cached_input_tokens=cached_prompt_tokens_i,
         )
         cost_cents = usd * 100
         cost_display = f"{cost_cents:.2f}"
@@ -62,7 +64,7 @@ def log_gemini_usage_and_cost(model_name: str, usage_metadata: Any, *, label: st
         label,
         model_name,
         prompt_tokens_i,
-        0,
+        cached_prompt_tokens_i,
         completion_tokens_i,
         total_tokens_i,
         cost_display,
@@ -70,13 +72,21 @@ def log_gemini_usage_and_cost(model_name: str, usage_metadata: Any, *, label: st
     return cost_cents
 
 
-def log_openai_usage_and_cost(model_name: str, usage: Any, *, label: str = "LLM usage") -> float:
-    """Log OpenAI-compatible usage and return estimated cost in USD cents."""
+def log_openai_usage_and_cost(
+    model_name: str,
+    usage: Any,
+    *,
+    label: str = "LLM usage",
+    provider: str | None = None,
+) -> float:
+    """Log OpenAI-compatible usage, preferring a provider-reported USD cost."""
     if not usage:
         logger.info(
-            "%s – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
+            "%s – model=%s provider=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s cost_source=%s",
             label,
             model_name,
+            provider or "unknown",
+            "n/a",
             "n/a",
             "n/a",
             "n/a",
@@ -90,21 +100,37 @@ def log_openai_usage_and_cost(model_name: str, usage: Any, *, label: str = "LLM 
     except (AttributeError, KeyError, TypeError, ValueError) as exc:  # pragma: no cover - defensive
         logger.debug("Unable to normalize LLM usage data (%s): %s", type(usage), exc)
         logger.info(
-            "%s – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
+            "%s – model=%s provider=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s cost_source=%s",
             label,
             model_name,
+            provider or "unknown",
             getattr(usage, "prompt_tokens", getattr(usage, "input_tokens", "n/a")),
             "n/a",
             getattr(usage, "completion_tokens", getattr(usage, "output_tokens", "n/a")),
             getattr(usage, "total_tokens", "n/a"),
             "n/a",
+            "n/a",
         )
         return 0.0
 
-    cost_entry = get_model_cost(model_name)
+    reported_cost = _usage_value(usage, "cost")
     cost_display = "n/a"
     cost_cents = 0.0
-    if cost_entry:
+    cost_source = "n/a"
+    try:
+        reported_cost_usd = float(reported_cost) if reported_cost is not None else None
+    except (TypeError, ValueError):
+        reported_cost_usd = None
+    if reported_cost_usd is not None and reported_cost_usd < 0:
+        reported_cost_usd = None
+    cost_entry = None
+    if reported_cost_usd is not None and reported_cost_usd >= 0:
+        cost_cents = reported_cost_usd * 100
+        cost_display = f"{cost_cents:.2f}"
+        cost_source = "reported"
+    else:
+        cost_entry = get_model_cost(model_name)
+    if reported_cost_usd is None and cost_entry:
         usd = cost_entry.cost_for_usage(
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
@@ -112,18 +138,38 @@ def log_openai_usage_and_cost(model_name: str, usage: Any, *, label: str = "LLM 
         )
         cost_cents = usd * 100
         cost_display = f"{cost_cents:.2f}"
+        cost_source = "estimated"
 
     logger.info(
-        "%s – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
+        "%s – model=%s provider=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s cost_source=%s",
         label,
         model_name,
+        provider or "unknown",
         prompt_tokens,
         cached_prompt_tokens,
         completion_tokens,
         total_tokens,
         cost_display,
+        cost_source,
     )
     return cost_cents
+
+
+def _usage_value(usage: Any, key: str) -> Any:
+    """Return a field from an SDK object or mapping."""
+    if hasattr(usage, key):
+        return getattr(usage, key)
+    if isinstance(usage, dict):
+        return usage.get(key)
+    model_extra = getattr(usage, "model_extra", None)
+    if isinstance(model_extra, dict) and key in model_extra:
+        return model_extra.get(key)
+    model_dump = getattr(usage, "model_dump", None)
+    if callable(model_dump):
+        dumped = model_dump()
+        if isinstance(dumped, dict):
+            return dumped.get(key)
+    return None
 
 
 def _normalize_openai_usage(usage: Any) -> tuple[int, int, int, int]:

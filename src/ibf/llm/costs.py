@@ -60,28 +60,28 @@ class ModelCost:
 
 # NOTE: Keep this mapping simple so users can edit it without digging through code.
 MODEL_COSTS: Dict[str, ModelCost] = {
-    # Pricing reference (December 2025): https://platform.openai.com/docs/pricing
+    # Pricing checked 26 July 2026 against official provider pricing pages.
     "gpt-4o-mini": ModelCost(
         input_per_million=0.15,
         cached_input_per_million=0.075,
         output_per_million=0.60,
     ),
     "gpt-4.1-mini": ModelCost(
-        input_per_million=0.15,
-        cached_input_per_million=0.075,
-        output_per_million=0.60,
+        input_per_million=0.40,
+        cached_input_per_million=0.10,
+        output_per_million=1.60,
     ),
     "gpt-4o": ModelCost(
         input_per_million=2.50,
         cached_input_per_million=1.25,
         output_per_million=10.00,
     ),
-    "openai/gpt-5.1": ModelCost(
-        input_per_million=1.25,
-        cached_input_per_million=0.125,
+    "gpt-4o-latest": ModelCost(
+        input_per_million=2.50,
+        cached_input_per_million=1.25,
         output_per_million=10.00,
     ),
-    "openai/gpt-5-mini": ModelCost(
+    "gpt-5-mini": ModelCost(
         input_per_million=0.25,
         cached_input_per_million=0.025,
         output_per_million=2.00,
@@ -96,22 +96,16 @@ MODEL_COSTS: Dict[str, ModelCost] = {
         cached_input_per_million=0.03,
         output_per_million=2.50,
     ),
-    # Gemini 3 Flash (preview) pricing (USD per 1M tokens).
-    # Provided by user: $0.50 input, $0.35 cached input, $3.00 output.
+    # Gemini 3 Flash Preview standard paid-tier pricing (USD per 1M tokens).
     "gemini-3-flash-preview": ModelCost(
         input_per_million=0.50,
-        cached_input_per_million=0.35,
+        cached_input_per_million=0.05,
         output_per_million=3.00,
     ),
     "google/gemini-3-flash-preview": ModelCost(
         input_per_million=0.50,
-        cached_input_per_million=0.35,
+        cached_input_per_million=0.05,
         output_per_million=3.00,
-    ),
-    "or:deepseek/deepseek-v3.2": ModelCost(
-        input_per_million=0.27,
-        cached_input_per_million=0.22,
-        output_per_million=0.40,
     ),
 }
 

@@ -10,6 +10,7 @@ __pycache__/
 *.pyc
 ibf_cache/
 outputs/
+logs/
 .pytest_cache/
 
 # Local experimental configs (keep examples/sample-config.json tracked)
