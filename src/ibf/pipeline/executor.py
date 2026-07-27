@@ -32,6 +32,7 @@ from ..api import (
     STANDARD_PRECIPITATION_UNIT,
     STANDARD_WINDSPEED_UNIT,
     ModelSpec,
+    ImpactContext,
     resolve_model_spec,
 )
 from ..render import ForecastPage, render_forecast_page
@@ -322,6 +323,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
     timezone_name = geocode.timezone or "UTC"
     impact_enabled = _as_bool(config.location_impact_based)
     ibf_context = ""
+    impact_context = None
     if impact_enabled:
         context_llm = (getattr(config, "context_llm", None) or "gemini-3.5-flash-lite").strip()
         impact_context = fetch_impact_context(
@@ -418,7 +420,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
         )
 
     translation_target = _location_translation_language(location, config)
-    translated_text, translation_cost = _maybe_translate(
+    translated_text, translation_cost, translation_settings = _maybe_translate(
         forecast_text,
         translation_target,
         config,
@@ -439,6 +441,9 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
             translated_text=translated_text,
             translation_language=translation_target,
             ibf_context=ibf_context,
+            context_provenance=_context_provenance_label(impact_context, timezone_name),
+            forecast_llm=_llm_provenance_label(llm_settings),
+            translation_llm=_llm_provenance_label(translation_settings),
             model_label=model_label,
             model_ack_url=model_ack,
         )
@@ -482,6 +487,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     area_timezone = payloads[0].geocode.timezone or "UTC"
     impact_enabled = _as_bool(config.area_impact_based)
     ibf_context = ""
+    impact_context = None
     if impact_enabled:
         context_llm = (getattr(config, "context_llm", None) or "gemini-3.5-flash-lite").strip()
         impact_context = fetch_impact_context(
@@ -596,7 +602,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
         )
 
     translation_target = _area_translation_language(area, config)
-    translated_text, translation_cost = _maybe_translate(
+    translated_text, translation_cost, translation_settings = _maybe_translate(
         forecast_text,
         translation_target,
         config,
@@ -619,6 +625,9 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
             translated_text=translated_text,
             translation_language=translation_target,
             ibf_context=ibf_context,
+            context_provenance=_context_provenance_label(impact_context, area_timezone),
+            forecast_llm=_llm_provenance_label(llm_settings),
+            translation_llm=_llm_provenance_label(translation_settings),
             map_link=map_link,
             model_label=model_label,
             model_ack_url=model_ack,
@@ -661,9 +670,10 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     area_timezone = payloads[0].geocode.timezone or "UTC"
     impact_enabled = _as_bool(config.area_impact_based)
     ibf_context = ""
+    impact_context = None
     if impact_enabled:
         context_llm = (getattr(config, "context_llm", None) or "gemini-3.5-flash-lite").strip()
-        regional_context = fetch_impact_context(
+        impact_context = fetch_impact_context(
             area.name,
             context_type="regional",
             forecast_days=forecast_days,
@@ -686,8 +696,8 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
                 for payload in payloads
             ],
         )
-        ibf_context = regional_context.content
-        _record_cost("Regional", area.name, context=regional_context.cost_cents)
+        ibf_context = impact_context.content
+        _record_cost("Regional", area.name, context=impact_context.cost_cents)
         if ibf_context:
             logger.info("Fetched impact context for regional area '%s'", area.name)
         else:
@@ -777,7 +787,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
         )
 
     translation_target = _area_translation_language(area, config)
-    translated_text, translation_cost = _maybe_translate(
+    translated_text, translation_cost, translation_settings = _maybe_translate(
         forecast_text,
         translation_target,
         config,
@@ -800,6 +810,9 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
             translated_text=translated_text,
             translation_language=translation_target,
             ibf_context=ibf_context,
+            context_provenance=_context_provenance_label(impact_context, area_timezone),
+            forecast_llm=_llm_provenance_label(llm_settings),
+            translation_llm=_llm_provenance_label(translation_settings),
             map_link=map_link,
             model_label=model_label,
             model_ack_url=model_ack,
@@ -1795,24 +1808,92 @@ def _area_translation_language(area: AreaConfig, config: ForecastConfig) -> Opti
     return area.translation_language or config.translation_language
 
 
+def _llm_provenance_label(settings: Optional[LLMSettings]) -> Optional[str]:
+    """Return a concise public label for the model that completed an LLM operation."""
+    if settings is None:
+        return None
+    provider_names = {
+        "gemini": "Gemini",
+        "openai": "OpenAI",
+        "openrouter": "OpenRouter",
+        "lmstudio": "LM Studio",
+    }
+    provider = provider_names.get(settings.provider, settings.provider.strip().title())
+    return f"{provider} ({settings.model})" if provider else settings.model
+
+
+def _configured_model_provenance_label(model: Optional[str]) -> str:
+    """Describe a configured model identifier without resolving credentials."""
+    raw = (model or "unknown model").strip()
+    lowered = raw.lower()
+    if lowered.startswith("lms:"):
+        return f"LM Studio ({raw[4:].strip()})"
+    if lowered.startswith("or:"):
+        return f"OpenRouter ({raw[3:].strip()})"
+    if lowered.startswith("google/gemini-"):
+        return f"Gemini ({raw.split('/', 1)[1]})"
+    if lowered.startswith("gemini-"):
+        return f"Gemini ({raw})"
+    if lowered.startswith("gpt-") or (lowered.startswith("o") and lowered[1:2].isdigit()):
+        return f"OpenAI ({raw})"
+    return raw
+
+
+def _context_provenance_label(
+    context: Optional[ImpactContext],
+    timezone_name: str,
+) -> Optional[str]:
+    """Describe how and when an impact-context block was produced."""
+    if context is None or not context.content:
+        return None
+    provider = str(getattr(context, "provider", None) or "").strip().lower()
+    model = getattr(context, "model", None)
+    if provider == "brave":
+        method = f"Brave Search, summarised using {_configured_model_provenance_label(model)}"
+    elif provider == "llm-search" and (model or "").lower().lstrip().startswith(
+        ("gemini-", "google/gemini-")
+    ):
+        method = f"Gemini Google Search ({(model or '').split('/', 1)[-1]})"
+    elif provider == "llm-search":
+        method = f"OpenAI web search ({model or 'unknown model'})"
+    else:
+        method = _configured_model_provenance_label(model)
+
+    generated = getattr(context, "generated_at", None)
+    if not generated:
+        return method
+    try:
+        parsed = datetime.fromisoformat(generated.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        try:
+            parsed = parsed.astimezone(ZoneInfo(timezone_name))
+        except ZoneInfoNotFoundError:
+            pass
+        timestamp = f"{parsed.day} {parsed.strftime('%B %Y at %H:%M %Z')}"
+    except ValueError:
+        timestamp = generated
+    return f"{method}; generated {timestamp}"
+
+
 def _maybe_translate(
     text: str,
     language: Optional[str],
     config: ForecastConfig,
     llm_settings: Optional[LLMSettings],
-) -> tuple[Optional[str], float]:
+) -> tuple[Optional[str], float, Optional[LLMSettings]]:
     """Translate finished forecast text when a non-English target language is requested."""
     if not language:
-        return None, 0.0
+        return None, 0.0, None
     if language.lower().startswith("en"):
-        return None, 0.0
+        return None, 0.0, None
     if not text:
-        return None, 0.0
+        return None, 0.0, None
     try:
         chosen_model = config.translation_llm
         system_prompt = build_translation_system_prompt(language)
         user_prompt = build_translation_user_prompt(text)
-        translated, _, translation_cost = _generate_text_with_fallback(
+        translated, translation_settings, translation_cost = _generate_text_with_fallback(
             config,
             user_prompt,
             system_prompt,
@@ -1823,10 +1904,10 @@ def _maybe_translate(
             snapshot_name=language,
             operation_label=f"translation into {language}",
         )
-        return translated, translation_cost
+        return translated, translation_cost, translation_settings
     except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
         logger.error("Translation failed (%s): %s", language, exc, exc_info=True)
-        return None, 0.0
+        return None, 0.0, None
 
 
 def _generate_text_with_fallback(

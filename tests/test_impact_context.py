@@ -23,6 +23,7 @@ from ibf.api.impact import (
     _generate_context_gemini_search,
     _generate_context_openai_web_search,
     _filter_invalid_upcoming_event_bullets,
+    _load_context_provenance,
     _repair_brave_synthesis_structure,
     _store_hosted_search_sidecar,
     _strip_private_source_markers,
@@ -540,6 +541,31 @@ def test_modern_impact_cache_key_includes_forecast_days(tmp_path, monkeypatch) -
     assert "_7" in seven_days.name
 
 
+def test_context_cache_provenance_round_trips(tmp_path: Path) -> None:
+    cache_path = tmp_path / "context.json"
+    cache_path.write_text(
+        json.dumps(
+            {
+                "context": "Context",
+                "timestamp": "2026-07-28T08:30:00+12:00",
+                "source_provider": "brave",
+                "source_model": "lms:gemma-4-12b-it",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    provider, model, generated_at = _load_context_provenance(
+        cache_path,
+        default_provider="llm-search",
+        default_model="gemini-3.5-flash",
+    )
+
+    assert provider == "brave"
+    assert model == "lms:gemma-4-12b-it"
+    assert generated_at == "2026-07-28T08:30:00+12:00"
+
+
 def test_new_default_context_model_does_not_share_legacy_unsuffixed_cache_key(
     tmp_path, monkeypatch
 ) -> None:
@@ -592,3 +618,6 @@ def test_brave_failure_can_fall_back_to_explicit_hosted_search_model(monkeypatch
     assert seen["model"] == "gemini-3-flash-preview"
     assert result.content.endswith("Hosted fallback.")
     assert result.cost_cents == 2.25
+    assert result.provider == "llm-search"
+    assert result.model == "gemini-3-flash-preview"
+    assert result.generated_at is not None

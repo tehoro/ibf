@@ -139,6 +139,8 @@ def test_cli_run_generates_forecasts(
     html = area_page.read_text(encoding="utf-8")
     assert "Show map for Sample Area" in html
     assert f"../maps/{slugify('Sample Area')}.png" in html
+    assert "Forecast language model: Mock (mock-model)." in html
+    assert "Translation language model: Mock (mock-translation)." in html
 
     hash_file = web_root / ".ibf_maps_hash"
     assert hash_file.exists()

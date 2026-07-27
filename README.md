@@ -121,6 +121,10 @@ Impact context note:
 - If impact context cannot be obtained, IBF loudly logs the failure and continues without that
   extra context. Configure `context_fallback_llm` only if an experimental Brave run should try the
   recommended hosted-search method once.
+- Generated forecast pages identify the language model that actually wrote the forecast and, when
+  applicable, the model that produced the translation. The expanded impact-context panel also
+  records its research provider, model, and generation time; this metadata is retained when context
+  is reused from cache.
 
 Recommended LLM choices
 -----------------------
