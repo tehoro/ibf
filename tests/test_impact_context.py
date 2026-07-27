@@ -18,6 +18,7 @@ from ibf.api.impact import (
     _generate_context,
     _generate_context_brave,
     _generate_context_openai_web_search,
+    _repair_brave_synthesis_structure,
     _strip_private_source_markers,
     _validate_brave_synthesis,
     fetch_impact_context,
@@ -156,6 +157,29 @@ def test_brave_synthesis_validation_rejects_event_outside_window() -> None:
     )
 
     assert "upcoming event outside the allowed date window" in errors
+
+
+def test_brave_synthesis_repairs_missing_empty_section_wrapping_and_marker_lists() -> None:
+    raw = """### Existing Vulnerabilities
+* Drainage is constrained. [S1].
+### Weather Impact Thresholds
+* 30 mm in one hour caused road flooding. [S1, S2].
+### Exposed Populations and Assets
+* Major
+road corridors are exposed. [S2].
+### Historical Context
+* This extra section must be omitted. [S3]
+### Upcoming Events
+* • No relevant items found."""
+
+    repaired = _repair_brave_synthesis_structure(raw)
+
+    assert "### Historical Context" not in repaired
+    assert "• Major road corridors are exposed. [S2]." in repaired
+    assert "30 mm in one hour caused road flooding. [S1] [S2]." in repaired
+    assert repaired.endswith("### Upcoming Events\n• No relevant items found.")
+    assert "• •" not in repaired
+    assert _validate_brave_synthesis(repaired, source_count=3) == []
 
 
 def test_private_source_markers_are_removed_from_public_context() -> None:

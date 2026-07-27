@@ -14,14 +14,18 @@ from ibf.api.context_research import (
 )
 
 
-def _brave_payload(url: str, title: str) -> dict:
+def _brave_payload(
+    url: str,
+    title: str,
+    passage: str = "Official Otaki evidence with a 50 mm rainfall threshold.",
+) -> dict:
     return {
         "grounding": {
             "generic": [
                 {
                     "url": url,
                     "title": title,
-                    "snippets": ["Official evidence with a 50 mm rainfall threshold."],
+                    "snippets": [passage],
                 }
             ],
             "map": [],
@@ -38,24 +42,36 @@ def _brave_payload(url: str, title: str) -> dict:
 
 def test_brave_research_uses_split_cadences_and_private_sidecars(tmp_path, monkeypatch) -> None:
     now = datetime(2026, 7, 26, 14, 0, tzinfo=ZoneInfo("Pacific/Auckland"))
-    monkeypatch.setattr("ibf.api.context_research.get_local_now", lambda _timezone: now)
+    current_time = [now]
+    monkeypatch.setattr(
+        "ibf.api.context_research.get_local_now", lambda _timezone: current_time[0]
+    )
     provider = BraveContextResearchProvider("brave-key", cache_dir=tmp_path)
-    queries: list[str] = []
+    requests_seen: list[tuple[str, str | None]] = []
 
-    def fake_request(query, locations):
-        queries.append(query)
+    def fake_request(query, locations, *, freshness=None):
+        requests_seen.append((query, freshness))
+        passage = "Official Otaki evidence with a 50 mm rainfall threshold."
+        if "current flood" in query:
+            passage = "Current flooding affects Ōtaki roads and infrastructure."
+        elif "major festival" in query:
+            passage = "The major Ōtaki festival will be held on 30 July 2026."
         return _brave_payload(
-            f"https://council.govt.nz/source-{len(queries)}",
-            f"Source {len(queries)}",
+            f"https://council.govt.nz/otaki-source-{len(requests_seen)}",
+            f"Otaki Source {len(requests_seen)}",
+            passage,
         )
 
     monkeypatch.setattr(provider, "_request", fake_request)
     locations = [
         ResearchLocation(
-            name="Otaki",
+            name="Ōtaki, New Zealand",
             latitude=-40.75,
             longitude=175.15,
             country_code="NZ",
+            country_name="New Zealand",
+            admin1="Wellington Region",
+            admin2="Kapiti Coast District",
         )
     ]
 
@@ -71,20 +87,35 @@ def test_brave_research_uses_split_cadences_and_private_sidecars(tmp_path, monke
         timezone_name="Pacific/Auckland",
         representative_locations=locations,
     )
+    current_time[0] = datetime(2026, 7, 27, 14, 0, tzinfo=ZoneInfo("Pacific/Auckland"))
+    third = provider.research(
+        "Otaki, New Zealand",
+        context_type="location",
+        timezone_name="Pacific/Auckland",
+        representative_locations=locations,
+    )
 
-    assert first.request_count == 2
-    assert first.estimated_cost_cents == 1.0
-    assert len(first.evidence) == 2
+    assert first.request_count == 4
+    assert first.estimated_cost_cents == 2.0
+    assert len(first.evidence) == 4
     assert second.request_count == 0
-    assert len(queries) == 2
-    assert all(len(query.split()) <= 50 for query in queries)
+    assert third.request_count == 1
+    assert len(requests_seen) == 5
+    assert all(len(query.split()) <= 50 for query, _freshness in requests_seen)
+    assert all('"Ōtaki"' in query for query, _freshness in requests_seen)
+    assert '"Kapiti Coast"' in requests_seen[0][0]
+    assert '"Kapiti Coast"' not in requests_seen[2][0]  # thresholds use locality only
+    assert requests_seen[0][1] == "pw"
+    assert all(freshness is None for _query, freshness in requests_seen[1:4])
     assert {path.name.split("__")[-1] for path in first.evidence_paths} == {
-        "dynamic.json",
-        "static.json",
+        "current.json",
+        "events.json",
+        "thresholds.json",
+        "exposure.json",
     }
     sidecar = json.loads(first.evidence_paths[0].read_text(encoding="utf-8"))
-    assert sidecar["query"] in queries
-    assert sidecar["evidence"][0]["url"].startswith("https://council.govt.nz/")
+    assert sidecar["query"] in [query for query, _freshness in requests_seen]
+    assert sidecar["evidence"][0]["url"].startswith("https://council.govt.nz/otaki")
     assert sidecar["evidence"][0]["published_date"] == "2026-07-26"
 
 
@@ -112,11 +143,13 @@ def test_brave_request_uses_country_and_coordinate_headers(tmp_path, monkeypatch
             ResearchLocation("Otaki", -40.75, 175.15, "NZ"),
             ResearchLocation("Waikanae", -40.88, 175.07, "NZ"),
         ),
+        freshness="pm",
     )
 
     assert captured["headers"]["X-Subscription-Token"] == "brave-key"
     assert captured["headers"]["X-Loc-Country"] == "NZ"
     assert captured["body"]["country"] == "NZ"
+    assert captured["body"]["freshness"] == "pm"
     assert float(captured["headers"]["X-Loc-Lat"]) == (-40.75 - 40.88) / 2
     assert captured["timeout"] == 30
 
@@ -173,3 +206,55 @@ def test_brave_error_includes_structured_api_detail(tmp_path, monkeypatch) -> No
     message = str(exc_info.value)
     assert "OPTION_NOT_IN_PLAN" in message
     assert "not subscribed in the plan" in message
+
+
+def test_brave_rejects_wrong_place_evidence_and_records_it(tmp_path, monkeypatch) -> None:
+    now = datetime(2026, 7, 26, 14, 0, tzinfo=ZoneInfo("Pacific/Auckland"))
+    monkeypatch.setattr("ibf.api.context_research.get_local_now", lambda _timezone: now)
+    provider = BraveContextResearchProvider("brave-key", cache_dir=tmp_path)
+
+    def fake_request(query, locations, *, freshness=None):
+        if "current" in query:
+            return _brave_payload(
+                "https://waitaki.govt.nz/flood",
+                "Waitaki flooding in Oamaru",
+                "Waitaki District declared an emergency after flooding in Oamaru, Otago.",
+            )
+        return _brave_payload(
+            f"https://kapiticoast.govt.nz/{len(query)}",
+            "Ōtaki flood information",
+            (
+                "Kapiti Coast District lists a major Ōtaki event on 30 July 2026."
+                if "major festival" in query
+                else "Kapiti Coast District provides official flood information for Ōtaki."
+            ),
+        )
+
+    monkeypatch.setattr(provider, "_request", fake_request)
+    locations = (
+        ResearchLocation(
+            "Ōtaki, New Zealand",
+            -40.75,
+            175.15,
+            "NZ",
+            "New Zealand",
+            "Wellington Region",
+            "Kapiti Coast District",
+        ),
+    )
+
+    result = provider.research(
+        "Otaki, New Zealand",
+        context_type="location",
+        timezone_name="Pacific/Auckland",
+        representative_locations=locations,
+    )
+
+    current = next(batch for batch in result.batches if batch.bucket == "current")
+    assert current.evidence == []
+    assert len(current.rejected_evidence) == 2  # initial search plus the one bounded retry
+    sidecar = json.loads(current.cache_path.read_text(encoding="utf-8"))
+    assert sidecar["rejected_evidence"][0]["rejection_reason"] == (
+        "failed place, source-quality, freshness, or event-window validation"
+    )
+    assert all("Waitaki" not in item.title for item in result.evidence)

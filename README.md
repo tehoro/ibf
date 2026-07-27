@@ -365,9 +365,11 @@ the TOML file or commit the `.env` file. Brave's authentication guide is
 
 At the pricing checked for 0.8.0, Brave Search/LLM Context costs US$5 per 1,000 requests and
 includes US$5 of monthly credits. With 20 forecast entities, the normal cadence is about 600
-daily-dynamic requests per 30-day month, plus up to 20 static requests on a cold cache and any
-bounded gap fills. Re-running forecasts during the same local day reuses that research. Check the
-linked pricing page before relying on this allowance because provider pricing can change.
+daily current-condition requests, about 200 event requests on a three-day cadence, and about 20
+threshold/exposure requests per month when their 60-day caches are averaged over time: roughly 820
+requests before bounded gap fills. Re-running forecasts during the same local day reuses that
+research. Check the linked pricing page before relying on this allowance because provider pricing
+can change.
 
 LM Studio (local or network models)
 -----------------------------------
@@ -536,11 +538,20 @@ The research provider and the model are separate choices:
 
 The Brave provider is staged and bounded:
 
-- One daily dynamic search combines current vulnerabilities/disruptions with major events in the
-  next ten days. Events require an exact date.
-- One slower-changing search covers local quantitative impact thresholds and exposed populations
-  or assets; it is cached for 60 days.
-- At most one additional gap-filling search is allowed when a category returns no evidence.
+- Four short searches independently cover current vulnerabilities/disruptions, exact-dated major
+  events, quantitative impact thresholds, and exposed populations/assets. This avoids asking one
+  search query to satisfy unrelated evidence needs.
+- Current conditions use Brave's one-week freshness filter and refresh once per local day. Events
+  refresh every three days and are rejected unless their evidence contains an exact date inside
+  the ten-day window. Threshold and exposure evidence is cached for 60 days.
+- At most one additional gap-filling search is allowed per context job, and only when Brave
+  returned sources but all were rejected by evidence validation.
+- Legacy geocode records are automatically enriched once with district/region information. Search
+  terms use the canonical locality and an appropriate administrative region; users do not maintain
+  per-location spelling exclusions.
+- Every source must mention the locality, its local administrative area, the named area, or one of
+  an area's representative places. Near-name results for another place are rejected before
+  synthesis. Generic low-quality reference sources are also excluded.
 - For areas and regional forecasts, both paths receive representative place names so research is
   not based on the area name alone; Brave also receives centroid coordinates and available country
   information.
@@ -548,9 +559,10 @@ The Brave provider is staged and bounded:
   Brave's supported search markets (as with some territories and small-island states), IBF uses
   Brave's global search market rather than sending an invalid code or defaulting results to the US.
 - Retrieved query text, URL, title, hostname, source/published date, retrieval time, and supporting
-  passages are kept in private evidence sidecars. The synthesising model must cite those evidence
-  records; IBF validates the citations and exact event dates before removing citation markers from
-  the public forecast context.
+  passages are kept in private evidence sidecars, together with sources rejected by validation.
+  The synthesising model must cite accepted evidence. IBF repairs harmless formatting variations,
+  validates citations and exact event dates, and removes private citation markers from the public
+  forecast context.
 
 `context_fallback_llm` is intentionally different from a synthesis-model fallback. If the Brave
 path fails, it makes one attempt through the existing hosted-search path, so it must name a direct
@@ -590,12 +602,14 @@ safe to delete the entire folder.
 | --- | --- | --- | --- |
 | Forecast downloads | `ibf_cache/forecasts/*.json` | Raw Open-Meteo responses keyed by request parameters. | TTL default 60 minutes; files older than 48 hours are cleaned when a new request runs. |
 | Processed datasets | `ibf_cache/processed/*.json` | Pre-processed dataset used for prompts and fallback text. | Overwritten on next run for the same location. |
-| Geocode cache | `ibf_cache/geocode/search_cache.json` | Place name -> lat/lon/timezone cache. | No TTL; delete to refresh. |
+| Geocode cache | `ibf_cache/geocode/search_cache.json` | Place name -> lat/lon/timezone and administrative identity cache. Legacy entries are enriched once without replacing their forecast coordinates/elevation. | No TTL; delete to refresh. |
 | Country cache | `ibf_cache/geocode/country_cache.json` | Lat/lon -> country code for alert routing. | No TTL; delete to refresh. |
 | Hosted-search impact context | `ibf_cache/impact/*.json` | Synthesised impact context from `llm-search`. | Reused for up to 3 local days. |
 | Brave synthesised context | `ibf_cache/impact/*.json` | Public-ready context synthesised from Brave evidence. | Once per local day. |
-| Brave dynamic evidence | `ibf_cache/impact/evidence/*__dynamic.json` | Current vulnerabilities/disruptions and exact-dated events. | Once per local day. |
-| Brave static evidence | `ibf_cache/impact/evidence/*__static.json` | Quantitative thresholds and exposed populations/assets. | 60 days. |
+| Brave current evidence | `ibf_cache/impact/evidence/*__current.json` | Fresh current vulnerabilities and disruptions. | Once per local day. |
+| Brave event evidence | `ibf_cache/impact/evidence/*__events.json` | Major events with exact in-window dates. | 3 days. |
+| Brave threshold evidence | `ibf_cache/impact/evidence/*__thresholds.json` | Quantitative local impact thresholds. | 60 days. |
+| Brave exposure evidence | `ibf_cache/impact/evidence/*__exposure.json` | Exposed populations, infrastructure and assets. | 60 days. |
 | Brave cited synthesis | `ibf_cache/impact/evidence/synthesis_*.json` | Private audit record linking synthesis claims to source markers. | Retained with the impact cache; safe to delete manually. |
 | Prompt snapshots | `ibf_cache/prompts/*.txt` | Prompt snapshots for debugging. | Older than 3 days are cleaned; a small number are retained. |
 

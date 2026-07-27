@@ -22,6 +22,7 @@ from ..llm.usage import log_gemini_usage_and_cost, log_openai_usage_and_cost
 from ..util import ensure_directory, get_local_now, safe_unlink, write_text_file
 from ..util.env import force_gemini_api_key
 from .context_research import (
+    BRAVE_RESEARCH_VERSION,
     BraveContextResearchProvider,
     ContextResearchError,
     ResearchLocation,
@@ -473,6 +474,13 @@ def _normalize_research_locations(
                         if location.get("country_code")
                         else None
                     ),
+                    country_name=(
+                        str(location["country_name"])
+                        if location.get("country_name")
+                        else None
+                    ),
+                    admin1=str(location["admin1"]) if location.get("admin1") else None,
+                    admin2=str(location["admin2"]) if location.get("admin2") else None,
                 )
             )
         except (KeyError, TypeError, ValueError):
@@ -492,7 +500,8 @@ def _context_cache_identity(
     if provider == "llm-search" and not locations:
         return context_llm
     payload = {
-        "schema": 2,
+        "schema": 3,
+        "brave_research_version": BRAVE_RESEARCH_VERSION,
         "provider": provider,
         "context_llm": context_llm,
         "fallback_llm": fallback_llm,
@@ -503,6 +512,9 @@ def _context_cache_identity(
                 "latitude": location.latitude,
                 "longitude": location.longitude,
                 "country_code": location.country_code,
+                "country_name": location.country_name,
+                "admin1": location.admin1,
+                "admin2": location.admin2,
             }
             for location in locations
         ],
@@ -546,7 +558,8 @@ def _generate_context_brave(
     )
 
     synthesis_cost_cents = 0.0
-    raw_text = ""
+    raw_model_text = ""
+    normalized_text = ""
     validation_errors: list[str] = []
     local_date = get_local_now(timezone_name).date()
     events_end_date = local_date + timedelta(days=EVENT_LOOKAHEAD_DAYS)
@@ -558,16 +571,20 @@ def _generate_context_brave(
                     f"{user_prompt}\n\n"
                     "Your previous draft failed validation. Correct it without adding unsupported facts.\n"
                     f"Validation errors: {'; '.join(validation_errors)}\n\n"
-                    f"Previous draft:\n{raw_text}"
+                    f"Previous draft:\n{raw_model_text}"
                 )
-            raw_text = generate_forecast_text(prompt, system_prompt, settings)
+            raw_model_text = generate_forecast_text(prompt, system_prompt, settings)
             synthesis_cost_cents += consume_last_cost_cents()
+            normalized_text = _repair_brave_synthesis_structure(raw_model_text)
             validation_errors = _validate_brave_synthesis(
-                raw_text,
+                normalized_text,
                 len(research.evidence),
                 event_start=local_date,
                 event_end=events_end_date,
             )
+            if not _has_substantive_brave_bullet(normalized_text):
+                validation_errors.append("no evidence-based bullets")
+                validation_errors = list(dict.fromkeys(validation_errors))
             if not validation_errors:
                 break
             logger.warning(
@@ -587,7 +604,8 @@ def _generate_context_brave(
         _store_brave_synthesis_sidecar(
             research,
             model_name=f"{settings.provider}:{settings.model}",
-            raw_text=raw_text,
+            raw_text=raw_model_text,
+            normalized_text=normalized_text,
             validation_errors=validation_errors,
         )
     except OSError as exc:
@@ -601,7 +619,7 @@ def _generate_context_brave(
             cost_cents=synthesis_cost_cents + research.estimated_cost_cents,
         )
 
-    public_text = _strip_private_source_markers(_clean_context_text(raw_text))
+    public_text = _strip_private_source_markers(_clean_context_text(normalized_text))
     if not public_text:
         raise ContextResearchError(f"Context synthesis for {name} returned no usable text.")
     return public_text, synthesis_cost_cents + research.estimated_cost_cents
@@ -650,19 +668,89 @@ def _build_brave_synthesis_prompt(
         "include URLs, a sources section, an introduction, or a conclusion. Describe a disruption "
         "as current only when the evidence shows that it is recent or still ongoing; do not turn a "
         "historical incident into a current vulnerability.",
+        "A flood return period or annual exceedance probability is hazard-design information, not "
+        "a forecast impact threshold. Include it under Weather Impact Thresholds only when the "
+        "evidence also provides a forecast-comparable magnitude (such as rainfall, wind, river "
+        "level, flow, surge, temperature, or snowfall) or an explicit official trigger level.",
+        "Use each matching bucket as the primary evidence for its section. You may use another "
+        "accepted bucket when it directly supports that section—for example, an exposure source "
+        "may document an enduring infrastructure vulnerability or a quantitative design event. "
+        "Do not describe baseline exposure as a current disruption. Upcoming Events must use only "
+        "events-bucket evidence. If no accepted evidence supports a section, use the exact No "
+        "relevant items found bullet.",
     ]
     if extra_context and extra_context.strip():
         lines.extend(["", "LOCAL CONTEXT (authoritative user-supplied information):", extra_context.strip()])
     lines.extend(["", "WEB EVIDENCE:"])
-    for index, item in enumerate(research.evidence, start=1):
-        date_label = item.published_date or "date unavailable"
-        lines.append(
-            f"[S{index}] bucket={item.bucket}; title={item.title}; host={item.hostname}; "
-            f"source_date={date_label}; url={item.url}"
-        )
-        for passage in item.passages:
-            lines.append(f"- {passage}")
+    source_index = 1
+    for batch in research.batches:
+        lines.append(f"\nBUCKET {batch.bucket.upper()} ({len(batch.evidence)} accepted sources):")
+        if not batch.evidence:
+            lines.append("- No geographically valid evidence was retrieved for this bucket.")
+            continue
+        for item in batch.evidence:
+            date_label = item.published_date or "date unavailable"
+            lines.append(
+                f"[S{source_index}] bucket={item.bucket}; title={item.title}; host={item.hostname}; "
+                f"source_date={date_label}; url={item.url}"
+            )
+            for passage in item.passages:
+                lines.append(f"- {passage}")
+            source_index += 1
     return system_prompt, "\n".join(lines)
+
+
+def _repair_brave_synthesis_structure(text: str) -> str:
+    """Normalize harmless model formatting variations before strict validation."""
+    normalized = _standardize_context_headings(text or "")
+    normalized = re.sub(
+        r"\[\s*(S\d+(?:\s*(?:,|and|&|/)\s*S\d+)*)\s*\]",
+        lambda match: " ".join(
+            f"[{marker}]" for marker in re.findall(r"S\d+", match.group(1))
+        ),
+        normalized,
+        flags=re.IGNORECASE,
+    )
+    sections: dict[str, list[str]] = {heading: [] for heading in CONTEXT_SECTION_HEADINGS}
+    current_section: Optional[str] = None
+    current_bullet: Optional[str] = None
+
+    def flush_bullet() -> None:
+        nonlocal current_bullet
+        if current_section and current_bullet:
+            sections[current_section].append(re.sub(r"\s+", " ", current_bullet).strip())
+        current_bullet = None
+
+    for raw_line in normalized.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("### "):
+            flush_bullet()
+            candidate = line[4:].strip()
+            current_section = candidate if candidate in CONTEXT_SECTION_HEADINGS else None
+            continue
+        if current_section is None:
+            continue
+        if line.startswith(("•", "-", "*")):
+            flush_bullet()
+            content = re.sub(r"^[•*-]\s*", "", line[1:].strip())
+            current_bullet = f"• {content}"
+        elif current_bullet:
+            current_bullet += f" {line}"
+    flush_bullet()
+
+    rendered: list[str] = []
+    for heading in CONTEXT_SECTION_HEADINGS:
+        rendered.append(f"### {heading}")
+        rendered.extend(sections[heading] or ["• No relevant items found."])
+        rendered.append("")
+    return "\n".join(rendered).strip()
+
+
+def _has_substantive_brave_bullet(text: str) -> bool:
+    """Return whether at least one retained bullet is grounded in evidence or local context."""
+    return bool(re.search(r"^\s*[•*-].*\[(?:S\d+|LOCAL)\]", text, flags=re.MULTILINE))
 
 
 def _validate_brave_synthesis(
@@ -755,6 +843,7 @@ def _store_brave_synthesis_sidecar(
     *,
     model_name: str,
     raw_text: str,
+    normalized_text: str,
     validation_errors: list[str],
 ) -> None:
     """Persist the cited synthesis privately beside its evidence sidecars."""
@@ -764,7 +853,8 @@ def _store_brave_synthesis_sidecar(
         "model": model_name,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "evidence_paths": [str(path) for path in research.evidence_paths],
-        "raw_cited_synthesis": raw_text,
+        "raw_model_synthesis": raw_text,
+        "normalized_cited_synthesis": normalized_text,
         "validation_errors": validation_errors,
     }
     digest = hashlib.sha256(

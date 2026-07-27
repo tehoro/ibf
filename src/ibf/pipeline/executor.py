@@ -25,7 +25,6 @@ from ..api import (
     ForecastRequest,
     AlertSummary,
     GeocodeResult,
-    ENSEMBLE_MODELS,
     DEFAULT_ENSEMBLE_MODEL,
     HOURLY_FIELDS_SNOW_PROFILE,
     PRESSURE_LEVELS_SNOW_HPA,
@@ -311,16 +310,22 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
             llm_config=config,
             representative_locations=[
                 {
-                    "name": name,
+                    "name": geocode.name,
                     "latitude": geocode.latitude,
                     "longitude": geocode.longitude,
                     "country_code": geocode.country_code,
+                    "country_name": geocode.country_name,
+                    "admin1": geocode.admin1,
+                    "admin2": geocode.admin2,
                 }
             ],
         )
         ibf_context = impact_context.content
         _record_cost("Location", unique_name, context=impact_context.cost_cents)
-        logger.info("Fetched impact context for '%s'", name)
+        if ibf_context:
+            logger.info("Fetched impact context for '%s'", name)
+        else:
+            logger.warning("No impact context will be used for '%s'.", name)
     else:
         logger.info("Impact context disabled for '%s'; skipping.", name)
     formatted_dataset = payload.formatted_dataset
@@ -458,17 +463,23 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
             llm_config=config,
             representative_locations=[
                 {
-                    "name": payload.name,
+                    "name": payload.geocode.name,
                     "latitude": payload.geocode.latitude,
                     "longitude": payload.geocode.longitude,
                     "country_code": payload.geocode.country_code,
+                    "country_name": payload.geocode.country_name,
+                    "admin1": payload.geocode.admin1,
+                    "admin2": payload.geocode.admin2,
                 }
                 for payload in payloads
             ],
         )
         ibf_context = impact_context.content
         _record_cost("Area", area.name, context=impact_context.cost_cents)
-        logger.info("Fetched impact context for area '%s'", area.name)
+        if ibf_context:
+            logger.info("Fetched impact context for area '%s'", area.name)
+        else:
+            logger.warning("No impact context will be used for area '%s'.", area.name)
     else:
         logger.info("Impact context disabled for area '%s'; skipping.", area.name)
     formatted_dataset = format_area_dataset(
@@ -618,17 +629,23 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
             llm_config=config,
             representative_locations=[
                 {
-                    "name": payload.name,
+                    "name": payload.geocode.name,
                     "latitude": payload.geocode.latitude,
                     "longitude": payload.geocode.longitude,
                     "country_code": payload.geocode.country_code,
+                    "country_name": payload.geocode.country_name,
+                    "admin1": payload.geocode.admin1,
+                    "admin2": payload.geocode.admin2,
                 }
                 for payload in payloads
             ],
         )
         ibf_context = regional_context.content
         _record_cost("Regional", area.name, context=regional_context.cost_cents)
-        logger.info("Fetched impact context for regional area '%s'", area.name)
+        if ibf_context:
+            logger.info("Fetched impact context for regional area '%s'", area.name)
+        else:
+            logger.warning("No impact context will be used for regional area '%s'.", area.name)
     else:
         logger.info("Impact context disabled for regional area '%s'; skipping.", area.name)
     formatted_dataset = format_area_dataset(
