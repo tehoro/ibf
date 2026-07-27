@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from ibf.llm.formatter import calculate_range_summary, format_location_dataset
+import logging
+
+from ibf.api.alerts import AlertSummary
+from ibf.llm.formatter import _format_alerts, calculate_range_summary, format_location_dataset
 
 
 def _single_hour_dataset(*, snow_level_m: float) -> list[dict]:
@@ -102,3 +105,18 @@ def test_range_summary_collapses_rounded_precipitation_and_snowfall_endpoints() 
     assert "Likely snowfall around 2 cm" in summary
     assert "5 mm to 5 mm" not in summary
     assert "2 cm to 2 cm" not in summary
+
+
+def test_formatter_skips_alert_with_invalid_timestamps(caplog) -> None:
+    alert = AlertSummary(
+        title="Invalid alert",
+        description="Test",
+        onset="not-a-timestamp",
+        expires="also-not-a-timestamp",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        output = _format_alerts([alert], [{"date": "2026-07-27"}], "UTC")
+
+    assert output == ""
+    assert "Skipping alert with invalid timestamps" in caplog.text

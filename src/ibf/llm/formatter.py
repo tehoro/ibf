@@ -4,16 +4,18 @@ Formatting helpers that build the textual input for the LLM.
 
 from __future__ import annotations
 
+import logging
 import math
 from datetime import datetime
 from typing import Any, Iterable, List
 
 import arrow
 import numpy as np
-import pytz
 
 from ..api.alerts import AlertSummary
 from ..util import convert_hour_to_ampm, round_windspeed  # will add helper there
+
+logger = logging.getLogger(__name__)
 
 PRECIP_HEAVY_THRESHOLD_MM = 10.0
 PRECIP_HEAVY_THRESHOLD_IN = 0.5
