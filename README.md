@@ -561,7 +561,8 @@ The Brave provider is staged and bounded:
 - Retrieved query text, URL, title, hostname, source/published date, retrieval time, and supporting
   passages are kept in private evidence sidecars, together with sources rejected by validation.
   The synthesising model must cite accepted evidence. IBF repairs harmless formatting variations,
-  validates citations and exact event dates, and removes private citation markers from the public
+  validates citations and exact event dates, discards unsupported or out-of-window event bullets
+  without losing otherwise valid context, and removes private citation markers from the public
   forecast context.
 
 `context_fallback_llm` is intentionally different from a synthesis-model fallback. If the Brave

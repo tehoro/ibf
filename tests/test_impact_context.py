@@ -18,6 +18,7 @@ from ibf.api.impact import (
     _generate_context,
     _generate_context_brave,
     _generate_context_openai_web_search,
+    _filter_invalid_upcoming_event_bullets,
     _repair_brave_synthesis_structure,
     _strip_private_source_markers,
     _validate_brave_synthesis,
@@ -157,6 +158,44 @@ def test_brave_synthesis_validation_rejects_event_outside_window() -> None:
     )
 
     assert "upcoming event outside the allowed date window" in errors
+
+
+def test_invalid_event_bullets_are_dropped_without_losing_valid_context() -> None:
+    raw = """### Existing Vulnerabilities
+• Boulder has mapped flood hazards. [S5]
+### Weather Impact Thresholds
+• No relevant items found.
+### Exposed Populations and Assets
+• Boulder Creek is exposed. [S6]
+### Upcoming Events
+• July 26, 2026: Medicine Picnic. [S4]
+• June 30-August 2, 2026: Shakespeare Festival. [S3]
+• August 6-11, 2026: County Fair. [S3]
+• Saturdays through November 21, 2026: Farmers Market. [S3]
+• August 1, 2026: Unsupported uncited event.
+• May 24 – 27, 2026: Creek Festival. [S5]"""
+
+    filtered, notes = _filter_invalid_upcoming_event_bullets(
+        raw,
+        event_start=datetime(2026, 7, 26, tzinfo=timezone.utc).date(),
+        event_end=datetime(2026, 8, 5, tzinfo=timezone.utc).date(),
+        event_source_markers={"S2", "S3", "S4"},
+    )
+
+    assert "Medicine Picnic" in filtered
+    assert "Shakespeare Festival" in filtered  # Its exact range overlaps the window.
+    assert "County Fair" not in filtered
+    assert "Farmers Market" not in filtered
+    assert "Unsupported uncited event" not in filtered
+    assert "Creek Festival" not in filtered
+    assert len(notes) == 4
+    assert _validate_brave_synthesis(
+        filtered,
+        source_count=6,
+        event_start=datetime(2026, 7, 26, tzinfo=timezone.utc).date(),
+        event_end=datetime(2026, 8, 5, tzinfo=timezone.utc).date(),
+        event_source_markers={"S2", "S3", "S4"},
+    ) == []
 
 
 def test_brave_synthesis_repairs_missing_empty_section_wrapping_and_marker_lists() -> None:

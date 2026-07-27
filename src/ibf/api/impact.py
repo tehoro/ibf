@@ -561,8 +561,10 @@ def _generate_context_brave(
     raw_model_text = ""
     normalized_text = ""
     validation_errors: list[str] = []
+    normalization_notes: list[str] = []
     local_date = get_local_now(timezone_name).date()
     events_end_date = local_date + timedelta(days=EVENT_LOOKAHEAD_DAYS)
+    event_source_markers = _source_markers_for_bucket(research, "events")
     try:
         for attempt in range(2):
             prompt = user_prompt
@@ -576,11 +578,26 @@ def _generate_context_brave(
             raw_model_text = generate_forecast_text(prompt, system_prompt, settings)
             synthesis_cost_cents += consume_last_cost_cents()
             normalized_text = _repair_brave_synthesis_structure(raw_model_text)
+            normalized_text, normalization_notes = _filter_invalid_upcoming_event_bullets(
+                normalized_text,
+                event_start=local_date,
+                event_end=events_end_date,
+                event_source_markers=event_source_markers,
+            )
+            if normalization_notes:
+                logger.warning(
+                    "Dropped %d unsupported or out-of-window event bullet(s) from Brave "
+                    "context synthesis for %s: %s",
+                    len(normalization_notes),
+                    name,
+                    "; ".join(normalization_notes),
+                )
             validation_errors = _validate_brave_synthesis(
                 normalized_text,
                 len(research.evidence),
                 event_start=local_date,
                 event_end=events_end_date,
+                event_source_markers=event_source_markers,
             )
             if not _has_substantive_brave_bullet(normalized_text):
                 validation_errors.append("no evidence-based bullets")
@@ -607,6 +624,7 @@ def _generate_context_brave(
             raw_text=raw_model_text,
             normalized_text=normalized_text,
             validation_errors=validation_errors,
+            normalization_notes=normalization_notes,
         )
     except OSError as exc:
         raise ContextResearchError(
@@ -753,12 +771,62 @@ def _has_substantive_brave_bullet(text: str) -> bool:
     return bool(re.search(r"^\s*[•*-].*\[(?:S\d+|LOCAL)\]", text, flags=re.MULTILINE))
 
 
+def _source_markers_for_bucket(research: ResearchResult, bucket_name: str) -> set[str]:
+    """Return the private source markers belonging to one evidence bucket."""
+    markers: set[str] = set()
+    source_index = 1
+    for batch in research.batches:
+        for _item in batch.evidence:
+            if batch.bucket == bucket_name:
+                markers.add(f"S{source_index}")
+            source_index += 1
+    return markers
+
+
+def _filter_invalid_upcoming_event_bullets(
+    text: str,
+    *,
+    event_start: date,
+    event_end: date,
+    event_source_markers: set[str],
+) -> tuple[str, list[str]]:
+    """Drop unsafe event bullets without discarding otherwise valid context."""
+    prefix, heading, event_text = text.partition("### Upcoming Events")
+    if not heading:
+        return text, []
+
+    retained: list[str] = []
+    notes: list[str] = []
+    for raw_line in event_text.splitlines():
+        line = raw_line.strip()
+        if not line or not line.startswith(("•", "-", "*")):
+            continue
+        if "No relevant items found" in line:
+            continue
+        errors = _upcoming_event_bullet_errors(
+            line,
+            event_start=event_start,
+            event_end=event_end,
+            event_source_markers=event_source_markers,
+        )
+        if errors:
+            notes.append(f"{', '.join(errors)}: {line[:160]}")
+        else:
+            retained.append(line)
+
+    if not retained:
+        retained.append("• No relevant items found.")
+    rendered = f"{prefix.rstrip()}\n\n{heading}\n" + "\n".join(retained)
+    return rendered.strip(), notes
+
+
 def _validate_brave_synthesis(
     text: str,
     source_count: int,
     *,
     event_start: Optional[date] = None,
     event_end: Optional[date] = None,
+    event_source_markers: Optional[set[str]] = None,
 ) -> list[str]:
     """Validate structure and private evidence markers before context is published."""
     if not text or not text.strip():
@@ -790,21 +858,52 @@ def _validate_brave_synthesis(
         invalid = [marker for marker in markers if marker != "LOCAL" and marker not in valid_markers]
         if invalid:
             errors.append(f"invalid source marker {invalid[0]}")
-        if section == "Upcoming Events" and not _contains_exact_date(line):
-            errors.append("upcoming event without an exact date")
-        elif section == "Upcoming Events" and event_start and event_end:
-            dates = _extract_exact_dates(line)
-            if any(value < event_start or value > event_end for value in dates):
-                errors.append("upcoming event outside the allowed date window")
+        if section == "Upcoming Events":
+            errors.extend(
+                _upcoming_event_bullet_errors(
+                    line,
+                    event_start=event_start,
+                    event_end=event_end,
+                    event_source_markers=event_source_markers,
+                )
+            )
     for heading in CONTEXT_SECTION_HEADINGS:
         if f"### {heading}" in normalized and heading not in sections_with_bullets:
             errors.append(f"section {heading} has no bullet")
     return list(dict.fromkeys(errors))
 
 
-def _contains_exact_date(text: str) -> bool:
-    """Return True for ISO or day-month-year event dates."""
-    return bool(_extract_exact_dates(text))
+def _upcoming_event_bullet_errors(
+    text: str,
+    *,
+    event_start: Optional[date],
+    event_end: Optional[date],
+    event_source_markers: Optional[set[str]],
+) -> list[str]:
+    """Return validation errors specific to one upcoming-event bullet."""
+    errors: list[str] = []
+    markers = set(re.findall(r"\[(S\d+|LOCAL)\]", text))
+    evidence_markers = markers - {"LOCAL"}
+    if event_source_markers is not None:
+        if not markers:
+            errors.append("upcoming event without an evidence marker")
+        elif not evidence_markers.issubset(event_source_markers):
+            errors.append("upcoming event cited from non-events evidence")
+
+    dates = _extract_exact_dates(text)
+    if not dates:
+        errors.append("upcoming event without an exact date")
+    elif event_start and event_end:
+        # A genuine event range may begin before the forecast window or end after
+        # it. Retain it when the range overlaps the window; a one-day event must
+        # itself fall inside the window.
+        if len(dates) == 1:
+            overlaps = event_start <= dates[0] <= event_end
+        else:
+            overlaps = min(dates) <= event_end and max(dates) >= event_start
+        if not overlaps:
+            errors.append("upcoming event outside the allowed date window")
+    return errors
 
 
 def _extract_exact_dates(text: str) -> list[date]:
@@ -812,12 +911,41 @@ def _extract_exact_dates(text: str) -> list[date]:
     months = (
         "January|February|March|April|May|June|July|August|September|October|November|December"
     )
+    extracted: list[date] = []
+
+    def add_date(month_name: str, day_text: str, year_text: str) -> None:
+        try:
+            value = datetime.strptime(
+                f"{month_name} {day_text} {year_text}", "%B %d %Y"
+            ).date()
+        except ValueError:
+            return
+        if value not in extracted:
+            extracted.append(value)
+
+    range_separator = r"\s*(?:-|–|—|to|through)\s*"
+    cross_month_range = re.compile(
+        rf"\b({months})\s+(\d{{1,2}}){range_separator}"
+        rf"({months})\s+(\d{{1,2}}),?\s+(\d{{4}})\b",
+        flags=re.IGNORECASE,
+    )
+    same_month_range = re.compile(
+        rf"\b({months})\s+(\d{{1,2}}){range_separator}"
+        rf"(\d{{1,2}}),?\s+(\d{{4}})\b",
+        flags=re.IGNORECASE,
+    )
+    for match in cross_month_range.finditer(text):
+        add_date(match.group(1).title(), match.group(2), match.group(5))
+        add_date(match.group(3).title(), match.group(4), match.group(5))
+    for match in same_month_range.finditer(text):
+        add_date(match.group(1).title(), match.group(2), match.group(4))
+        add_date(match.group(1).title(), match.group(3), match.group(4))
+
     patterns = (
         (r"\b\d{4}-\d{2}-\d{2}\b", "%Y-%m-%d"),
         (rf"\b\d{{1,2}}\s+(?:{months})\s+\d{{4}}\b", "%d %B %Y"),
         (rf"\b(?:{months})\s+\d{{1,2}},?\s+\d{{4}}\b", None),
     )
-    extracted: list[date] = []
     for pattern, format_string in patterns:
         for match in re.finditer(pattern, text, flags=re.IGNORECASE):
             raw = match.group(0)
@@ -845,6 +973,7 @@ def _store_brave_synthesis_sidecar(
     raw_text: str,
     normalized_text: str,
     validation_errors: list[str],
+    normalization_notes: list[str],
 ) -> None:
     """Persist the cited synthesis privately beside its evidence sidecars."""
     payload = {
@@ -855,6 +984,7 @@ def _store_brave_synthesis_sidecar(
         "evidence_paths": [str(path) for path in research.evidence_paths],
         "raw_model_synthesis": raw_text,
         "normalized_cited_synthesis": normalized_text,
+        "normalization_notes": normalization_notes,
         "validation_errors": validation_errors,
     }
     digest = hashlib.sha256(
