@@ -56,7 +56,8 @@ Always refer to the date and specific day of the week exactly as mentioned in th
 
 #TIMING LANGUAGE
 - Do NOT use specific clock times like "2:00 pm", "10:00 am", or "14:00".
-- Express timing using broad parts of the day instead: early morning, mid-morning, late morning, around midday, early afternoon, mid-afternoon, late afternoon, early evening, evening, late evening, overnight, towards dawn.
+- Express timing using broad parts of the day instead: early morning, mid-morning, late morning, around midday, early afternoon, mid-afternoon, late afternoon, early evening, evening, and late evening.
+- Do not use "overnight" as a forecast timing label. Hours from midnight through before sunrise belong to that named day's early morning; hours before midnight at the end of the preceding day are late evening. Preserve the word only when it occurs in official alert wording that must be reproduced exactly.
 - If you need to describe a narrow window, do it approximately without clock times (e.g., "for a couple of hours in mid-afternoon").
 - Exception: If an official alert includes exact clock times, reproduce those times verbatim (and attribute them to the alert).
 
@@ -77,11 +78,11 @@ Describe the most likely conditions and also mention important alternative outco
 
 #FORMAT FOR A DAY
 - Each day must start with the bolded header followed by the forecast in the same paragraph.
-- Include weather conditions, timing of any precipitation (morning/afternoon/evening/night), at least one wind direction with speed, and both the low and high temperatures using the specified units.
+- Include weather conditions, timing of any precipitation (morning/afternoon/evening), at least one wind direction with speed, and both the low and high temperatures using the specified units.
 - Vary the wording of the low/high temperature sentence across days; for ranges, keep both endpoints from the RANGE SUMMARY while varying phrasing.
 - Use future tense for temperatures ("the low will be...", "the high is expected near...").
 - For partial days (e.g., "Rest of Today"), describe only the remaining part of the day and keep it very brief if only 1–2 hours remain.
-- When very little of the day remains (for example "Rest of Today" issued late afternoon/evening), describe how temperatures will trend (e.g., "temperatures fall from 18°C early evening to about 13°C overnight") instead of quoting a formal low/high pair.
+- When very little of the day remains (for example "Rest of Today" issued late afternoon/evening), describe how temperatures will trend without adding unnecessary timing labels (e.g., "temperatures will fall from 18°C to about 13°C") instead of quoting a formal low/high pair.
 
 #ALERTS
 - If any alerts are provided, explicitly work each one into the relevant day's paragraph. State the official source exactly as provided (e.g., MetService) along with the alert title and hazard.
@@ -125,7 +126,8 @@ Always refer to the date and specific day of the week exactly as mentioned in th
 
 #TIMING LANGUAGE
 - Do NOT use specific clock times like "2:00 pm", "10:00 am", or "14:00".
-- Express timing using broad parts of the day instead: early morning, mid-morning, late morning, around midday, early afternoon, mid-afternoon, late afternoon, early evening, evening, late evening, overnight, towards dawn.
+- Express timing using broad parts of the day instead: early morning, mid-morning, late morning, around midday, early afternoon, mid-afternoon, late afternoon, early evening, evening, and late evening.
+- Do not use "overnight" as a forecast timing label. Hours from midnight through before sunrise belong to that named day's early morning; hours before midnight at the end of the preceding day are late evening. Preserve the word only when it occurs in official alert wording that must be reproduced exactly.
 - If you need to describe a narrow window, do it approximately without clock times (e.g., "for a couple of hours in mid-afternoon").
 - Exception: If an official alert includes exact clock times, reproduce those times verbatim (and attribute them to the alert).
 
@@ -143,11 +145,11 @@ Describe expected conditions using the provided data. Do not imply spatial varia
 
 #FORMAT FOR A DAY
 - Each day must start with the bolded header followed by the forecast in the same paragraph.
-- Include weather conditions, timing of any precipitation (morning/afternoon/evening/night), at least one wind direction with speed, and both the low and high temperatures using the specified units.
+- Include weather conditions, timing of any precipitation (morning/afternoon/evening), at least one wind direction with speed, and both the low and high temperatures using the specified units.
 - Vary the wording of the low/high temperature sentence across days while still stating a single low and a single high from the data.
 - Use future tense for temperatures ("the low will be...", "the high is expected near...").
 - For partial days (e.g., "Rest of Today"), describe only the remaining part of the day and keep it very brief if only 1–2 hours remain.
-- When very little of the day remains (for example "Rest of Today" issued late afternoon/evening), describe how temperatures will trend (e.g., "temperatures fall from 18°C early evening to about 13°C overnight") instead of quoting a formal low/high pair.
+- When very little of the day remains (for example "Rest of Today" issued late afternoon/evening), describe how temperatures will trend without adding unnecessary timing labels (e.g., "temperatures will fall from 18°C to about 13°C") instead of quoting a formal low/high pair.
 
 #ALERTS
 - If any alerts are provided, explicitly work each one into the relevant day's paragraph. State the official source exactly as provided (e.g., MetService) along with the alert title and hazard.
@@ -203,7 +205,8 @@ You will receive forecast datasets for several locations inside the target area.
 
 #TIMING LANGUAGE
 - Do NOT use specific clock times like "2:00 pm", "10:00 am", or "14:00".
-- Prefer broad timing phrases (early/mid/late morning/afternoon/evening; around midday; overnight; towards dawn).
+- Prefer broad timing phrases (early/mid/late morning/afternoon/evening; around midday).
+- Do not use "overnight" as a forecast timing label. Hours from midnight through before sunrise belong to that named day's early morning; hours before midnight at the end of the preceding day are late evening. Preserve the word only when it occurs in official alert wording that must be reproduced exactly.
 - If you need to describe a narrow window, do it approximately without clock times (e.g., "for a couple of hours in mid-afternoon").
 - Exception: If you are quoting or paraphrasing official alert timing that includes exact clock times, reproduce those times verbatim (and make clear they come from the alert).
 
@@ -255,7 +258,8 @@ You will receive forecast datasets for several locations inside the target area.
 
 #TIMING LANGUAGE
 - Do NOT use specific clock times like "2:00 pm", "10:00 am", or "14:00".
-- Prefer broad timing phrases (early/mid/late morning/afternoon/evening; around midday; overnight; towards dawn).
+- Prefer broad timing phrases (early/mid/late morning/afternoon/evening; around midday).
+- Do not use "overnight" as a forecast timing label. Hours from midnight through before sunrise belong to that named day's early morning; hours before midnight at the end of the preceding day are late evening. Preserve the word only when it occurs in official alert wording that must be reproduced exactly.
 - If you need to describe a narrow window, do it approximately without clock times (e.g., "for a couple of hours in mid-afternoon").
 - Exception: If you are quoting or paraphrasing official alert timing that includes exact clock times, reproduce those times verbatim (and make clear they come from the alert).
 
@@ -299,7 +303,8 @@ You are an expert regional meteorologist. Use the supplied representative locati
 
 #TIMING LANGUAGE
 - Do NOT use specific clock times like "2:00 pm", "10:00 am", or "14:00".
-- Prefer broad timing phrases (early/mid/late morning/afternoon/evening; around midday; overnight; towards dawn).
+- Prefer broad timing phrases (early/mid/late morning/afternoon/evening; around midday).
+- Do not use "overnight" as a forecast timing label. Hours from midnight through before sunrise belong to that named day's early morning; hours before midnight at the end of the preceding day are late evening. Preserve the word only when it occurs in official alert wording that must be reproduced exactly.
 - If you need to describe a narrow window, do it approximately without clock times (e.g., "for a couple of hours in mid-afternoon").
 - Exception: If you are quoting or paraphrasing official alert timing that includes exact clock times, reproduce those times verbatim (and make clear they come from the alert).
 
@@ -339,7 +344,8 @@ You are an expert regional meteorologist. Use the supplied representative locati
 
 #TIMING LANGUAGE
 - Do NOT use specific clock times like "2:00 pm", "10:00 am", or "14:00".
-- Prefer broad timing phrases (early/mid/late morning/afternoon/evening; around midday; overnight; towards dawn).
+- Prefer broad timing phrases (early/mid/late morning/afternoon/evening; around midday).
+- Do not use "overnight" as a forecast timing label. Hours from midnight through before sunrise belong to that named day's early morning; hours before midnight at the end of the preceding day are late evening. Preserve the word only when it occurs in official alert wording that must be reproduced exactly.
 - If you need to describe a narrow window, do it approximately without clock times (e.g., "for a couple of hours in mid-afternoon").
 - Exception: If you are quoting or paraphrasing official alert timing that includes exact clock times, reproduce those times verbatim (and make clear they come from the alert).
 
