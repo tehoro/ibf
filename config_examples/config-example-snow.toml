@@ -2,7 +2,7 @@
 
 # Language Models to use
 llm = "gemini-3-flash-preview"
-context_provider = "llm-search"  # set to "brave" for controlled Brave research
+context_provider = "llm-search"  # recommended; Brave is experimental
 context_llm = "gemini-3-flash-preview"
 translation_llm = "gemini-3-flash-preview"
 # LM Studio example: llm = "lms:exact-model-id" and set lm_studio_base_url.
@@ -64,6 +64,5 @@ snow_levels = true
 temperature_unit = "fahrenheit"
 precipitation_unit = "in"
 windspeed_unit = "mph"
-
 
 

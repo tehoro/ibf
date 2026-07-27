@@ -95,8 +95,9 @@ class ForecastConfig(BaseModel):
         llm: LLM model identifier (e.g., "gemini-3-flash-preview").
         llm_fallback: Optional model used when the primary forecast model fails.
         lm_studio_base_url: Optional LM Studio server URL for ``lms:`` models.
-        context_provider: Impact-context research provider (``llm-search`` or ``brave``).
-        context_llm: Model used for impact-context search or Brave evidence synthesis.
+        context_provider: Impact-context research provider (recommended ``llm-search`` or
+            experimental ``brave``).
+        context_llm: Model used for impact-context search or experimental Brave evidence synthesis.
         context_fallback_llm: Hosted-search model used if the Brave path fails.
         translation_language: Global default translation language.
         translation_llm: Specific LLM to use for translation.
@@ -162,8 +163,8 @@ class ForecastConfig(BaseModel):
             if self.context_provider == "llm-search" and raw and not _is_search_capable_context_llm(raw):
                 raise ValueError(
                     "context_llm must be a Gemini or OpenAI model when context_provider is "
-                    "'llm-search'. Use context_provider = 'brave' to synthesize Brave evidence "
-                    "with OpenRouter or LM Studio."
+                    "'llm-search'. The experimental context_provider = 'brave' can synthesize "
+                    "Brave evidence with OpenRouter or LM Studio."
                 )
         if self.context_fallback_llm and not _is_search_capable_context_llm(self.context_fallback_llm):
             raise ValueError(

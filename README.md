@@ -97,7 +97,7 @@ Minimal setup for most users:
 Optional:
 - OPENROUTER_API_KEY (if you want access to many models via OpenRouter).
 - OPENAI_API_KEY (if you want to use OpenAI models directly or use OpenAI hosted web search).
-- BRAVE_SEARCH_API_KEY (only for `context_provider = "brave"`).
+- BRAVE_SEARCH_API_KEY (only for experimental `context_provider = "brave"`).
 - LM_STUDIO_BASE_URL and, if authentication is enabled, LM_STUDIO_API_KEY.
 
 If you do not need alerts, you can omit OPENWEATHERMAP_API_KEY.
@@ -114,9 +114,13 @@ Alert sources:
 
 Impact context note:
 - IBF only fetches impact context when `location_impact_based` / `area_impact_based` are true (default).
-- `context_provider = "llm-search"` retains the existing Gemini/OpenAI hosted-search approach.
-- `context_provider = "brave"` performs controlled Brave searches, then lets any supported local or cloud model synthesise the evidence.
-- If impact context cannot be obtained, IBF loudly logs the failure and continues without that extra context. Configure `context_fallback_llm` to let a failed Brave path try the existing hosted-search method once.
+- `context_provider = "llm-search"` with Gemini is the recommended impact-context path. It uses one
+  primary hosted-search request and reuses the result for up to three local days.
+- `context_provider = "brave"` is retained as an experimental option. It performs multiple Brave
+  searches, then pays the selected local or cloud model to synthesise those results.
+- If impact context cannot be obtained, IBF loudly logs the failure and continues without that
+  extra context. Configure `context_fallback_llm` only if an experimental Brave run should try the
+  recommended hosted-search method once.
 
 Recommended LLM choices
 -----------------------
@@ -128,29 +132,29 @@ Suggested config snippet:
 
 ```toml
 llm = "gemini-3-flash-preview"
+context_provider = "llm-search"
 context_llm = "gemini-3-flash-preview"
 translation_llm = "gemini-3-flash-preview"
 ```
 
-For controlled, auditable research with cloud synthesis:
-
-```toml
-context_provider = "brave"
-context_llm = "or:google/gemini-3-flash-preview"
-context_fallback_llm = "gemini-3-flash-preview"
-```
-
-For local forecast writing, translation, and Brave-context synthesis:
+For local forecast writing and translation while retaining recommended Gemini context research:
 
 ```toml
 llm = "lms:exact-model-id-from-lm-studio"
 llm_fallback = "gemini-3-flash-preview"
 lm_studio_base_url = "http://192.168.1.50:1234/v1"
+context_provider = "llm-search"
+context_llm = "gemini-3-flash-preview"
+translation_llm = "lms:exact-model-id-from-lm-studio"
+translation_llm_fallback = "gemini-3-flash-preview"
+```
+
+Experimental Brave retrieval with local synthesis remains available for comparison work:
+
+```toml
 context_provider = "brave"
 context_llm = "lms:exact-model-id-from-lm-studio"
 context_fallback_llm = "gemini-3-flash-preview"
-translation_llm = "lms:exact-model-id-from-lm-studio"
-translation_llm_fallback = "gemini-3-flash-preview"
 ```
 
 Outputs and File Structure
@@ -165,7 +169,7 @@ Caches (created automatically under ./ibf_cache):
 - forecasts: raw Open-Meteo responses
 - processed: processed datasets used for prompts
 - impact: cached impact context text
-- impact/evidence: private Brave queries, source metadata, supporting passages, and cited synthesis records
+- impact/evidence: private Gemini grounding queries/sources and experimental Brave evidence records
 - prompts: snapshots of LLM prompts (auto-cleaned)
 - geocode: geocoding and country lookup caches
 
@@ -311,7 +315,7 @@ Environment variables:
 | `OPENROUTER_API_KEY` | Any model name with an `or:` prefix. | Required for OpenRouter usage. |
 | `OPENAI_API_KEY` | OpenAI models such as `gpt-4o-mini` or `gpt-4o-latest`. | Required if using OpenAI models. |
 | `GEMINI_API_KEY` | Direct Gemini SDK usage (`gemini-*` or `google/gemini-*`). | Required if using direct Gemini models. |
-| `BRAVE_SEARCH_API_KEY` | Brave LLM Context evidence retrieval. | Required when `context_provider = "brave"`. |
+| `BRAVE_SEARCH_API_KEY` | Experimental Brave LLM Context evidence retrieval. | Required when `context_provider = "brave"`. |
 | `LM_STUDIO_BASE_URL` | Optional environment alternative to the TOML `lm_studio_base_url`. | Optional; defaults to `http://localhost:1234/v1`. |
 | `LM_STUDIO_API_KEY` | LM Studio API token. | Only required when authentication is enabled on the LM Studio server. |
 | `IBF_DEFAULT_LLM` | Optional env override for the default model when config omits `llm`. | Optional. |
@@ -319,7 +323,7 @@ Environment variables:
 Notes:
 - If `GOOGLE_API_KEY` is not set, IBF will still attempt Open-Meteo geocoding first.
 - With `context_provider = "llm-search"`, `context_llm` must be Gemini or OpenAI because that model must have a hosted web-search tool.
-- With `context_provider = "brave"`, `context_llm` may be LM Studio, OpenRouter, Gemini, or OpenAI. Brave retrieves the evidence and the model synthesises it.
+- With experimental `context_provider = "brave"`, `context_llm` may be LM Studio, OpenRouter, Gemini, or OpenAI. Brave retrieves the evidence and the model synthesises it.
 - Model strings must identify their provider explicitly. Unknown strings fail with an error instead of being silently treated as OpenRouter models.
 - Keep `GOOGLE_API_KEY` (Geocoding/Elevation) and `GEMINI_API_KEY` (Gemini) separate; they are issued in different consoles and are not interchangeable.
 
@@ -340,8 +344,8 @@ OpenWeatherMap API key (alerts)
 3) Ensure the One Call API is enabled for your account (alerts come from One Call).
 4) Paste the key into your .env as `OPENWEATHERMAP_API_KEY=...`.
 
-Gemini API key (Google AI Studio)
----------------------------------
+Gemini API key (Google AI Studio; recommended for impact context)
+-----------------------------------------------------------------
 1) Go to <https://aistudio.google.com/> and sign in.
 2) Click "Get API key" and create a new key (choose or create a project if prompted).
 3) Paste the key into your .env as `GEMINI_API_KEY=...`.
@@ -349,8 +353,8 @@ Gemini API key (Google AI Studio)
 If you prefer using Google Cloud Console instead of AI Studio, enable the Generative Language API
 and create an API key under APIs & Services -> Credentials.
 
-Brave Search API key (controlled impact research)
--------------------------------------------------
+Brave Search API key (experimental impact research)
+----------------------------------------------------
 
 1) Sign in or create an account at <https://api.search.brave.com/>.
 2) Choose a plan that includes the LLM Context endpoint. Brave's current pricing page is
@@ -364,12 +368,19 @@ the TOML file or commit the `.env` file. Brave's authentication guide is
 <https://api-dashboard.search.brave.com/documentation/guides/authentication>.
 
 At the pricing checked for 0.8.0, Brave Search/LLM Context costs US$5 per 1,000 requests and
-includes US$5 of monthly credits. With 20 forecast entities, the normal cadence is about 600
-daily current-condition requests, about 200 event requests on a three-day cadence, and about 20
-threshold/exposure requests per month when their 60-day caches are averaged over time: roughly 820
-requests before bounded gap fills. Re-running forecasts during the same local day reuses that
-research. Check the linked pricing page before relying on this allowance because provider pricing
-can change.
+includes US$5 of monthly credits. With 20 forecast entities, the current experimental cadence is
+about 600 daily current-condition requests, about 200 event requests on a three-day cadence, and
+about 20 threshold/exposure requests per month when their 60-day caches are averaged over time:
+roughly 820 requests before bounded gap fills. Re-running forecasts during the same local day
+reuses that research. Check the linked pricing page before relying on this allowance because
+provider pricing can change.
+
+A cold Brave context normally uses four paid search requests (one per evidence class), plus the
+token cost of the separate synthesis model; a bounded gap fill can add a fifth search and synthesis
+repair can add another model call. Using a paid cloud model such as Gemini to summarise Brave
+results can therefore cost materially more than starting with Gemini's native web-search tool. IBF
+retains Brave for experiments and local-model workflows, but does not recommend it as the normal
+operational provider.
 
 LM Studio (local or network models)
 -----------------------------------
@@ -410,8 +421,8 @@ Global settings:
 | `llm` | Model used for forecast text. | Supports LM Studio, OpenRouter, OpenAI, and Gemini naming. |
 | `llm_fallback` | Optional model tried once if forecast writing fails. | May use a different provider. Primary failure is logged prominently. |
 | `lm_studio_base_url` | LM Studio OpenAI-compatible server address. | Used for every `lms:` choice; defaults to `http://localhost:1234/v1`. |
-| `context_provider` | Impact research method. | `llm-search` (existing hosted tool search, default) or `brave` (controlled evidence retrieval). |
-| `context_llm` | Hosted-search model or Brave evidence-synthesis model. | `llm-search` requires Gemini/OpenAI; `brave` supports any configured model provider. Defaults to `gemini-3-flash-preview`. |
+| `context_provider` | Impact research method. | `llm-search` is the recommended default; `brave` is an experimental controlled-evidence option. |
+| `context_llm` | Hosted-search model or experimental Brave evidence-synthesis model. | `llm-search` requires Gemini/OpenAI; `brave` supports any configured model provider. Defaults to `gemini-3-flash-preview`. |
 | `context_fallback_llm` | Optional fallback if the Brave path fails. | Must be a Gemini or OpenAI model because it invokes the existing hosted web-search path. |
 | `translation_llm` | Optional model used for translations only. | Used only if translation is enabled. |
 | `translation_llm_fallback` | Optional model tried once if translation fails. | May use a different provider. |
@@ -533,10 +544,32 @@ The research provider and the model are separate choices:
 
 | `context_provider` | Retrieval | Allowed `context_llm` | Notes |
 | --- | --- | --- | --- |
-| `llm-search` | Gemini Google Search or OpenAI web search tool | Direct Gemini or OpenAI | Preserves IBF's existing broad-prompt method. The hosted provider decides the searches. |
-| `brave` | IBF-controlled Brave LLM Context requests | LM Studio, OpenRouter, Gemini, or OpenAI | Brave returns evidence; the selected model synthesises the four context sections. |
+| `llm-search` | Gemini Google Search or OpenAI web search tool | Direct Gemini or OpenAI | **Recommended.** One primary context job is reused for up to three local days; the hosted provider decides its searches. |
+| `brave` | IBF-controlled Brave LLM Context requests | LM Studio, OpenRouter, Gemini, or OpenAI | **Experimental.** Brave returns evidence and the separately selected model synthesises it, adding cost and complexity. |
 
-The Brave provider is staged and bounded:
+The recommended Gemini hosted-search path:
+
+- Supplies the canonical geocoded locality, district/region, country and representative places so
+  near-name results from another place are not silently substituted.
+- Uses a source hierarchy led by meteorological/hydrological services, government, emergency and
+  infrastructure agencies. Generic seasonal assumptions are forbidden.
+- Explicitly seeks official warning criteria and operational triggers that apply to the target,
+  while distinguishing them from observed local impact magnitudes and engineering/design hazard
+  references. Return periods and exceptional historical totals must not be presented as routine
+  forecast triggers.
+- Does not research numerical weather forecasts or active warning messages; Open-Meteo and IBF's
+  official alert integrations continue to supply those separately.
+- Checks official municipal, tourism, venue, sports and organiser calendars for significant events
+  with exact dates within ten days and about 20 km. Cached event bullets are rechecked against the
+  moving date window on every forecast run, without another web request.
+- Reuses the complete context for up to three local days. Incomplete model output permits at most
+  one continuation; category-specific application calls are not made.
+- For Gemini, privately records the provider-selected web queries, grounding source titles/URLs,
+  supported response segments and confidence values. If Gemini returns text without grounding
+  metadata, IBF fails closed rather than accepting unauditable model knowledge. Public forecasts
+  remain citation-free.
+
+The experimental Brave provider is staged and bounded:
 
 - Four short searches independently cover current vulnerabilities/disruptions, exact-dated major
   events, quantitative impact thresholds, and exposed populations/assets. This avoids asking one
@@ -583,6 +616,9 @@ LLM cost overrides (optional):
   `llm_costs.toml`.
 - Brave request cost is a list-price estimate because its response does not return a per-request
   monetary amount. At the price checked for 0.8.0, each new request is estimated at 0.5 US cents.
+- Gemini's API reports token usage but not the final monetary effect of its monthly grounding
+  allowance or any later Google Search tool charges. IBF records the returned search-query count
+  privately, but the cost summary can only estimate the model-token portion.
 - If `llm_costs.toml` exists in the working directory, IBF uses it to override token-based estimates in logs.
 - Costs are USD per million tokens:
   ```toml
@@ -606,6 +642,7 @@ safe to delete the entire folder.
 | Geocode cache | `ibf_cache/geocode/search_cache.json` | Place name -> lat/lon/timezone and administrative identity cache. Legacy entries are enriched once without replacing their forecast coordinates/elevation. | No TTL; delete to refresh. |
 | Country cache | `ibf_cache/geocode/country_cache.json` | Lat/lon -> country code for alert routing. | No TTL; delete to refresh. |
 | Hosted-search impact context | `ibf_cache/impact/*.json` | Synthesised impact context from `llm-search`. | Reused for up to 3 local days. |
+| Gemini grounding audit | `ibf_cache/impact/evidence/hosted_*.json` | Private provider-selected queries, source URLs/titles, claim-support mappings and final context. | Retained with the impact cache; safe to delete manually. |
 | Brave synthesised context | `ibf_cache/impact/*.json` | Public-ready context synthesised from Brave evidence. | Once per local day. |
 | Brave current evidence | `ibf_cache/impact/evidence/*__current.json` | Fresh current vulnerabilities and disruptions. | Once per local day. |
 | Brave event evidence | `ibf_cache/impact/evidence/*__events.json` | Major events with exact in-window dates. | 3 days. |
@@ -615,10 +652,11 @@ safe to delete the entire folder.
 | Prompt snapshots | `ibf_cache/prompts/*.txt` | Prompt snapshots for debugging. | Older than 3 days are cleaned; a small number are retained. |
 
 Impact context caching includes the local date, provider, `context_llm`, forecast-day count, local
-notes, and relevant Brave/LM Studio settings (not the numerical weather model). The three forecast
-runs in a day can therefore reuse the same daily research while the numerical forecast and active
-alerts refresh normally. Evidence sidecars are private operational audit files rather than public
-forecast citations; protect the working directory accordingly.
+notes, and relevant Brave/LM Studio settings (not the numerical weather model). Hosted-search
+context is reused for up to three local days; experimental Brave evidence follows its category
+cadences. Numerical forecasts and active alerts still refresh normally. Evidence sidecars are
+private operational audit files rather than public forecast citations; protect the working
+directory accordingly.
 
 CLI commands and options
 ------------------------
@@ -643,7 +681,7 @@ Troubleshooting (technical)
 - LM Studio connection errors: start its API server, verify `lm_studio_base_url`, local-network and
   firewall settings, and authentication. The error lists the model identifiers visible from
   `/v1/models`; the configured `lms:` identifier must match exactly.
-- Brave context errors: confirm `BRAVE_SEARCH_API_KEY`, subscription to Brave's Search plan, and
+- Experimental Brave context errors: confirm `BRAVE_SEARCH_API_KEY`, subscription to Brave's Search plan, and
   network connectivity. Brave requires a new key to be generated for a new subscription. IBF logs
   Brave's structured error code and message. Configure `context_fallback_llm` only if you want the
   existing hosted-search method as a fallback.

@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 CACHE_DIR = ensure_directory("ibf_cache/impact")
 MAX_CONTEXT_AGE_DAYS = 3
 EVENT_LOOKAHEAD_DAYS = 10
+HOSTED_RESEARCH_VERSION = 2
 DEFAULT_CONTEXT_LLM = "gemini-3-flash-preview"
 CONTEXT_SECTION_HEADINGS = [
     "Existing Vulnerabilities",
@@ -123,6 +124,20 @@ def fetch_impact_context(
         max_age_days=max_age_days,
     )
     if cached_context:
+        cached_local_date = get_local_now(timezone_name).date()
+        cached_context, removed_events = _filter_invalid_upcoming_event_bullets(
+            cached_context,
+            event_start=cached_local_date,
+            event_end=cached_local_date + timedelta(days=EVENT_LOOKAHEAD_DAYS),
+            event_source_markers=None,
+        )
+        if removed_events:
+            logger.info(
+                "Removed %d expired or invalid event bullet(s) while reusing cached impact "
+                "context for %s; no new research was requested.",
+                len(removed_events),
+                name,
+            )
         logger.info("Using cached impact context for %s (%s)", name, context_type)
         return ImpactContext(
             name=name,
@@ -808,7 +823,7 @@ def _filter_invalid_upcoming_event_bullets(
     *,
     event_start: date,
     event_end: date,
-    event_source_markers: set[str],
+    event_source_markers: Optional[set[str]],
 ) -> tuple[str, list[str]]:
     """Drop unsafe event bullets without discarding otherwise valid context."""
     prefix, heading, event_text = text.partition("### Upcoming Events")
@@ -1023,6 +1038,120 @@ def _store_brave_synthesis_sidecar(
     logger.info("Stored private Brave synthesis sidecar at %s", path)
 
 
+def _build_hosted_context_prompt(
+    context_type: str,
+    name: str,
+    forecast_days: int,
+    *,
+    local_now: datetime,
+    extra_context: Optional[str],
+    representative_locations: tuple[ResearchLocation, ...],
+) -> str:
+    """Build the single-call, evidence-disciplined hosted-search research prompt."""
+    start_iso = local_now.date().isoformat()
+    events_end_iso = (local_now + timedelta(days=EVENT_LOOKAHEAD_DAYS)).date().isoformat()
+    entity_label = {
+        "area": "area",
+        "regional": "region",
+        "location": "location",
+    }.get(context_type, "location")
+    identity_block = _hosted_research_identity_block(
+        name,
+        context_type,
+        representative_locations,
+    )
+    local_context_block = ""
+    if extra_context and extra_context.strip():
+        local_context_block = (
+            "\nAUTHORITATIVE LOCAL CONTEXT supplied by the user:\n"
+            f"{extra_context.strip()}\n"
+            "Use it where relevant, but do not invent a web source for it.\n"
+        )
+
+    return f"""Research high-confidence contextual evidence for a {forecast_days}-day impact-based weather forecast for the {entity_label} {name}.
+
+{identity_block}
+
+This task is about translating separately supplied numerical weather forecasts into plausible impacts. Do NOT search for or summarise weather forecasts, weather outlooks, or currently active warning messages. Official warning CRITERIA and operational trigger levels are wanted; active warnings themselves are handled elsewhere by IBF.
+
+EVIDENCE DISCIPLINE
+
+- Support every factual bullet with web evidence, even though the public output must not contain citations or URLs.
+- Prefer, in order: national meteorological and hydrological services; local or national government, emergency-management, health, infrastructure and utility agencies; peer-reviewed or commissioned technical reports; official event organisers and venue or municipal calendars; then reputable local news for genuinely current disruption.
+- Do not use generic seasonal assumptions or plausible-sounding background claims. For example, do not assume saturated soils, seasonal illness, damaged flood defences, drought, or coastal erosion unless evidence establishes the condition or an enduring documented vulnerability.
+- Treat a disruption as current only when the evidence shows that it is recent or still ongoing as of {start_iso}. A historical disaster may establish enduring exposure, but it is not a current disruption.
+- Use older authoritative documents when appropriate for thresholds, enduring vulnerability and baseline exposure.
+- Return only the small number of highest-confidence, decision-relevant findings: normally no more than five bullets per section.
+
+RESEARCH THESE FOUR EVIDENCE CLASSES
+
+1. Existing Vulnerabilities
+Find recent or ongoing locally relevant conditions that could amplify weather impacts, such as unrepaired damage, recent flooding or landslides, drought, wildfire burn scars, constrained emergency access, disease outbreaks that materially affect response capacity, or power/water/infrastructure disruption. Also include clearly documented enduring physical vulnerabilities, but label them as enduring rather than current.
+
+2. Weather Impact Thresholds
+Seek quantitative values with units AND duration or reference level. Official warning criteria or operational triggers published by an authoritative meteorological service, hydrological service, council, emergency agency, utility or infrastructure operator are specifically valuable and may be national or regional when the source says they apply to this place. Label each supported number as exactly one of:
+  - Official criterion — an agency's warning criterion or operational trigger applicable to the target.
+  - Observed local impact magnitude — weather or water conditions documented alongside a local impact.
+  - Design/hazard reference — an engineering, return-period or scenario value useful for understanding exposure but NOT an ordinary forecast trigger.
+Retain the source agency's units and accumulation period; add a careful metric equivalent only when useful. Never infer a threshold from general climatology, transfer a value from another place without explicit applicability, or present a return period, design storm, probable maximum event, or exceptional historical total as a routine impact trigger. If no defensible quantitative value is found, use the required no-results bullet.
+
+3. Exposed Populations and Assets
+Identify specifically named flood-prone neighbourhoods, isolated communities, informal settlements, coastal or tourism areas, transport corridors, utilities, hospitals, emergency facilities and other critical assets. Prefer named and mapped exposure over generic statements that infrastructure exists in a hazard area.
+
+4. Upcoming Events
+Check official municipal, tourism, venue, sports and organiser calendars before concluding that there are no relevant events. Include only significant public events at the target or within about 20 km that occur from {start_iso} through {events_end_iso}, inclusive. A multi-day event is eligible when its exact date range overlaps that window. Significance may come from large attendance, unusual outdoor exposure, traffic or public-transport pressure, constrained access, or citywide importance; it need not be a stadium event. Give the exact day, month and year (or exact date range), venue/locality, and a short explanation of the weather exposure. Omit vague, undated, minor, distant or unsupported events.
+{local_context_block}
+
+OUTPUT RULES
+
+- Begin immediately with these exact Markdown level-3 headings, in this order:
+  ### Existing Vulnerabilities
+  ### Weather Impact Thresholds
+  ### Exposed Populations and Assets
+  ### Upcoming Events
+- Include all four headings. Under each, use concise bullet lines beginning with •.
+- When a section has no supported item, write exactly: • No relevant items found.
+- State the responsible source agency or document type naturally when it helps distinguish an official criterion, observed impact or design reference, but do not include citation markers, source lists, URLs, introductions or conclusions.
+- Do not draft the forecast. Return only the structured context."""
+
+
+def _hosted_research_identity_block(
+    name: str,
+    context_type: str,
+    locations: tuple[ResearchLocation, ...],
+) -> str:
+    """Describe the geocoded target precisely enough to reject near-name matches."""
+    lines = ["TARGET IDENTITY (authoritative; use this to disambiguate search results)"]
+    lines.append(f"- Configured target: {name}")
+    if context_type in {"area", "regional"}:
+        scope_names = ", ".join(location.name for location in locations)
+        if scope_names:
+            lines.append(
+                f"- Representative geocoded places: {scope_names}. Search across this scope, "
+                "not only for the area name."
+            )
+    for index, location in enumerate(locations, start=1):
+        identity_parts = [location.name]
+        for value in (
+            location.admin2,
+            location.admin1,
+            location.country_name,
+            location.country_code,
+        ):
+            if value and not any(value.casefold() in part.casefold() for part in identity_parts):
+                identity_parts.append(value)
+        lines.append(
+            f"- Geocoded place {index}: {', '.join(identity_parts)} "
+            f"(approximately {location.latitude:.4f}, {location.longitude:.4f})"
+        )
+    lines.append(
+        "- Accept spelling and diacritic variants of this identity, but reject a similarly named "
+        "place when its district, region, country or coordinates do not match. Do not silently "
+        "substitute another locality."
+    )
+    return "\n".join(lines)
+
+
 def _generate_context(
     context_type: str,
     name: str,
@@ -1036,68 +1165,15 @@ def _generate_context(
 ) -> Tuple[str, float]:
     """Generate impact context using the requested LLM."""
     context_llm = (context_llm or DEFAULT_CONTEXT_LLM).strip()
-    max_event_days = EVENT_LOOKAHEAD_DAYS
     local_now = get_local_now(timezone_name)
-    start_iso = local_now.strftime("%Y-%m-%d")
-    events_end_iso = (local_now + timedelta(days=max_event_days)).strftime("%Y-%m-%d")
-    extra_context_block = ""
-    if extra_context:
-        extra_context_block = (
-            "\nAdditional local context supplied by a knowledgeable source (treat as authoritative and emphasize it):\n"
-            f"{extra_context.strip()}\n"
-        )
-
-    entity_label = {
-        "area": "an area",
-        "regional": "a region",
-        "location": "a location",
-    }.get(context_type, "a location")
-    scope_block = ""
-    if context_type in {"area", "regional"} and representative_locations:
-        scope_names = ", ".join(location.name for location in representative_locations)
-        scope_block = (
-            "\nTreat the following geocoded places as representative of the spatial extent: "
-            f"{scope_names}. Search across this scope, not only for the area name.\n"
-        )
-    prompt = f"""Another assistant will soon prepare {forecast_days}-day impact-based weather forecast and associated warnings for {name} ({entity_label}).
-{scope_block}
-
-To provide context for that forecast, identify and list all relevant contextual information that could influence weather impacts, including:
-
-    • Current national and local conditions and vulnerabilities (e.g., recent flooding or landslides, ongoing drought, damaged infrastructure, health outbreaks, power or water supply issues).
-
-    • Weather impact thresholds specific to this location (IMPORTANT): Identify any known rainfall amounts (in mm), wind speeds (in km/h), or other weather thresholds that historically trigger impacts such as flooding, landslides, road closures, power outages, or structural damage in this specific area. For example: "Flash flooding typically occurs with rainfall exceeding 25mm in 24 hours" or "Landslides are a risk when rainfall exceeds 50mm over 2-3 days" or "Wind damage to informal structures begins around 60 km/h gusts". Include any location-specific vulnerability factors that affect these thresholds (e.g., poor drainage, deforested slopes, damaged infrastructure from recent events).
-
-    • Upcoming events that may increase exposure or vulnerability (e.g. public holidays, major sports events, concerts, festivals, school terms or exams). These must be truly major events with large public attendance (citywide holidays, stadium events, large festivals), and they must occur at the location (or within 20 km of it). If an event is small, niche, or only a modest local gathering, omit it. If you are not confident it is major, omit it. Do NOT include minor or distant events or national events that are not tied to the location. CRITICAL: Only include events that occur TODAY or within the next {max_event_days} days (through {events_end_iso}). Do NOT include any events that have already occurred (events before today) or events more than {max_event_days} days in the future. For any events listed, you MUST provide the exact date (e.g., "15 November 2025" or "November 15, 2025"). Vague descriptions like "mid-November", "late November", "early November", or "around November 15" are NOT acceptable. If you cannot find the exact date, do not include that event.
-
-    • Key vulnerable groups and assets (e.g. informal settlements, flood-prone neighbourhoods, critical infrastructure, tourism areas, coastal communities).
-
-Use recent information for current vulnerabilities and disruptions, assessed as of {start_iso}. For thresholds and baseline exposure, prefer authoritative local plans, studies, historical reports, or agency guidance even when those sources are older; do not discard a sound quantitative threshold merely because it predates the forecast period. Upcoming events must follow the separate exact-date window through {events_end_iso}. Present your findings as a structured list, grouped under headings such as:
-
-    • "Existing Vulnerabilities"
-
-    • "Weather Impact Thresholds"
-
-    • "Exposed Populations and Assets"
-
-    • "Upcoming Events"
-
-For each item, add 1–2 sentences explaining why it is relevant for an impact-based forecast and warning for the next {forecast_days} days. For events in the "Upcoming Events" section, you MUST include the exact date (day, month, and year) for each event, and only include events occurring today or within the next {max_event_days} days (up to {events_end_iso}). Do not use vague timeframes and do not include past events or events beyond that window. For the "Weather Impact Thresholds" section, provide specific quantitative thresholds when available (e.g., "X mm rainfall", "Y km/h winds"), as these will be used to determine when impacts should be mentioned in the forecast.
-{extra_context_block}
-
-Formatting requirements:
-
-    • Begin immediately with the first heading. Do NOT include any introduction, preamble, concluding remarks, summaries, or sign-offs.
-    • You MUST include all four headings below, even if you have no items for a section.
-    • If a section has no relevant items, still include the heading and add a single bullet: "• No relevant items found."
-    • Use Markdown level-3 headings in the exact form:
-        ### Existing Vulnerabilities
-        ### Weather Impact Thresholds
-        ### Exposed Populations and Assets
-        ### Upcoming Events
-    • Under each heading, use bullet-style lines (you may use the "•" bullet character) that concisely state the information.
-
-IMPORTANT: Provide only the structured context information as plain text. Do NOT include any URLs, web links, or citations. Do not offer to draft the forecast or ask if you should proceed. Just provide the requested contextual information as text only."""
+    prompt = _build_hosted_context_prompt(
+        context_type,
+        name,
+        forecast_days,
+        local_now=local_now,
+        extra_context=extra_context,
+        representative_locations=representative_locations,
+    )
 
     if _is_gemini_model(context_llm):
         context_text, cost_cents = _generate_context_gemini_search(
@@ -1105,6 +1181,7 @@ IMPORTANT: Provide only the structured context information as plain text. Do NOT
             model_name=_normalize_gemini_model_name(context_llm),
             api_key=secrets.gemini_api_key,
             name=name,
+            context_type=context_type,
         )
     else:
         context_text, cost_cents = _generate_context_openai_web_search(
@@ -1115,6 +1192,20 @@ IMPORTANT: Provide only the structured context information as plain text. Do NOT
         )
 
     context_text = _clean_context_text(context_text)
+    if context_text:
+        context_text, removed_events = _filter_invalid_upcoming_event_bullets(
+            context_text,
+            event_start=local_now.date(),
+            event_end=local_now.date() + timedelta(days=EVENT_LOOKAHEAD_DAYS),
+            event_source_markers=None,
+        )
+        if removed_events:
+            logger.warning(
+                "Removed %d invalid or out-of-window event bullet(s) from hosted-search "
+                "context for %s.",
+                len(removed_events),
+                name,
+            )
     if context_text:
         logger.info("Generated impact context for %s (%s); %d characters", name, context_type, len(context_text))
     return context_text, cost_cents
@@ -1186,6 +1277,7 @@ def _generate_context_gemini_search(
     model_name: str,
     api_key: Optional[str],
     name: str,
+    context_type: str = "location",
 ) -> tuple[str, float]:
     """Generate context via Gemini search grounding."""
     if not api_key:
@@ -1289,8 +1381,10 @@ def _generate_context_gemini_search(
         max_output_tokens=15000,
     )
 
-    def _call(contents: str) -> tuple[str, float]:
-        """Call Gemini generate_content and return text with cost."""
+    call_audits: list[dict[str, Any]] = []
+
+    def _call(contents: str, call_number: int) -> tuple[str, float]:
+        """Call Gemini generate_content and retain its private grounding metadata."""
         try:
             with force_gemini_api_key(api_key):
                 response = client.models.generate_content(
@@ -1300,19 +1394,69 @@ def _generate_context_gemini_search(
                 )
         except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
             logger.error("Gemini Google Search grounding failed for impact context (%s): %s", name, exc)
+            call_audits.append(
+                {
+                    "call_number": call_number,
+                    "request_sha256": hashlib.sha256(contents.encode("utf-8")).hexdigest(),
+                    "response_text": "",
+                    "error": str(exc)[:500],
+                    "web_search_queries": [],
+                    "sources": [],
+                    "supports": [],
+                    "citations": [],
+                }
+            )
             return "", 0.0
         text = (getattr(response, "text", None) or "").strip()
         usage = getattr(response, "usage_metadata", None)
-        return text, log_gemini_usage_and_cost(model_name, usage, label="Impact context LLM usage")
+        call_audits.append(
+            _extract_gemini_grounding_audit(
+                response,
+                call_number=call_number,
+                request_text=contents,
+                response_text=text,
+            )
+        )
+        return text, log_gemini_usage_and_cost(
+            model_name,
+            usage,
+            label="Impact context LLM usage",
+        )
+
+    def _finalize(text: str, cost_cents: float) -> tuple[str, float]:
+        """Store the audit record and fail closed when no web grounding was returned."""
+        sidecar_path = _store_hosted_search_sidecar(
+            name=name,
+            context_type=context_type,
+            model_name=model_name,
+            prompt=prompt,
+            final_text=text,
+            call_audits=call_audits,
+        )
+        if text and sidecar_path is None:
+            logger.error(
+                "Gemini impact context for %s cannot be audited because its private grounding "
+                "sidecar could not be stored; discarding it.",
+                name,
+            )
+            return "", cost_cents
+        if text and not _gemini_audits_have_grounding(call_audits):
+            logger.error(
+                "Gemini returned impact context for %s without Google Search grounding metadata; "
+                "discarding it rather than using unauditable model knowledge.",
+                name,
+            )
+            return "", cost_cents
+        return text, cost_cents
 
     # First pass.
-    combined, cost_cents = _call(prompt)
+    combined, cost_cents = _call(prompt, 1)
     if not combined:
-        return "", 0.0
+        return _finalize("", cost_cents)
 
-    # If Gemini returns an incomplete or abruptly-truncated answer, ask it to continue.
+    # If Gemini returns an incomplete or abruptly-truncated answer, allow one continuation.
     # This can happen for small locations (sparse results) or when the model hits an internal stop.
-    for _ in range(2):
+    for _ in range(1):
         if _is_complete(combined) and not _looks_truncated(combined):
             break
         missing = _first_missing_heading(combined)
@@ -1334,13 +1478,167 @@ def _generate_context_gemini_search(
         if missing:
             continuation += f"Start with the next missing heading: {missing}\n"
         continuation += f"\nLast part of previous output (for continuity):\n{tail}\n"
-        next_text, next_cost = _call(continuation)
+        next_text, next_cost = _call(continuation, len(call_audits) + 1)
         if not next_text:
             break
         cost_cents += next_cost
         combined = _merge_context_chunks(combined, next_text)
 
-    return combined, cost_cents
+    return _finalize(combined, cost_cents)
+
+
+def _extract_gemini_grounding_audit(
+    response: Any,
+    *,
+    call_number: int,
+    request_text: str,
+    response_text: str,
+) -> dict[str, Any]:
+    """Extract queries, sources and claim-support mappings from a Gemini response."""
+    audit: dict[str, Any] = {
+        "call_number": call_number,
+        "request_sha256": hashlib.sha256(request_text.encode("utf-8")).hexdigest(),
+        "response_text": response_text,
+        "response_id": getattr(response, "response_id", None),
+        "model_version": getattr(response, "model_version", None),
+        "web_search_queries": [],
+        "sources": [],
+        "supports": [],
+        "citations": [],
+    }
+    candidates = getattr(response, "candidates", None)
+    if not isinstance(candidates, list):
+        return audit
+
+    seen_queries: set[str] = set()
+    seen_sources: set[tuple[str, str]] = set()
+    for candidate_index, candidate in enumerate(candidates):
+        finish_reason = getattr(candidate, "finish_reason", None)
+        if finish_reason is not None:
+            audit.setdefault("finish_reasons", []).append(
+                getattr(finish_reason, "value", str(finish_reason))
+            )
+        metadata = getattr(candidate, "grounding_metadata", None)
+        if metadata is not None:
+            for query in getattr(metadata, "web_search_queries", None) or []:
+                normalized_query = str(query).strip()
+                if normalized_query and normalized_query not in seen_queries:
+                    seen_queries.add(normalized_query)
+                    audit["web_search_queries"].append(normalized_query)
+
+            chunks = getattr(metadata, "grounding_chunks", None) or []
+            for chunk_index, chunk in enumerate(chunks):
+                web = getattr(chunk, "web", None)
+                if web is None:
+                    continue
+                uri = str(getattr(web, "uri", None) or "").strip()
+                title = str(getattr(web, "title", None) or "").strip()
+                source_key = (uri, title)
+                if not uri or source_key in seen_sources:
+                    continue
+                seen_sources.add(source_key)
+                audit["sources"].append(
+                    {
+                        "candidate_index": candidate_index,
+                        "chunk_index": chunk_index,
+                        "title": title or uri,
+                        "url": uri,
+                        "domain": str(getattr(web, "domain", None) or "").strip() or None,
+                    }
+                )
+
+            for support in getattr(metadata, "grounding_supports", None) or []:
+                segment = getattr(support, "segment", None)
+                audit["supports"].append(
+                    {
+                        "candidate_index": candidate_index,
+                        "text": str(getattr(segment, "text", None) or "").strip(),
+                        "start_index": getattr(segment, "start_index", None),
+                        "end_index": getattr(segment, "end_index", None),
+                        "chunk_indices": list(
+                            getattr(support, "grounding_chunk_indices", None) or []
+                        ),
+                        "confidence_scores": list(
+                            getattr(support, "confidence_scores", None) or []
+                        ),
+                    }
+                )
+
+        citation_metadata = getattr(candidate, "citation_metadata", None)
+        for citation in getattr(citation_metadata, "citations", None) or []:
+            audit["citations"].append(
+                {
+                    "candidate_index": candidate_index,
+                    "title": getattr(citation, "title", None),
+                    "url": getattr(citation, "uri", None),
+                    "start_index": getattr(citation, "start_index", None),
+                    "end_index": getattr(citation, "end_index", None),
+                    "license": getattr(citation, "license", None),
+                    "publication_date": str(getattr(citation, "publication_date", None) or "")
+                    or None,
+                }
+            )
+    return audit
+
+
+def _gemini_audits_have_grounding(call_audits: list[dict[str, Any]]) -> bool:
+    """Return whether Gemini supplied evidence that Google Search was actually used."""
+    return any(
+        audit.get("web_search_queries") or audit.get("sources") or audit.get("supports")
+        for audit in call_audits
+    )
+
+
+def _store_hosted_search_sidecar(
+    *,
+    name: str,
+    context_type: str,
+    model_name: str,
+    prompt: str,
+    final_text: str,
+    call_audits: list[dict[str, Any]],
+) -> Optional[Path]:
+    """Store private Gemini search grounding without changing public context text."""
+    prompt_sha256 = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+    payload = {
+        "schema_version": HOSTED_RESEARCH_VERSION,
+        "provider": "gemini-google-search",
+        "name": name,
+        "context_type": context_type,
+        "model": model_name,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "prompt_sha256": prompt_sha256,
+        "calls": call_audits,
+        "final_context": final_text,
+    }
+    digest = hashlib.sha256(
+        json.dumps(
+            {
+                "name": name,
+                "context_type": context_type,
+                "model": model_name,
+                "prompt_sha256": prompt_sha256,
+            },
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()[:16]
+    try:
+        path = ensure_directory(CACHE_DIR / "evidence") / (
+            f"hosted_{context_type}_{_slugify(name)[:50]}_{digest}.json"
+        )
+        write_text_file(path, json.dumps(payload, indent=2, ensure_ascii=False))
+    except OSError as exc:
+        logger.warning("Unable to store private Gemini grounding sidecar for %s (%s).", name, exc)
+        return None
+    query_count = sum(len(audit.get("web_search_queries", [])) for audit in call_audits)
+    source_count = sum(len(audit.get("sources", [])) for audit in call_audits)
+    logger.info(
+        "Stored private Gemini grounding sidecar at %s (%d search queries, %d sources).",
+        path,
+        query_count,
+        source_count,
+    )
+    return path
 
 
 def _extract_response_text(response) -> str:
