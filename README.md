@@ -544,6 +544,9 @@ The Brave provider is staged and bounded:
 - For areas and regional forecasts, both paths receive representative place names so research is
   not based on the area name alone; Brave also receives centroid coordinates and available country
   information.
+- Brave location headers retain the forecast place's ISO country code. If that code is not one of
+  Brave's supported search markets (as with some territories and small-island states), IBF uses
+  Brave's global search market rather than sending an invalid code or defaulting results to the US.
 - Retrieved query text, URL, title, hostname, source/published date, retrieval time, and supporting
   passages are kept in private evidence sidecars. The synthesising model must cite those evidence
   records; IBF validates the citations and exact event dates before removing citation markers from
@@ -625,9 +628,10 @@ Troubleshooting (technical)
 - LM Studio connection errors: start its API server, verify `lm_studio_base_url`, local-network and
   firewall settings, and authentication. The error lists the model identifiers visible from
   `/v1/models`; the configured `lms:` identifier must match exactly.
-- Brave context errors: confirm `BRAVE_SEARCH_API_KEY`, plan access to LLM Context, and network
-  connectivity. Configure `context_fallback_llm` if you want the existing hosted-search method as a
-  fallback.
+- Brave context errors: confirm `BRAVE_SEARCH_API_KEY`, subscription to Brave's Search plan, and
+  network connectivity. Brave requires a new key to be generated for a new subscription. IBF logs
+  Brave's structured error code and message. Configure `context_fallback_llm` only if you want the
+  existing hosted-search method as a fallback.
 - Other LLM errors: confirm the model prefix matches the provider and that the correct API key is set.
 - Outputs not updating: check `minimum_refresh_minutes` or delete the target HTML.
 - Maps not regenerating: use `--force-maps` or delete `<web_root>/.ibf_maps_hash`.

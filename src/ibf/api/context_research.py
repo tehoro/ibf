@@ -26,6 +26,45 @@ STATIC_EVIDENCE_MAX_AGE_DAYS = 60
 EVENT_LOOKAHEAD_DAYS = 10
 _CACHE_SCHEMA_VERSION = 1
 _MAX_GAP_SEARCHES = 1
+_BRAVE_SEARCH_COUNTRIES = {
+    "AR",
+    "AT",
+    "AU",
+    "BE",
+    "BR",
+    "CA",
+    "CH",
+    "CL",
+    "CN",
+    "DE",
+    "DK",
+    "ES",
+    "FI",
+    "FR",
+    "GB",
+    "GR",
+    "HK",
+    "ID",
+    "IN",
+    "IT",
+    "JP",
+    "KR",
+    "MX",
+    "MY",
+    "NL",
+    "NO",
+    "NZ",
+    "PH",
+    "PL",
+    "PT",
+    "RU",
+    "SA",
+    "SE",
+    "TR",
+    "TW",
+    "US",
+    "ZA",
+}
 
 
 class ContextResearchError(RuntimeError):
@@ -297,7 +336,11 @@ class BraveContextResearchProvider:
         }
         country = headers.get("X-Loc-Country")
         if country:
-            body["country"] = country.lower()
+            # Brave accepts all ISO 3166-1 alpha-2 codes in the location header,
+            # but its search-market parameter supports a much smaller enum. Use
+            # the global market for territories such as VG rather than sending an
+            # invalid market or silently defaulting their results to the US.
+            body["country"] = country if country in _BRAVE_SEARCH_COUNTRIES else "ALL"
 
         last_error: Optional[Exception] = None
         for attempt in range(1, 4):
@@ -321,12 +364,12 @@ class BraveContextResearchProvider:
                     logger.warning(
                         "Brave request failed transiently (attempt %d/3): %s",
                         attempt,
-                        format_request_exception(exc),
+                        _format_brave_error(exc),
                     )
                     time.sleep(2 ** (attempt - 1))
                     continue
                 break
-        detail = format_request_exception(last_error) if last_error else "unknown error"
+        detail = _format_brave_error(last_error) if last_error else "unknown error"
         raise ContextResearchError(f"Brave LLM Context request failed: {detail}") from last_error
 
     def _store_batch(self, entity_key: str, batch: ResearchBatch) -> None:
@@ -507,6 +550,28 @@ def _is_transient_brave_error(exc: Exception) -> bool:
     response = getattr(exc, "response", None)
     status = getattr(response, "status_code", None)
     return status is None or status == 429 or (isinstance(status, int) and status >= 500)
+
+
+def _format_brave_error(exc: Exception) -> str:
+    """Include Brave's safe structured error code and message in diagnostics."""
+    base = format_request_exception(exc)
+    response = getattr(exc, "response", None)
+    if response is None:
+        return base
+    try:
+        payload = response.json()
+    except (requests.JSONDecodeError, ValueError):
+        return base
+    if not isinstance(payload, dict) or not isinstance(payload.get("error"), dict):
+        return base
+    error = payload["error"]
+    code = re.sub(r"\s+", " ", str(error.get("code") or "")).strip()[:100]
+    message = re.sub(r"\s+", " ", str(error.get("detail") or "")).strip()[:500]
+    if code:
+        base += f" code={code}"
+    if message:
+        base += f" message={message}"
+    return base
 
 
 __all__ = [
