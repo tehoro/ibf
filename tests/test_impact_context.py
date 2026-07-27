@@ -128,6 +128,96 @@ def test_brave_evidence_can_be_synthesized_by_local_or_cloud_llm(
     assert cost == pytest.approx(0.75)  # 0.25c synthesis + one 0.5c Brave request.
 
 
+def test_brave_retries_when_accepted_event_evidence_is_omitted(tmp_path, monkeypatch) -> None:
+    retrieved = datetime.now(timezone.utc).isoformat()
+    event_evidence = EvidenceItem(
+        bucket="events",
+        query="Halifax major events",
+        url="https://natalday.org/events.php",
+        title="Natal Day Festival Halifax-Dartmouth",
+        hostname="natalday.org",
+        published_date="2026-07-02",
+        source_age=["2026-07-02"],
+        retrieved_at=retrieved,
+        passages=["The Buskers Festival runs from July 30 to August 3, 2026."],
+    )
+    research = ResearchResult(
+        name="Halifax, Nova Scotia",
+        context_type="location",
+        batches=[
+            ResearchBatch(
+                bucket="events",
+                query="Halifax major events",
+                retrieved_at=retrieved,
+                local_date="2026-07-26",
+                evidence=[event_evidence],
+                cache_path=tmp_path / "events.json",
+            )
+        ],
+    )
+    fake_provider = SimpleNamespace(research=lambda *args, **kwargs: research)
+    monkeypatch.setattr(
+        "ibf.api.impact.BraveContextResearchProvider", lambda api_key: fake_provider
+    )
+    monkeypatch.setattr(
+        "ibf.api.impact.resolve_llm_settings",
+        lambda *args, **kwargs: LLMSettings(
+            model="gemini-3-flash-preview", api_key="key", provider="gemini"
+        ),
+    )
+    monkeypatch.setattr(
+        "ibf.api.impact.get_local_now",
+        lambda _timezone: datetime(2026, 7, 26, 12, 0, tzinfo=timezone.utc),
+    )
+    drafts = iter(
+        [
+            """### Existing Vulnerabilities
+• No relevant items found.
+### Weather Impact Thresholds
+• No relevant items found.
+### Exposed Populations and Assets
+• The Halifax waterfront hosts major public gatherings. [S1]""",
+            """### Existing Vulnerabilities
+• No relevant items found.
+### Weather Impact Thresholds
+• No relevant items found.
+### Exposed Populations and Assets
+• The Halifax waterfront hosts major public gatherings. [S1]
+### Upcoming Events
+• July 30-August 3, 2026: Halifax Buskers Festival. [S1]""",
+        ]
+    )
+    call_count = 0
+
+    def fake_generate(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        return next(drafts)
+
+    monkeypatch.setattr("ibf.api.impact.generate_forecast_text", fake_generate)
+    monkeypatch.setattr("ibf.api.impact.consume_last_cost_cents", lambda: 0.0)
+    monkeypatch.setattr(
+        "ibf.api.impact._store_brave_synthesis_sidecar", lambda *args, **kwargs: None
+    )
+
+    text, _cost = _generate_context_brave(
+        "location",
+        "Halifax, Nova Scotia",
+        4,
+        "UTC",
+        Secrets(BRAVE_SEARCH_API_KEY="brave-key"),
+        context_llm="gemini-3-flash-preview",
+        extra_context=None,
+        llm_config=ForecastConfig(
+            context_provider="brave", context_llm="gemini-3-flash-preview"
+        ),
+        representative_locations=(),
+    )
+
+    assert call_count == 2
+    assert "Halifax Buskers Festival" in text
+
+
 def test_brave_synthesis_validation_requires_citations_and_exact_event_dates() -> None:
     invalid = """### Existing Vulnerabilities
 • Unsupported vulnerability.

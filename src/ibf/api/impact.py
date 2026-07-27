@@ -599,6 +599,14 @@ def _generate_context_brave(
                 event_end=events_end_date,
                 event_source_markers=event_source_markers,
             )
+            if (
+                attempt == 0
+                and event_source_markers
+                and not _has_substantive_upcoming_event_bullet(normalized_text)
+            ):
+                validation_errors.append(
+                    "accepted event evidence was not represented by a valid Upcoming Events bullet"
+                )
             if not _has_substantive_brave_bullet(normalized_text):
                 validation_errors.append("no evidence-based bullets")
                 validation_errors = list(dict.fromkeys(validation_errors))
@@ -781,6 +789,18 @@ def _source_markers_for_bucket(research: ResearchResult, bucket_name: str) -> se
                 markers.add(f"S{source_index}")
             source_index += 1
     return markers
+
+
+def _has_substantive_upcoming_event_bullet(text: str) -> bool:
+    """Return whether the repaired synthesis retained a supported event bullet."""
+    _prefix, heading, event_text = text.partition("### Upcoming Events")
+    if not heading:
+        return False
+    return any(
+        line.strip().startswith(("•", "-", "*"))
+        and "No relevant items found" not in line
+        for line in event_text.splitlines()
+    )
 
 
 def _filter_invalid_upcoming_event_bullets(
