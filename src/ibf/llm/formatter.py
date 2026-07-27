@@ -4,16 +4,18 @@ Formatting helpers that build the textual input for the LLM.
 
 from __future__ import annotations
 
+import logging
 import math
 from datetime import datetime
 from typing import Any, Iterable, List
 
 import arrow
 import numpy as np
-import pytz
 
 from ..api.alerts import AlertSummary
 from ..util import convert_hour_to_ampm, round_windspeed  # will add helper there
+
+logger = logging.getLogger(__name__)
 
 PRECIP_HEAVY_THRESHOLD_MM = 10.0
 PRECIP_HEAVY_THRESHOLD_IN = 0.5
@@ -590,13 +592,13 @@ def calculate_range_summary(
 
     summary_lines = []
     if use_only_low:
-        summary_lines.append(f"Likely low {min(daily_lows)}°{temp_unit_short} to {max(daily_lows)}°{temp_unit_short}")
+        summary_lines.append(_format_temperature_range("low", daily_lows, temp_unit_short))
     elif reverse_high_and_low:
-        summary_lines.append(f"Likely high {min(daily_highs)}°{temp_unit_short} to {max(daily_highs)}°{temp_unit_short}")
-        summary_lines.append(f"Likely low {min(daily_lows)}°{temp_unit_short} to {max(daily_lows)}°{temp_unit_short}")
+        summary_lines.append(_format_temperature_range("high", daily_highs, temp_unit_short))
+        summary_lines.append(_format_temperature_range("low", daily_lows, temp_unit_short))
     else:
-        summary_lines.append(f"Likely low {min(daily_lows)}°{temp_unit_short} to {max(daily_lows)}°{temp_unit_short}")
-        summary_lines.append(f"Likely high {min(daily_highs)}°{temp_unit_short} to {max(daily_highs)}°{temp_unit_short}")
+        summary_lines.append(_format_temperature_range("low", daily_lows, temp_unit_short))
+        summary_lines.append(_format_temperature_range("high", daily_highs, temp_unit_short))
 
     precip_line = precipitation_or_snowfall_likely("precipitation", daily_precip, precip_unit)
     snow_line = precipitation_or_snowfall_likely("snowfall", daily_snow, snow_unit)
@@ -615,6 +617,15 @@ def calculate_range_summary(
     if heavy_precip_line:
         summary_lines.append(heavy_precip_line)
     return "\n".join(summary_lines)
+
+
+def _format_temperature_range(label: str, values: List[float], unit: str) -> str:
+    """Format a temperature range without ever emitting an ``X to X`` span."""
+    lower = min(values)
+    upper = max(values)
+    if lower == upper:
+        return f"Likely {label} {lower}°{unit}"
+    return f"Likely {label} {lower}°{unit} to {upper}°{unit}"
 
 
 def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str) -> str:

@@ -8,8 +8,14 @@ import pytest
 from typer.testing import CliRunner
 
 from ibf import cli
+from ibf.config.models import AreaConfig, ForecastConfig
 from ibf.pipeline import executor
-from ibf.pipeline.executor import LocationForecastPayload, LocationUnits
+from ibf.pipeline.executor import (
+    ForecastGenerationFailure,
+    LocationForecastPayload,
+    LocationUnits,
+    PipelineRunError,
+)
 from ibf.api.geocode import GeocodeResult
 from ibf.llm.settings import LLMSettings
 from ibf.util import slugify
@@ -149,3 +155,88 @@ def test_cli_run_generates_forecasts(
     assert state["areas"][slugify("Sample Regional")] == expected_area_hash(
         "Sample Regional", ["Test City", "Second City"]
     )
+
+
+def test_failed_area_forecast_is_not_translated_or_replaced_with_dataset_paths(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    area = AreaConfig(
+        name="Test Area",
+        locations=["Test City"],
+        translation_language="Spanish",
+    )
+    config = ForecastConfig(
+        web_root=tmp_path / "site",
+        llm="lms:test-model",
+        area_impact_based=False,
+        areas=[area],
+    )
+    payload = _make_mock_payload("Test City", cache_dir)
+    monkeypatch.setattr(executor, "_collect_area_payloads", lambda *args, **kwargs: [payload])
+    monkeypatch.setattr(
+        executor,
+        "_generate_text_with_fallback",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("context overflow")),
+    )
+    translation_calls = []
+    monkeypatch.setattr(
+        executor,
+        "_maybe_translate",
+        lambda *args, **kwargs: translation_calls.append(args) or ("translated", 0.0),
+    )
+
+    with pytest.raises(ForecastGenerationFailure):
+        executor._process_area(area, config)
+
+    assert translation_calls == []
+    destination = executor._build_destination_path(config, area.name)
+    html = destination.read_text(encoding="utf-8")
+    assert "Forecast temporarily unavailable" in html
+    assert "Area dataset preview" not in html
+    assert str(payload.dataset_cache) not in html
+    assert "Forecast in Spanish" not in html
+
+
+def test_execute_pipeline_collects_failures_and_continues(monkeypatch) -> None:
+    config = ForecastConfig(
+        locations=[{"name": "First"}, {"name": "Second"}],
+        location_impact_based=False,
+    )
+    calls = []
+
+    def fake_process(location, _config, display_name):
+        calls.append(display_name)
+        if location.name == "First":
+            raise ForecastGenerationFailure("First failed")
+
+    monkeypatch.setattr(executor, "_process_location", fake_process)
+
+    with pytest.raises(PipelineRunError) as exc_info:
+        executor.execute_pipeline(config)
+
+    assert calls == ["First", "Second"]
+    assert exc_info.value.failures == ("First failed",)
+
+
+def test_cli_returns_failure_status_for_forecast_generation_errors(
+    runner: CliRunner,
+    sample_config: Dict[str, object],
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        cli,
+        "execute_pipeline",
+        lambda _config: (_ for _ in ()).throw(PipelineRunError(["Area forecast failed"])),
+    )
+
+    result = runner.invoke(
+        cli.app,
+        ["run", "--config", str(sample_config["path"]), "--no-maps"],
+    )
+
+    assert result.exit_code == 1
+    assert "Pipeline completed with forecast failures" in result.output
+    assert "Area forecast failed" in result.output

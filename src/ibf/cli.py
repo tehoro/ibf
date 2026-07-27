@@ -19,7 +19,7 @@ from rich.table import Table
 
 from . import __version__
 from .config import ConfigError, ForecastConfig, load_config
-from .pipeline import execute_pipeline
+from .pipeline import PipelineRunError, execute_pipeline
 from .web import ScaffoldReport, generate_site_structure, resolve_web_root
 from .maps import generate_area_maps
 from .util import ensure_directory, slugify
@@ -346,7 +346,14 @@ def run(
 
     console.print("[yellow]Running pipeline...[/]")
     logger.info("Starting pipeline execution")
-    execute_pipeline(forecast_config)
+    try:
+        execute_pipeline(forecast_config)
+    except PipelineRunError as exc:
+        logger.error("Pipeline completed with forecast failures: %s", "; ".join(exc.failures))
+        console.print("[bold red]Pipeline completed with forecast failures.[/]")
+        for failure in exc.failures:
+            console.print(f"  • {failure}")
+        raise typer.Exit(code=1) from exc
     logger.info("Pipeline finished successfully")
     console.print("[bold green]Pipeline completed.[/]")
 

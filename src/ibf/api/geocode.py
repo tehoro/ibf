@@ -6,8 +6,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
-from pathlib import Path
+from dataclasses import dataclass, replace
 from typing import Optional
 
 import requests
@@ -33,6 +32,9 @@ class GeocodeResult:
         longitude: Longitude coordinate.
         timezone: Timezone identifier (e.g., "Europe/London").
         country_code: ISO 3166-1 alpha-2 country code.
+        country_name: Human-readable country name.
+        admin1: First-level administrative region.
+        admin2: Second-level administrative region.
         altitude: Elevation in meters (optional).
     """
     name: str
@@ -40,6 +42,9 @@ class GeocodeResult:
     longitude: float
     timezone: str
     country_code: Optional[str] = None
+    country_name: Optional[str] = None
+    admin1: Optional[str] = None
+    admin2: Optional[str] = None
     altitude: Optional[float] = None
 
 
@@ -63,14 +68,21 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
     with file_lock(CACHE_PATH):
         cache = _read_cache()
         data = cache.get(normalized)
-        if data:
-            logger.info(
-                "Geocode cache hit for '%s' (lat=%.4f, lon=%.4f)",
-                name,
-                data["latitude"],
-                data["longitude"],
-            )
-            return GeocodeResult(**data)
+    if data:
+        result = GeocodeResult(**data)
+        if not {"country_name", "admin1", "admin2"}.issubset(data):
+            result = _enrich_cached_identity(name, result)
+            with file_lock(CACHE_PATH):
+                cache = _read_cache()
+                cache[normalized] = _cache_entry(result)
+                _write_cache(cache)
+        logger.info(
+            "Geocode cache hit for '%s' (lat=%.4f, lon=%.4f)",
+            name,
+            result.latitude,
+            result.longitude,
+        )
+        return result
 
     params = {"name": name, "count": 1, "language": language, "format": "json"}
     try:
@@ -94,6 +106,10 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
                 longitude=entry["longitude"],
                 timezone=entry.get("timezone", "UTC"),
                 country_code=entry.get("country_code"),
+                country_name=entry.get("country"),
+                admin1=entry.get("admin1"),
+                admin2=entry.get("admin2"),
+                altitude=entry.get("elevation"),
             )
             logger.info(
                 "Geocode resolved via Open-Meteo for '%s' (lat=%.4f, lon=%.4f)",
@@ -115,16 +131,78 @@ def geocode_name(name: str, *, language: str = "en") -> Optional[GeocodeResult]:
 
     with file_lock(CACHE_PATH):
         cache = _read_cache()
-        cache[normalized] = {
-            "name": result.name,
-            "latitude": result.latitude,
-            "longitude": result.longitude,
-            "timezone": result.timezone,
-            "country_code": result.country_code,
-            "altitude": result.altitude,
-        }
+        cache[normalized] = _cache_entry(result)
         _write_cache(cache)
     return result
+
+
+def _cache_entry(result: GeocodeResult) -> dict:
+    """Return the stable on-disk representation of a geocode result."""
+    return {
+        "name": result.name,
+        "latitude": result.latitude,
+        "longitude": result.longitude,
+        "timezone": result.timezone,
+        "country_code": result.country_code,
+        "country_name": result.country_name,
+        "admin1": result.admin1,
+        "admin2": result.admin2,
+        "altitude": result.altitude,
+    }
+
+
+def _enrich_cached_identity(name: str, result: GeocodeResult) -> GeocodeResult:
+    """Add administrative identity to a legacy cache entry without moving its point."""
+    locality = name.split(",", 1)[0].strip() or name
+    try:
+        response = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": locality, "count": 10, "language": "en", "format": "json"},
+            timeout=20,
+        )
+        response.raise_for_status()
+        entries = [entry for entry in response.json().get("results", []) if isinstance(entry, dict)]
+    except (AttributeError, TypeError, ValueError, requests.RequestException) as exc:
+        logger.debug("Unable to enrich geocode identity for %s: %s", name, exc)
+        entries = []
+
+    if result.country_code:
+        same_country = [
+            entry
+            for entry in entries
+            if str(entry.get("country_code") or "").upper() == result.country_code.upper()
+        ]
+        if same_country:
+            entries = same_country
+    candidates = [
+        entry
+        for entry in entries
+        if isinstance(entry.get("latitude"), (int, float))
+        and isinstance(entry.get("longitude"), (int, float))
+    ]
+    if candidates:
+        entry = min(
+            candidates,
+            key=lambda item: (float(item["latitude"]) - result.latitude) ** 2
+            + (float(item["longitude"]) - result.longitude) ** 2,
+        )
+        distance_squared = (float(entry["latitude"]) - result.latitude) ** 2 + (
+            float(entry["longitude"]) - result.longitude
+        ) ** 2
+        if distance_squared <= 4.0:
+            return replace(
+                result,
+                country_name=str(entry.get("country") or "").strip() or _country_from_name(name),
+                admin1=str(entry.get("admin1") or "").strip() or None,
+                admin2=str(entry.get("admin2") or "").strip() or None,
+            )
+    return replace(result, country_name=result.country_name or _country_from_name(name))
+
+
+def _country_from_name(name: str) -> Optional[str]:
+    """Use the final comma-delimited component as a last-resort country label."""
+    parts = [part.strip() for part in name.split(",") if part.strip()]
+    return parts[-1] if len(parts) > 1 else None
 
 
 def _read_cache() -> dict:
@@ -192,6 +270,9 @@ def _google_geocode(address: str, api_key: str) -> Optional[GeocodeResult]:
             longitude=lon,
             timezone=timezone,
             country_code=_extract_country_code(result_entry),
+            country_name=_extract_address_component(result_entry, "country"),
+            admin1=_extract_address_component(result_entry, "administrative_area_level_1"),
+            admin2=_extract_address_component(result_entry, "administrative_area_level_2"),
             altitude=altitude,
         )
     except requests.RequestException as exc:
@@ -207,6 +288,14 @@ def _extract_country_code(result_entry: dict) -> Optional[str]:
     for component in result_entry.get("address_components", []):
         if "country" in component.get("types", []):
             return component.get("short_name")
+    return None
+
+
+def _extract_address_component(result_entry: dict, component_type: str) -> Optional[str]:
+    """Extract a long-form Google address component by type."""
+    for component in result_entry.get("address_components", []):
+        if component_type in component.get("types", []):
+            return component.get("long_name")
     return None
 
 
@@ -240,6 +329,10 @@ def _is_valid_cache_entry(entry: object) -> bool:
     country = entry.get("country_code")
     if country is not None and not isinstance(country, str):
         return False
+    for field in ("country_name", "admin1", "admin2"):
+        value = entry.get(field)
+        if value is not None and not isinstance(value, str):
+            return False
     altitude = entry.get("altitude")
     if altitude is not None and not isinstance(altitude, (int, float)):
         return False

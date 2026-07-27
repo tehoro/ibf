@@ -4,7 +4,7 @@ Transform Open-Meteo hourly data into the legacy day/hour structure.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from typing import Any, Dict, List
 import logging
