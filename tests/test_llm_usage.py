@@ -52,3 +52,16 @@ def test_gemini_estimate_accounts_for_cached_input_tokens() -> None:
 
     # 500k standard input at $0.50/M plus 500k cached input at $0.05/M.
     assert cents == pytest.approx(27.5)
+
+
+def test_gemini_35_flash_lite_uses_current_standard_price() -> None:
+    usage = SimpleNamespace(
+        prompt_token_count=1_000_000,
+        cached_content_token_count=0,
+        candidates_token_count=1_000_000,
+        total_token_count=2_000_000,
+    )
+
+    cents = log_gemini_usage_and_cost("gemini-3.5-flash-lite", usage)
+
+    assert cents == pytest.approx(280.0)

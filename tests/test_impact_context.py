@@ -540,6 +540,27 @@ def test_modern_impact_cache_key_includes_forecast_days(tmp_path, monkeypatch) -
     assert "_7" in seven_days.name
 
 
+def test_new_default_context_model_does_not_share_legacy_unsuffixed_cache_key(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setattr("ibf.api.impact.CACHE_DIR", tmp_path)
+    date = datetime(2026, 7, 26, tzinfo=timezone.utc)
+
+    current = _cache_path("location", "Otaki", 4, "UTC", date_override=date)
+    legacy = _cache_path(
+        "location",
+        "Otaki",
+        4,
+        "UTC",
+        date_override=date,
+        context_llm="gemini-3-flash-preview",
+    )
+
+    assert "__gemini_35_flash_lite" in current.name
+    assert "__gemini" not in legacy.name
+    assert current != legacy
+
+
 def test_brave_failure_can_fall_back_to_explicit_hosted_search_model(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         "ibf.api.impact._load_recent_cache",

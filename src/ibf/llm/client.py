@@ -246,10 +246,11 @@ def _build_gemini_config(
 ):
     """Build a Gemini GenerateContentConfig, disabling AFC when supported."""
     config_kwargs = {
-        "temperature": settings.temperature,
         "max_output_tokens": settings.max_tokens,
         "system_instruction": system_prompt,
     }
+    if not _gemini_omits_sampling_parameters(settings.model):
+        config_kwargs["temperature"] = settings.temperature
     if thinking_level:
         thinking_cls = getattr(types_module, "ThinkingConfig", None)
         if thinking_cls:
@@ -297,15 +298,23 @@ def _call_gemini_once(client, model_name: str, prompt: str, config, system_promp
         )
     except (AttributeError, RuntimeError, TypeError, ValueError) as exc:
         logger.warning("Gemini request failed with system instruction; retrying (%s)", exc)
-        fallback_config = type(config)(
-            temperature=settings.temperature,
-            max_output_tokens=settings.max_tokens,
-        )
+        fallback_kwargs = {"max_output_tokens": settings.max_tokens}
+        if not _gemini_omits_sampling_parameters(model_name):
+            fallback_kwargs["temperature"] = settings.temperature
+        fallback_config = type(config)(**fallback_kwargs)
         return client.models.generate_content(
             model=model_name,
             contents=f"{system_prompt}\n\n{prompt}",
             config=fallback_config,
         )
+
+
+def _gemini_omits_sampling_parameters(model_name: str) -> bool:
+    """Return whether a Gemini model requires sampling parameters to be omitted."""
+    normalized = (model_name or "").lower()
+    if normalized.startswith("google/"):
+        normalized = normalized.split("/", 1)[1]
+    return normalized.startswith(("gemini-3.5-", "gemini-3.6-"))
 
 
 def _maybe_continue_gemini(

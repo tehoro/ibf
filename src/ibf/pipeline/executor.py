@@ -297,7 +297,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
     impact_enabled = _as_bool(config.location_impact_based)
     ibf_context = ""
     if impact_enabled:
-        context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
+        context_llm = (getattr(config, "context_llm", None) or "gemini-3.5-flash-lite").strip()
         impact_context = fetch_impact_context(
             name,
             context_type="location",
@@ -450,7 +450,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     impact_enabled = _as_bool(config.area_impact_based)
     ibf_context = ""
     if impact_enabled:
-        context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
+        context_llm = (getattr(config, "context_llm", None) or "gemini-3.5-flash-lite").strip()
         impact_context = fetch_impact_context(
             area.name,
             context_type="area",
@@ -616,7 +616,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     impact_enabled = _as_bool(config.area_impact_based)
     ibf_context = ""
     if impact_enabled:
-        context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
+        context_llm = (getattr(config, "context_llm", None) or "gemini-3.5-flash-lite").strip()
         regional_context = fetch_impact_context(
             area.name,
             context_type="regional",
@@ -1928,7 +1928,7 @@ def _gemini_thinking_level(enabled: bool, level: Optional[str]) -> Optional[str]
     """
     Map reasoning settings to Gemini thinking levels.
 
-    Gemini 3 Flash does not support full thinking-off; "off"/"false" is mapped to "minimal".
+    Current Gemini 3 models do not support full thinking-off; "off"/"false" is mapped to "minimal".
     """
     effort, _, disable_override = _parse_reasoning_setting(level)
     if not enabled or disable_override:

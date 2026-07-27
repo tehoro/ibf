@@ -41,7 +41,7 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
     Inspect the forecast config and environment variables to determine which LLM to use.
 
     Prioritizes `override_choice`, then `config.llm`, then `IBF_DEFAULT_LLM` env var,
-    and finally defaults to a specific OpenRouter model.
+    and finally defaults to the recommended direct Gemini model.
 
     Args:
         config: The forecast configuration.
@@ -57,7 +57,7 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
         override_choice
         or config.llm
         or os.environ.get("IBF_DEFAULT_LLM")
-        or "gemini-3-flash-preview"
+        or "gemini-3.5-flash-lite"
     )
     choice = base_choice.strip()
     choice_lower = choice.lower()

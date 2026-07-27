@@ -124,37 +124,53 @@ Impact context note:
 
 Recommended LLM choices
 -----------------------
-For a simple cloud setup, this remains a good default for all three LLM uses (context, forecast, translation):
+For a simple cloud setup, the recommended model for all three LLM uses (context, forecast, and
+translation) is:
 
-- gemini-3-flash-preview
+- `gemini-3.5-flash-lite`
+
+It is a stable, low-cost Gemini model with Google Search grounding, and has performed well for
+IBF's relatively concise research, forecast-writing, and translation tasks.
+See Google's [Gemini 3.5 Flash-Lite model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite).
 
 Suggested config snippet:
 
 ```toml
-llm = "gemini-3-flash-preview"
+llm = "gemini-3.5-flash-lite"
 context_provider = "llm-search"
-context_llm = "gemini-3-flash-preview"
-translation_llm = "gemini-3-flash-preview"
+context_llm = "gemini-3.5-flash-lite"
+translation_llm = "gemini-3.5-flash-lite"
 ```
 
 For local forecast writing and translation while retaining recommended Gemini context research:
 
 ```toml
-llm = "lms:exact-model-id-from-lm-studio"
-llm_fallback = "gemini-3-flash-preview"
+llm = "lms:exact-loaded-gemma-4-model-id"
+llm_fallback = "gemini-3.5-flash-lite"
 lm_studio_base_url = "http://192.168.1.50:1234/v1"
 context_provider = "llm-search"
-context_llm = "gemini-3-flash-preview"
-translation_llm = "lms:exact-model-id-from-lm-studio"
-translation_llm_fallback = "gemini-3-flash-preview"
+context_llm = "gemini-3.5-flash-lite"
+translation_llm = "lms:exact-loaded-gemma-4-model-id"
+translation_llm_fallback = "gemini-3.5-flash-lite"
 ```
+
+For LM Studio, Gemma 4 is the recommended local model family. Good candidates are Gemma 4 12B
+Unified, Gemma 4 26B A4B, and Gemma 4 31B, choosing the largest suitable version that fits
+comfortably in available memory. Exact identifiers vary with quantisation and backend, so load the
+model first and copy its identifier from LM Studio's Developer tab after checking `/v1/models`.
+Gemma 4 12B is the practical starting point; 26B A4B and 31B generally provide more headroom when
+the hardware can run them without excessive memory pressure. Models prone to extended reasoning,
+including some Qwen 3.6 variants, can be much slower and consume substantially more tokens in this
+workflow, so they are not the recommended default.
+See LM Studio's [Gemma 4 model catalogue](https://lmstudio.ai/models?search=gemma+4) for available
+builds.
 
 Experimental Brave retrieval with local synthesis remains available for comparison work:
 
 ```toml
 context_provider = "brave"
-context_llm = "lms:exact-model-id-from-lm-studio"
-context_fallback_llm = "gemini-3-flash-preview"
+context_llm = "lms:exact-loaded-gemma-4-model-id"
+context_fallback_llm = "gemini-3.5-flash-lite"
 ```
 
 Outputs and File Structure
@@ -197,8 +213,8 @@ Minimal example:
 
 ```toml
 web_root = "./outputs/example-site"
-llm = "gemini-3-flash-preview"
-context_llm = "gemini-3-flash-preview"
+llm = "gemini-3.5-flash-lite"
+context_llm = "gemini-3.5-flash-lite"
 
 [[location]]
 name = "Otaki Beach, New Zealand"
@@ -387,7 +403,7 @@ LM Studio (local or network models)
 
 1) In LM Studio, download/load the intended model and start the API server from the Developer tab.
 2) Copy the exact model identifier reported by LM Studio. Configure it with an `lms:` prefix, for
-   example `llm = "lms:gemma-4-26b-a4b-it-mlx"`.
+   example an identifier may look like `llm = "lms:gemma-4-26b-a4b-it-mlx"`.
 3) For LM Studio on the same machine, the default address is `http://localhost:1234/v1`.
 4) For another machine, enable LM Studio's **Serve on Local Network** setting and configure, for
    example, `lm_studio_base_url = "http://192.168.1.50:1234/v1"`.
@@ -422,7 +438,7 @@ Global settings:
 | `llm_fallback` | Optional model tried once if forecast writing fails. | May use a different provider. Primary failure is logged prominently. |
 | `lm_studio_base_url` | LM Studio OpenAI-compatible server address. | Used for every `lms:` choice; defaults to `http://localhost:1234/v1`. |
 | `context_provider` | Impact research method. | `llm-search` is the recommended default; `brave` is an experimental controlled-evidence option. |
-| `context_llm` | Hosted-search model or experimental Brave evidence-synthesis model. | `llm-search` requires Gemini/OpenAI; `brave` supports any configured model provider. Defaults to `gemini-3-flash-preview`. |
+| `context_llm` | Hosted-search model or experimental Brave evidence-synthesis model. | `llm-search` requires Gemini/OpenAI; `brave` supports any configured model provider. Defaults to `gemini-3.5-flash-lite`. |
 | `context_fallback_llm` | Optional fallback if the Brave path fails. | Must be a Gemini or OpenAI model because it invokes the existing hosted web-search path. |
 | `translation_llm` | Optional model used for translations only. | Used only if translation is enabled. |
 | `translation_llm_fallback` | Optional model tried once if translation fails. | May use a different provider. |
@@ -524,13 +540,13 @@ Resolution order (highest to lowest):
 1) Explicit override (e.g., `translation_llm` for translation calls)
 2) `llm` from config
 3) `IBF_DEFAULT_LLM` environment variable
-4) Default fallback (`gemini-3-flash-preview`)
+4) Default fallback (`gemini-3.5-flash-lite`)
 
 Provider naming:
 - LM Studio: `lms:exact-model-id` (uses `lm_studio_base_url`; optional `LM_STUDIO_API_KEY`)
 - OpenRouter: `or:provider/model` (requires `OPENROUTER_API_KEY`)
 - OpenAI: `gpt-4o-mini`, `gpt-4o-latest` (requires `OPENAI_API_KEY`)
-- Gemini direct: `gemini-3-flash-preview` or `google/gemini-3-flash-preview` (requires `GEMINI_API_KEY`)
+- Gemini direct: `gemini-3.5-flash-lite` or `google/gemini-3.5-flash-lite` (requires `GEMINI_API_KEY`)
 
 `llm_fallback` and `translation_llm_fallback` each permit one retry with another configured
 model. A primary failure is logged prominently before the fallback is tried. This is useful for
@@ -606,7 +622,7 @@ context.
 Reasoning levels (forecast text):
 - OpenAI reasoning models (direct or via OpenRouter) use `reasoning.effort` with `low`/`medium`/`high`; `minimal` maps to `low`, and `off` disables the reasoning payload.
 - OpenRouter supports reasoning for select models (currently OpenAI o1/o3/GPT-5 and Grok). Other OpenRouter models ignore the reasoning settings.
-- Gemini 3 Flash uses `thinkingLevel` with `minimal`/`low`/`medium`/`high`; `off` maps to `minimal` (Gemini does not fully disable thinking).
+- Current Gemini 3 models use `thinkingLevel` with `minimal`/`low`/`medium`/`high`; `off` maps to `minimal` (Gemini does not fully disable thinking).
 - `auto` lets the provider choose its default (dynamic) behavior.
 
 LLM cost overrides (optional):
@@ -623,10 +639,10 @@ LLM cost overrides (optional):
 - Costs are USD per million tokens:
   ```toml
   [[model]]
-  name = "gemini-3-flash-preview"
-  input = 0.50
-  cached_input = 0.05
-  output = 3.00
+  name = "gemini-3.5-flash-lite"
+  input = 0.30
+  cached_input = 0.03
+  output = 2.50
   ```
 
 Cache behavior (technical)
