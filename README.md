@@ -416,6 +416,13 @@ reached or that model is not advertised, IBF produces a prominent error and uses
 fallback if one exists. With LM Studio Just-In-Time loading enabled, `/v1/models` may advertise
 downloaded models as well as the models already held in memory.
 
+LM Studio's loaded context length must accommodate the complete system and user prompts plus the
+requested output allowance. Area prompts can be much larger than location prompts because they
+combine representative locations and ensemble scenarios. IBF logs the character/byte size, a
+rough input-token estimate, and the requested maximum output tokens before every LLM call. If LM
+Studio rejects a prompt for exceeding its context window, IBF identifies that cause explicitly and
+immediately tries `llm_fallback` when configured.
+
 Useful LM Studio references:
 
 - OpenAI-compatible models endpoint: <https://lmstudio.ai/docs/developer/openai-compat/models>
@@ -553,6 +560,12 @@ model. A primary failure is logged prominently before the fallback is tried. Thi
 pairing a local model with a cloud fallback, but it is deliberately bounded rather than an
 unrestricted retry loop.
 
+If forecast writing and its configured fallback both fail, IBF never publishes or translates raw
+dataset diagnostics. An existing valid forecast page is preserved. If no valid earlier page
+exists, IBF writes a short “Forecast temporarily unavailable” page without internal cache paths.
+The pipeline continues processing its remaining locations and areas, then exits with a failure
+status and lists every forecast that could not be generated.
+
 Impact-context research
 -----------------------
 
@@ -654,7 +667,7 @@ safe to delete the entire folder.
 | Cache | Location | Purpose | Expiration |
 | --- | --- | --- | --- |
 | Forecast downloads | `ibf_cache/forecasts/*.json` | Raw Open-Meteo responses keyed by request parameters. | TTL default 60 minutes; files older than 48 hours are cleaned when a new request runs. |
-| Processed datasets | `ibf_cache/processed/*.json` | Pre-processed dataset used for prompts and fallback text. | Overwritten on next run for the same location. |
+| Processed datasets | `ibf_cache/processed/*.json` | Pre-processed dataset used for LLM prompts and troubleshooting. | Overwritten on next run for the same location. |
 | Geocode cache | `ibf_cache/geocode/search_cache.json` | Place name -> lat/lon/timezone and administrative identity cache. Legacy entries are enriched once without replacing their forecast coordinates/elevation. | No TTL; delete to refresh. |
 | Country cache | `ibf_cache/geocode/country_cache.json` | Lat/lon -> country code for alert routing. | No TTL; delete to refresh. |
 | Hosted-search impact context | `ibf_cache/impact/*.json` | Synthesised impact context from `llm-search`. | Reused for up to 3 local days. |
@@ -697,6 +710,9 @@ Troubleshooting (technical)
 - LM Studio connection errors: start its API server, verify `lm_studio_base_url`, local-network and
   firewall settings, and authentication. The error lists the model identifiers visible from
   `/v1/models`; the configured `lms:` identifier must match exactly.
+- LM Studio context-length errors: increase the model's loaded context length, reduce forecast
+  days, representative locations, or `area_thin_select`, or configure a larger-context cloud model
+  as `llm_fallback`. Check the logged prompt-size estimate before choosing a context length.
 - Experimental Brave context errors: confirm `BRAVE_SEARCH_API_KEY`, subscription to Brave's Search plan, and
   network connectivity. Brave requires a new key to be generated for a new subscription. IBF logs
   Brave's structured error code and message. Configure `context_fallback_llm` only if you want the

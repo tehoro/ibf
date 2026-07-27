@@ -97,3 +97,77 @@ def test_fallback_does_not_repeat_already_resolved_primary(monkeypatch) -> None:
         )
 
     assert calls == ["called"]
+
+
+def test_generation_logs_prompt_size(monkeypatch, caplog) -> None:
+    config = ForecastConfig(llm="lms:test-model")
+    settings = LLMSettings(
+        model="test-model",
+        api_key="local",
+        provider="lmstudio",
+        base_url="http://localhost:1234/v1",
+        max_tokens=8000,
+    )
+    monkeypatch.setattr(
+        "ibf.pipeline.executor.resolve_llm_settings",
+        lambda _config, _choice: settings,
+    )
+    monkeypatch.setattr(
+        "ibf.pipeline.executor.generate_forecast_text",
+        lambda *args, **kwargs: "Forecast text",
+    )
+    monkeypatch.setattr("ibf.pipeline.executor.consume_last_cost_cents", lambda: 0.0)
+    monkeypatch.setattr("ibf.pipeline.executor._snapshot_prompt", lambda *args, **kwargs: None)
+
+    with caplog.at_level(logging.INFO):
+        _generate_text_with_fallback(
+            config,
+            "user prompt",
+            "system prompt",
+            primary_choice=config.llm,
+            fallback_choice=None,
+            snapshot_kind="test",
+            snapshot_name="test",
+            operation_label="test forecast",
+        )
+
+    assert "LLM prompt size" in caplog.text
+    assert "total_chars=24" in caplog.text
+    assert "estimated_input_tokens=6" in caplog.text
+    assert "max_output_tokens=8000" in caplog.text
+
+
+def test_lmstudio_context_overflow_logs_specific_guidance(monkeypatch, caplog) -> None:
+    config = ForecastConfig(llm="lms:test-model")
+    settings = LLMSettings(
+        model="test-model",
+        api_key="local",
+        provider="lmstudio",
+        base_url="http://localhost:1234/v1",
+    )
+    monkeypatch.setattr(
+        "ibf.pipeline.executor.resolve_llm_settings",
+        lambda _config, _choice: settings,
+    )
+    monkeypatch.setattr(
+        "ibf.pipeline.executor.generate_forecast_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("tokens to keep are greater than the context length")
+        ),
+    )
+    monkeypatch.setattr("ibf.pipeline.executor.consume_last_cost_cents", lambda: 0.0)
+    monkeypatch.setattr("ibf.pipeline.executor._snapshot_prompt", lambda *args, **kwargs: None)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError):
+        _generate_text_with_fallback(
+            config,
+            "prompt",
+            "system",
+            primary_choice=config.llm,
+            fallback_choice=None,
+            snapshot_kind="test",
+            snapshot_name="test",
+            operation_label="area forecast",
+        )
+
+    assert "prompt exceeded the model's loaded context window" in caplog.text
