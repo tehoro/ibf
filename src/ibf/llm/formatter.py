@@ -707,6 +707,11 @@ def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str)
 
     lower_text = _fmt(lower)
     upper_text = _fmt(upper)
+    if lower <= 0:
+        return (
+            f"Estimated probability of {label}: {probability}%\n"
+            f"Likely {label} up to {upper_text} {unit_label}"
+        )
     if lower == upper:
         return f"Estimated probability of {label}: {probability}%\nLikely {label} around {lower_text} {unit_label}"
     return f"Estimated probability of {label}: {probability}%\nLikely {label} {lower_text} {unit_label} to {upper_text} {unit_label}"
