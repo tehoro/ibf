@@ -8,7 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 from ibf import cli
-from ibf.config.models import AreaConfig, ForecastConfig
+from ibf.config.models import AreaConfig, ForecastConfig, LocationConfig
 from ibf.pipeline import executor
 from ibf.pipeline.executor import (
     ForecastGenerationFailure,
@@ -200,6 +200,114 @@ def test_failed_area_forecast_is_not_translated_or_replaced_with_dataset_paths(
     assert "Area dataset preview" not in html
     assert str(payload.dataset_cache) not in html
     assert "Forecast in Spanish" not in html
+
+
+def test_area_context_overflow_retries_with_half_the_scenarios(
+    tmp_path,
+    monkeypatch,
+    caplog,
+) -> None:
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    payload = _make_mock_payload("Test City", cache_dir)
+    members = payload.dataset[0]["hours"][0]["ensemble_members"]
+    control = members["member00"]
+    for index in range(1, 8):
+        members[f"member{index:02d}"] = {
+            **control,
+            "temperature": control["temperature"] + index,
+            "precipitation": control["precipitation"] + index / 10,
+        }
+
+    area = AreaConfig(name="Test Area", locations=["Test City"])
+    config = ForecastConfig(llm="lms:apple-pcc", area_wordiness="brief")
+    settings = LLMSettings(
+        model="apple-pcc",
+        api_key="local",
+        provider="lmstudio",
+        base_url="http://localhost:1235/v1",
+    )
+    prompts = []
+
+    def fake_generate(_config, prompt, _system_prompt, **_kwargs):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            raise RuntimeError("The session's transcript exceeded the model's context size.")
+        return "Reduced forecast", settings, 0.0
+
+    monkeypatch.setattr(executor, "_generate_text_with_fallback", fake_generate)
+
+    with caplog.at_level("WARNING"):
+        text, used_settings, cost = executor._generate_area_text_with_adaptive_thinning(
+            area,
+            config,
+            [payload],
+            payload.units,
+            ibf_context="",
+            impact_enabled=False,
+            regional=False,
+        )
+
+    assert text == "Reduced forecast"
+    assert used_settings is settings
+    assert cost == 0.0
+    assert len(prompts) == 2
+    assert prompts[1].count("Scenario ") == 4
+    assert "rebuilding the prompt with 4" in caplog.text
+    assert "estimated_input_tokens=" in caplog.text
+
+
+def test_location_context_overflow_retries_with_half_the_scenarios(
+    tmp_path,
+    monkeypatch,
+    caplog,
+) -> None:
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    payload = _make_mock_payload("Test City", cache_dir)
+    members = payload.dataset[0]["hours"][0]["ensemble_members"]
+    control = members["member00"]
+    for index in range(1, 8):
+        members[f"member{index:02d}"] = {
+            **control,
+            "temperature": control["temperature"] + index,
+            "precipitation": control["precipitation"] + index / 10,
+        }
+
+    location = LocationConfig(name="Test City")
+    config = ForecastConfig(llm="lms:apple-pcc", location_wordiness="normal")
+    settings = LLMSettings(
+        model="apple-pcc",
+        api_key="local",
+        provider="lmstudio",
+        base_url="http://localhost:1235/v1",
+    )
+    prompts = []
+
+    def fake_generate(_config, prompt, _system_prompt, **_kwargs):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            raise RuntimeError("The session's transcript exceeded the model's context size.")
+        return "Reduced forecast", settings, 0.0
+
+    monkeypatch.setattr(executor, "_generate_text_with_fallback", fake_generate)
+
+    with caplog.at_level("WARNING"):
+        text, used_settings, cost = executor._generate_location_text_with_adaptive_thinning(
+            location,
+            config,
+            payload,
+            ibf_context="",
+            impact_enabled=False,
+        )
+
+    assert text == "Reduced forecast"
+    assert used_settings is settings
+    assert cost == 0.0
+    assert len(prompts) == 2
+    assert prompts[1].count("Scenario ") == 4
+    assert "rebuilding the prompt with 4" in caplog.text
+    assert "estimated_input_tokens=" in caplog.text
 
 
 def test_execute_pipeline_collects_failures_and_continues(monkeypatch) -> None:
