@@ -107,6 +107,58 @@ def test_range_summary_collapses_rounded_precipitation_and_snowfall_endpoints() 
     assert "2 cm to 2 cm" not in summary
 
 
+def test_range_summary_omits_precipitation_amount_when_upper_end_rounds_to_zero() -> None:
+    summary = calculate_range_summary(
+        [10, 11, 12],
+        [20, 21, 22],
+        [0, 0, 0.1, 0.2, 0.3],
+        [0, 0, 0, 0, 0],
+        "C",
+        "mm",
+        "cm",
+        False,
+        False,
+    )
+
+    assert "Estimated probability of precipitation:" in summary
+    assert "Likely precipitation" not in summary
+    assert "0 mm" not in summary
+
+
+def test_range_summary_uses_up_to_when_precipitation_lower_end_rounds_to_zero() -> None:
+    summary = calculate_range_summary(
+        [10, 11, 12],
+        [20, 21, 22],
+        [0, 0, 0.1, 0.2, 0.3, 3.0, 3.2],
+        [0, 0, 0, 0, 0, 0, 0],
+        "C",
+        "mm",
+        "cm",
+        False,
+        False,
+    )
+
+    assert "Likely precipitation up to 3 mm" in summary
+    assert "0 mm to 3 mm" not in summary
+
+
+def test_range_summary_uses_up_to_for_subunit_inch_lower_end() -> None:
+    summary = calculate_range_summary(
+        [50, 51, 52],
+        [70, 71, 72],
+        [0, 0.001, 0.01, 0.02, 0.1, 0.12],
+        [0, 0, 0, 0, 0, 0],
+        "F",
+        "inch",
+        "inch",
+        False,
+        False,
+    )
+
+    assert "Likely precipitation up to 0.1 in" in summary
+    assert "0.0 in to 0.1 in" not in summary
+
+
 def test_formatter_skips_alert_with_invalid_timestamps(caplog) -> None:
     alert = AlertSummary(
         title="Invalid alert",

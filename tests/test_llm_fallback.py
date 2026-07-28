@@ -6,7 +6,7 @@ import pytest
 
 from ibf.config.models import ForecastConfig
 from ibf.llm.settings import LLMSettings
-from ibf.pipeline.executor import _generate_text_with_fallback
+from ibf.pipeline.executor import _generate_text_with_fallback, _is_context_window_error
 
 
 def test_primary_llm_failure_uses_configured_fallback(monkeypatch, caplog) -> None:
@@ -171,3 +171,12 @@ def test_lmstudio_context_overflow_logs_specific_guidance(monkeypatch, caplog) -
         )
 
     assert "prompt exceeded the model's loaded context window" in caplog.text
+
+
+def test_apple_pcc_context_size_error_is_recognised() -> None:
+    error = RuntimeError(
+        "Apple Foundation Models request failed: "
+        "The session's transcript exceeded the model's context size."
+    )
+
+    assert _is_context_window_error(error) is True

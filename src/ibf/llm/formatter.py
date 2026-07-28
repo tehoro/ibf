@@ -693,6 +693,12 @@ def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str)
     lower = round(percentiles[0], precision)
     upper = round(percentiles[1], precision)
 
+    # Preserve the probability signal for trace amounts, but do not give the
+    # forecast writer a meaningless amount such as "around 0 mm".  The hourly
+    # data can still be used to describe the timing and type of precipitation.
+    if upper <= 0:
+        return f"Estimated probability of {label}: {probability}%"
+
     def _fmt(value: float) -> str:
         """Format values with the desired decimal precision."""
         if precision == 0:
@@ -701,6 +707,11 @@ def precipitation_or_snowfall_likely(label: str, values: List[float], unit: str)
 
     lower_text = _fmt(lower)
     upper_text = _fmt(upper)
+    if lower <= 0:
+        return (
+            f"Estimated probability of {label}: {probability}%\n"
+            f"Likely {label} up to {upper_text} {unit_label}"
+        )
     if lower == upper:
         return f"Estimated probability of {label}: {probability}%\nLikely {label} around {lower_text} {unit_label}"
     return f"Estimated probability of {label}: {probability}%\nLikely {label} {lower_text} {unit_label} to {upper_text} {unit_label}"

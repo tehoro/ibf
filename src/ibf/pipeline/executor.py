@@ -32,8 +32,10 @@ from ..api import (
     STANDARD_PRECIPITATION_UNIT,
     STANDARD_WINDSPEED_UNIT,
     ModelSpec,
+    ImpactContext,
     resolve_model_spec,
 )
+from ..api.thin import select_members
 from ..render import ForecastPage, render_forecast_page
 from ..util import ensure_directory, safe_unlink, slugify, utc_now, write_text_file
 from ..util.naming import generate_unique_location_names
@@ -322,6 +324,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
     timezone_name = geocode.timezone or "UTC"
     impact_enabled = _as_bool(config.location_impact_based)
     ibf_context = ""
+    impact_context = None
     if impact_enabled:
         context_llm = (getattr(config, "context_llm", None) or "gemini-3.5-flash-lite").strip()
         impact_context = fetch_impact_context(
@@ -360,37 +363,14 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
     forecast_text: Optional[str] = None
     if formatted_dataset and not formatted_dataset.startswith("Error"):
         try:
-            system_prompt = build_spot_system_prompt(
-                _unit_instructions(payload.units),
-                model_kind=payload.model_kind,
-            )
-            short_instr = _short_period_instruction(dataset, geocode.timezone or "UTC")
-            impact_instr = _impact_instruction(impact_enabled)
-            prompt = build_spot_user_prompt(
-                formatted_dataset,
-                location_name=name,
-                latitude=geocode.latitude,
-                longitude=geocode.longitude,
-                season=determine_current_season(geocode.latitude),
-                wordiness=(config.location_wordiness or "normal").lower(),
-                short_period_instruction=short_instr,
-                impact_instruction=impact_instr if ibf_context else "",
-                impact_context=ibf_context or "",
-                user_extra_context=location.extra_context,
-            )
-            reasoning_enabled = _as_bool(config.enable_reasoning)
-            reasoning_level = getattr(config, "location_reasoning", None)
-            forecast_text, llm_settings, forecast_cost = _generate_text_with_fallback(
-                config,
-                prompt,
-                system_prompt,
-                primary_choice=config.llm,
-                fallback_choice=config.llm_fallback,
-                snapshot_kind="location",
-                snapshot_name=name,
-                operation_label=f"forecast for {name}",
-                reasoning_enabled=reasoning_enabled,
-                reasoning_level=reasoning_level,
+            forecast_text, llm_settings, forecast_cost = (
+                _generate_location_text_with_adaptive_thinning(
+                    location,
+                    config,
+                    payload,
+                    ibf_context=ibf_context,
+                    impact_enabled=impact_enabled,
+                )
             )
             _record_cost("Location", unique_name, forecast=forecast_cost)
         except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
@@ -418,7 +398,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
         )
 
     translation_target = _location_translation_language(location, config)
-    translated_text, translation_cost = _maybe_translate(
+    translated_text, translation_cost, translation_settings = _maybe_translate(
         forecast_text,
         translation_target,
         config,
@@ -439,6 +419,9 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
             translated_text=translated_text,
             translation_language=translation_target,
             ibf_context=ibf_context,
+            context_provenance=_context_provenance_label(impact_context, timezone_name),
+            forecast_llm=_llm_provenance_label(llm_settings),
+            translation_llm=_llm_provenance_label(translation_settings),
             model_label=model_label,
             model_ack_url=model_ack,
         )
@@ -482,6 +465,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     area_timezone = payloads[0].geocode.timezone or "UTC"
     impact_enabled = _as_bool(config.area_impact_based)
     ibf_context = ""
+    impact_context = None
     if impact_enabled:
         context_llm = (getattr(config, "context_llm", None) or "gemini-3.5-flash-lite").strip()
         impact_context = fetch_impact_context(
@@ -515,61 +499,26 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
             logger.warning("No impact context will be used for area '%s'.", area.name)
     else:
         logger.info("Impact context disabled for area '%s'; skipping.", area.name)
-    formatted_dataset = format_area_dataset(
-        area.name,
-        [
-            {
-                "name": payload.name,
-                "latitude": payload.geocode.latitude,
-                "longitude": payload.geocode.longitude,
-                "timezone": payload.geocode.timezone,
-                "text": payload.formatted_dataset,
-            }
-            for payload in payloads
-        ],
-    )
-
     llm_settings = None
     forecast_text: Optional[str] = None
-    if formatted_dataset:
-        try:
-            area_kind = "ensemble" if any(p.model_kind == "ensemble" for p in payloads) else "deterministic"
-            system_prompt = build_area_system_prompt(
-                _unit_instructions(base_units),
-                model_kind=area_kind,
-            )
-            short_instr = _short_period_instruction(
-                payloads[0].dataset, payloads[0].geocode.timezone or "UTC"
-            )
-            impact_instr = _impact_instruction(impact_enabled)
-            prompt = build_area_user_prompt(
-                formatted_dataset,
-                area_name=area.name,
-                location_names=[payload.name for payload in payloads],
-                wordiness=(config.area_wordiness or config.location_wordiness or "normal").lower(),
-                short_period_instruction=short_instr,
-                impact_instruction=impact_instr if ibf_context else "",
-                impact_context=ibf_context or "",
-                user_extra_context=area.extra_context,
-            )
-            reasoning_enabled = _as_bool(config.enable_reasoning)
-            reasoning_level = getattr(config, "area_reasoning", None)
-            forecast_text, llm_settings, forecast_cost = _generate_text_with_fallback(
-                config,
-                prompt,
-                system_prompt,
-                primary_choice=config.llm,
-                fallback_choice=config.llm_fallback,
-                snapshot_kind="area",
-                snapshot_name=area.name,
-                operation_label=f"area forecast for {area.name}",
-                reasoning_enabled=reasoning_enabled,
-                reasoning_level=reasoning_level,
-            )
-            _record_cost("Area", area.name, forecast=forecast_cost)
-            logger.info("Requesting area LLM forecast for '%s' using model %s", area.name, llm_settings.model)
-        except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
-            logger.error("LLM generation failed for area %s: %s", area.name, exc, exc_info=True)
+    try:
+        forecast_text, llm_settings, forecast_cost = _generate_area_text_with_adaptive_thinning(
+            area,
+            config,
+            payloads,
+            base_units,
+            ibf_context=ibf_context,
+            impact_enabled=impact_enabled,
+            regional=False,
+        )
+        _record_cost("Area", area.name, forecast=forecast_cost)
+        logger.info(
+            "Area LLM forecast for '%s' completed using model %s",
+            area.name,
+            llm_settings.model,
+        )
+    except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
+        logger.error("LLM generation failed for area %s: %s", area.name, exc, exc_info=True)
 
     if not forecast_text:
         destination = _build_destination_path(config, area.name)
@@ -596,7 +545,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
         )
 
     translation_target = _area_translation_language(area, config)
-    translated_text, translation_cost = _maybe_translate(
+    translated_text, translation_cost, translation_settings = _maybe_translate(
         forecast_text,
         translation_target,
         config,
@@ -619,6 +568,9 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
             translated_text=translated_text,
             translation_language=translation_target,
             ibf_context=ibf_context,
+            context_provenance=_context_provenance_label(impact_context, area_timezone),
+            forecast_llm=_llm_provenance_label(llm_settings),
+            translation_llm=_llm_provenance_label(translation_settings),
             map_link=map_link,
             model_label=model_label,
             model_ack_url=model_ack,
@@ -661,9 +613,10 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     area_timezone = payloads[0].geocode.timezone or "UTC"
     impact_enabled = _as_bool(config.area_impact_based)
     ibf_context = ""
+    impact_context = None
     if impact_enabled:
         context_llm = (getattr(config, "context_llm", None) or "gemini-3.5-flash-lite").strip()
-        regional_context = fetch_impact_context(
+        impact_context = fetch_impact_context(
             area.name,
             context_type="regional",
             forecast_days=forecast_days,
@@ -686,71 +639,36 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
                 for payload in payloads
             ],
         )
-        ibf_context = regional_context.content
-        _record_cost("Regional", area.name, context=regional_context.cost_cents)
+        ibf_context = impact_context.content
+        _record_cost("Regional", area.name, context=impact_context.cost_cents)
         if ibf_context:
             logger.info("Fetched impact context for regional area '%s'", area.name)
         else:
             logger.warning("No impact context will be used for regional area '%s'.", area.name)
     else:
         logger.info("Impact context disabled for regional area '%s'; skipping.", area.name)
-    formatted_dataset = format_area_dataset(
-        area.name,
-        [
-            {
-                "name": payload.name,
-                "latitude": payload.geocode.latitude,
-                "longitude": payload.geocode.longitude,
-                "timezone": payload.geocode.timezone,
-                "text": payload.formatted_dataset,
-            }
-            for payload in payloads
-        ],
-    )
-
     llm_settings = None
     forecast_text: Optional[str] = None
-    if formatted_dataset:
-        try:
-            area_kind = "ensemble" if any(p.model_kind == "ensemble" for p in payloads) else "deterministic"
-            system_prompt = build_regional_system_prompt(
-                _unit_instructions(base_units),
-                model_kind=area_kind,
-            )
-            short_instr = _short_period_instruction(
-                payloads[0].dataset, payloads[0].geocode.timezone or "UTC"
-            )
-            impact_instr = _impact_instruction(impact_enabled)
-            prompt = build_regional_user_prompt(
-                formatted_dataset,
-                area_name=area.name,
-                location_names=[payload.name for payload in payloads],
-                wordiness=(config.area_wordiness or config.location_wordiness or "normal").lower(),
-                short_period_instruction=short_instr,
-                impact_instruction=impact_instr if ibf_context else "",
-                impact_context=ibf_context or "",
-                user_extra_context=area.extra_context,
-            )
-            reasoning_enabled = _as_bool(config.enable_reasoning)
-            reasoning_level = getattr(config, "area_reasoning", None)
-            forecast_text, llm_settings, forecast_cost = _generate_text_with_fallback(
-                config,
-                prompt,
-                system_prompt,
-                primary_choice=config.llm,
-                fallback_choice=config.llm_fallback,
-                snapshot_kind="regional-area",
-                snapshot_name=area.name,
-                operation_label=f"regional forecast for {area.name}",
-                reasoning_enabled=reasoning_enabled,
-                reasoning_level=reasoning_level,
-            )
-            logger.info("Requesting regional LLM forecast for '%s' using model %s", area.name, llm_settings.model)
-            _record_cost("Regional", area.name, forecast=forecast_cost)
-        except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
-            logger.error(
-                "Regional LLM generation failed for %s: %s", area.name, exc, exc_info=True
-            )
+    try:
+        forecast_text, llm_settings, forecast_cost = _generate_area_text_with_adaptive_thinning(
+            area,
+            config,
+            payloads,
+            base_units,
+            ibf_context=ibf_context,
+            impact_enabled=impact_enabled,
+            regional=True,
+        )
+        logger.info(
+            "Regional LLM forecast for '%s' completed using model %s",
+            area.name,
+            llm_settings.model,
+        )
+        _record_cost("Regional", area.name, forecast=forecast_cost)
+    except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
+        logger.error(
+            "Regional LLM generation failed for %s: %s", area.name, exc, exc_info=True
+        )
 
     if not forecast_text:
         destination = _build_destination_path(config, area.name)
@@ -777,7 +695,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
         )
 
     translation_target = _area_translation_language(area, config)
-    translated_text, translation_cost = _maybe_translate(
+    translated_text, translation_cost, translation_settings = _maybe_translate(
         forecast_text,
         translation_target,
         config,
@@ -800,12 +718,252 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
             translated_text=translated_text,
             translation_language=translation_target,
             ibf_context=ibf_context,
+            context_provenance=_context_provenance_label(impact_context, area_timezone),
+            forecast_llm=_llm_provenance_label(llm_settings),
+            translation_llm=_llm_provenance_label(translation_settings),
             map_link=map_link,
             model_label=model_label,
             model_ack_url=model_ack,
         )
     )
     logger.info("Rendered regional forecast page for '%s' → %s", area.name, destination)
+
+
+def _generate_location_text_with_adaptive_thinning(
+    location: LocationConfig,
+    config: ForecastConfig,
+    payload: LocationForecastPayload,
+    *,
+    ibf_context: str,
+    impact_enabled: bool,
+) -> tuple[str, LLMSettings, float]:
+    """Generate a spot forecast, reducing ensemble scenarios only after context overflow."""
+    system_prompt = build_spot_system_prompt(
+        _unit_instructions(payload.units),
+        model_kind=payload.model_kind,
+    )
+    short_instr = _short_period_instruction(
+        payload.dataset,
+        payload.geocode.timezone or "UTC",
+    )
+    impact_instr = _impact_instruction(impact_enabled)
+    operation_label = f"forecast for {payload.name}"
+    initial_scenarios = _maximum_dataset_scenarios(payload.dataset)
+    member_limits: List[Optional[int]] = [None]
+    if payload.model_kind == "ensemble":
+        member_limits.extend(_reduced_scenario_limits(initial_scenarios))
+
+    for attempt_index, member_limit in enumerate(member_limits):
+        formatted_dataset = payload.formatted_dataset
+        if member_limit is not None:
+            reduced_dataset = select_members(payload.dataset, thin_select=member_limit)
+            formatted_dataset = _format_location_payload(payload, reduced_dataset)
+        prompt = build_spot_user_prompt(
+            formatted_dataset,
+            location_name=payload.name,
+            latitude=payload.geocode.latitude,
+            longitude=payload.geocode.longitude,
+            season=determine_current_season(payload.geocode.latitude),
+            wordiness=(config.location_wordiness or "normal").lower(),
+            short_period_instruction=short_instr,
+            impact_instruction=impact_instr if ibf_context else "",
+            impact_context=ibf_context or "",
+            user_extra_context=location.extra_context,
+        )
+        if attempt_index:
+            logger.warning(
+                "Retrying %s with at most %d representative scenario(s); "
+                "estimated_input_tokens=%d.",
+                operation_label,
+                member_limit,
+                _estimate_prompt_tokens(system_prompt, prompt),
+            )
+        try:
+            return _generate_text_with_fallback(
+                config,
+                prompt,
+                system_prompt,
+                primary_choice=config.llm,
+                fallback_choice=config.llm_fallback,
+                snapshot_kind="location",
+                snapshot_name=payload.name,
+                operation_label=operation_label,
+                reasoning_enabled=_as_bool(config.enable_reasoning),
+                reasoning_level=getattr(config, "location_reasoning", None),
+            )
+        except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
+            has_smaller_retry = attempt_index + 1 < len(member_limits)
+            if not _is_context_window_error(exc) or not has_smaller_retry:
+                raise
+            current_count = initial_scenarios if member_limit is None else member_limit
+            next_count = member_limits[attempt_index + 1]
+            logger.warning(
+                "%s exceeded the available LLM context with up to %d scenario(s); "
+                "rebuilding the prompt with %d.",
+                operation_label.capitalize(),
+                current_count,
+                next_count,
+            )
+
+    raise RuntimeError(f"No usable prompt could be generated for {operation_label}.")
+
+
+def _generate_area_text_with_adaptive_thinning(
+    area: AreaConfig,
+    config: ForecastConfig,
+    payloads: List[LocationForecastPayload],
+    units: LocationUnits,
+    *,
+    ibf_context: str,
+    impact_enabled: bool,
+    regional: bool,
+) -> tuple[str, LLMSettings, float]:
+    """Generate an area forecast, reducing ensemble scenarios only after context overflow."""
+    area_kind = "ensemble" if any(p.model_kind == "ensemble" for p in payloads) else "deterministic"
+    system_prompt = (
+        build_regional_system_prompt(_unit_instructions(units), model_kind=area_kind)
+        if regional
+        else build_area_system_prompt(_unit_instructions(units), model_kind=area_kind)
+    )
+    short_instr = _short_period_instruction(
+        payloads[0].dataset,
+        payloads[0].geocode.timezone or "UTC",
+    )
+    impact_instr = _impact_instruction(impact_enabled)
+    wordiness = (config.area_wordiness or config.location_wordiness or "normal").lower()
+    operation_label = (
+        f"regional forecast for {area.name}" if regional else f"area forecast for {area.name}"
+    )
+    prompt_builder = build_regional_user_prompt if regional else build_area_user_prompt
+    initial_scenarios = _maximum_ensemble_scenarios(payloads)
+    member_limits: List[Optional[int]] = [None]
+    member_limits.extend(_reduced_scenario_limits(initial_scenarios))
+
+    for attempt_index, member_limit in enumerate(member_limits):
+        formatted_dataset = _format_area_payloads(
+            area.name,
+            payloads,
+            member_limit=member_limit,
+        )
+        prompt = prompt_builder(
+            formatted_dataset,
+            area_name=area.name,
+            location_names=[payload.name for payload in payloads],
+            wordiness=wordiness,
+            short_period_instruction=short_instr,
+            impact_instruction=impact_instr if ibf_context else "",
+            impact_context=ibf_context or "",
+            user_extra_context=area.extra_context,
+        )
+        if attempt_index:
+            logger.warning(
+                "Retrying %s with at most %d representative scenario(s) per ensemble "
+                "location; estimated_input_tokens=%d.",
+                operation_label,
+                member_limit,
+                _estimate_prompt_tokens(system_prompt, prompt),
+            )
+        try:
+            return _generate_text_with_fallback(
+                config,
+                prompt,
+                system_prompt,
+                primary_choice=config.llm,
+                fallback_choice=config.llm_fallback,
+                snapshot_kind="regional-area" if regional else "area",
+                snapshot_name=area.name,
+                operation_label=operation_label,
+                reasoning_enabled=_as_bool(config.enable_reasoning),
+                reasoning_level=getattr(config, "area_reasoning", None),
+            )
+        except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
+            has_smaller_retry = attempt_index + 1 < len(member_limits)
+            if not _is_context_window_error(exc) or not has_smaller_retry:
+                raise
+            current_count = initial_scenarios if member_limit is None else member_limit
+            next_count = member_limits[attempt_index + 1]
+            logger.warning(
+                "%s exceeded the available LLM context with up to %d scenario(s) per "
+                "ensemble location; rebuilding the prompt with %d.",
+                operation_label.capitalize(),
+                current_count,
+                next_count,
+            )
+
+    raise RuntimeError(f"No usable prompt could be generated for {operation_label}.")
+
+
+def _format_area_payloads(
+    area_name: str,
+    payloads: List[LocationForecastPayload],
+    *,
+    member_limit: Optional[int],
+) -> str:
+    """Format area inputs, optionally re-thinning retained ensemble scenarios."""
+    locations = []
+    for payload in payloads:
+        text = payload.formatted_dataset
+        if member_limit is not None and payload.model_kind == "ensemble":
+            reduced_dataset = select_members(payload.dataset, thin_select=member_limit)
+            text = _format_location_payload(payload, reduced_dataset)
+        locations.append(
+            {
+                "name": payload.name,
+                "latitude": payload.geocode.latitude,
+                "longitude": payload.geocode.longitude,
+                "timezone": payload.geocode.timezone,
+                "text": text,
+            }
+        )
+    return format_area_dataset(area_name, locations)
+
+
+def _maximum_ensemble_scenarios(payloads: List[LocationForecastPayload]) -> int:
+    """Return the largest retained scenario count among ensemble location payloads."""
+    maximum = 0
+    for payload in payloads:
+        if payload.model_kind != "ensemble":
+            continue
+        maximum = max(maximum, _maximum_dataset_scenarios(payload.dataset))
+    return maximum
+
+
+def _maximum_dataset_scenarios(dataset: List[dict]) -> int:
+    """Return the largest ensemble-member count in a processed dataset."""
+    maximum = 0
+    for day in dataset:
+        for hour in day.get("hours", []):
+            members = hour.get("ensemble_members", {})
+            if isinstance(members, dict):
+                maximum = max(maximum, len(members))
+    return maximum
+
+
+def _format_location_payload(
+    payload: LocationForecastPayload,
+    dataset: List[dict],
+) -> str:
+    """Format a payload's dataset using its location-specific units and alerts."""
+    return format_location_dataset(
+        dataset,
+        payload.alerts,
+        payload.geocode.timezone or "UTC",
+        temperature_unit=payload.units.temperature_primary,
+        precipitation_unit=payload.units.precipitation_primary,
+        snowfall_unit=payload.units.snowfall_primary,
+        windspeed_unit=payload.units.windspeed_primary,
+    )
+
+
+def _reduced_scenario_limits(initial: int) -> List[int]:
+    """Return progressively halved scenario limits down to one member."""
+    limits: List[int] = []
+    current = initial
+    while current > 1:
+        current = max(1, current // 2)
+        if not limits or current != limits[-1]:
+            limits.append(current)
+    return limits
 
 
 def _collect_location_payload(
@@ -1795,24 +1953,92 @@ def _area_translation_language(area: AreaConfig, config: ForecastConfig) -> Opti
     return area.translation_language or config.translation_language
 
 
+def _llm_provenance_label(settings: Optional[LLMSettings]) -> Optional[str]:
+    """Return a concise public label for the model that completed an LLM operation."""
+    if settings is None:
+        return None
+    provider_names = {
+        "gemini": "Gemini",
+        "openai": "OpenAI",
+        "openrouter": "OpenRouter",
+        "lmstudio": "LM Studio",
+    }
+    provider = provider_names.get(settings.provider, settings.provider.strip().title())
+    return f"{provider} ({settings.model})" if provider else settings.model
+
+
+def _configured_model_provenance_label(model: Optional[str]) -> str:
+    """Describe a configured model identifier without resolving credentials."""
+    raw = (model or "unknown model").strip()
+    lowered = raw.lower()
+    if lowered.startswith("lms:"):
+        return f"LM Studio ({raw[4:].strip()})"
+    if lowered.startswith("or:"):
+        return f"OpenRouter ({raw[3:].strip()})"
+    if lowered.startswith("google/gemini-"):
+        return f"Gemini ({raw.split('/', 1)[1]})"
+    if lowered.startswith("gemini-"):
+        return f"Gemini ({raw})"
+    if lowered.startswith("gpt-") or (lowered.startswith("o") and lowered[1:2].isdigit()):
+        return f"OpenAI ({raw})"
+    return raw
+
+
+def _context_provenance_label(
+    context: Optional[ImpactContext],
+    timezone_name: str,
+) -> Optional[str]:
+    """Describe how and when an impact-context block was produced."""
+    if context is None or not context.content:
+        return None
+    provider = str(getattr(context, "provider", None) or "").strip().lower()
+    model = getattr(context, "model", None)
+    if provider == "brave":
+        method = f"Brave Search, summarised using {_configured_model_provenance_label(model)}"
+    elif provider == "llm-search" and (model or "").lower().lstrip().startswith(
+        ("gemini-", "google/gemini-")
+    ):
+        method = f"Gemini Google Search ({(model or '').split('/', 1)[-1]})"
+    elif provider == "llm-search":
+        method = f"OpenAI web search ({model or 'unknown model'})"
+    else:
+        method = _configured_model_provenance_label(model)
+
+    generated = getattr(context, "generated_at", None)
+    if not generated:
+        return method
+    try:
+        parsed = datetime.fromisoformat(generated.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        try:
+            parsed = parsed.astimezone(ZoneInfo(timezone_name))
+        except ZoneInfoNotFoundError:
+            pass
+        timestamp = f"{parsed.day} {parsed.strftime('%B %Y at %H:%M %Z')}"
+    except ValueError:
+        timestamp = generated
+    return f"{method}; generated {timestamp}"
+
+
 def _maybe_translate(
     text: str,
     language: Optional[str],
     config: ForecastConfig,
     llm_settings: Optional[LLMSettings],
-) -> tuple[Optional[str], float]:
+) -> tuple[Optional[str], float, Optional[LLMSettings]]:
     """Translate finished forecast text when a non-English target language is requested."""
     if not language:
-        return None, 0.0
+        return None, 0.0, None
     if language.lower().startswith("en"):
-        return None, 0.0
+        return None, 0.0, None
     if not text:
-        return None, 0.0
+        return None, 0.0, None
     try:
         chosen_model = config.translation_llm
         system_prompt = build_translation_system_prompt(language)
         user_prompt = build_translation_user_prompt(text)
-        translated, _, translation_cost = _generate_text_with_fallback(
+        translated, translation_settings, translation_cost = _generate_text_with_fallback(
             config,
             user_prompt,
             system_prompt,
@@ -1823,10 +2049,10 @@ def _maybe_translate(
             snapshot_name=language,
             operation_label=f"translation into {language}",
         )
-        return translated, translation_cost
+        return translated, translation_cost, translation_settings
     except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
         logger.error("Translation failed (%s): %s", language, exc, exc_info=True)
-        return None, 0.0
+        return None, 0.0, None
 
 
 def _generate_text_with_fallback(
@@ -1948,10 +2174,12 @@ def _log_prompt_size(
     user_chars = len(user_prompt)
     total_chars = system_chars + user_chars
     total_bytes = len(system_prompt.encode("utf-8")) + len(user_prompt.encode("utf-8"))
-    estimated_tokens = max(1, (total_chars + 3) // 4)
+    estimated_tokens = _estimate_prompt_tokens(system_prompt, user_prompt)
+    estimated_context_tokens = estimated_tokens + settings.max_tokens
     logger.info(
         "LLM prompt size – operation=%s model=%s system_chars=%d user_chars=%d "
-        "total_chars=%d utf8_bytes=%d estimated_input_tokens=%d max_output_tokens=%d",
+        "total_chars=%d utf8_bytes=%d estimated_input_tokens=%d max_output_tokens=%d "
+        "estimated_context_tokens=%d",
         operation_label,
         settings.model,
         system_chars,
@@ -1960,7 +2188,14 @@ def _log_prompt_size(
         total_bytes,
         estimated_tokens,
         settings.max_tokens,
+        estimated_context_tokens,
     )
+
+
+def _estimate_prompt_tokens(system_prompt: str, user_prompt: str) -> int:
+    """Return a provider-neutral rough input-token estimate based on character count."""
+    total_chars = len(system_prompt) + len(user_prompt)
+    return max(1, (total_chars + 3) // 4)
 
 
 def _is_context_window_error(exc: BaseException) -> bool:
@@ -1971,8 +2206,12 @@ def _is_context_window_error(exc: BaseException) -> bool:
         for marker in (
             "greater than the context length",
             "exceeded the context length",
+            "exceeded the model's context size",
+            "exceeded the model context size",
             "maximum context length",
+            "context size",
             "context window",
+            "context overflow",
             "too many tokens",
         )
     )

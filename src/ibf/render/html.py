@@ -25,6 +25,9 @@ class ForecastPage:
         translated_text: Optional translated forecast body.
         translation_language: Language code for the translated forecast.
         ibf_context: Optional IBF context block in Markdown.
+        context_provenance: Optional provider, model, and generation-time description.
+        forecast_llm: Model that wrote the forecast.
+        translation_llm: Model that translated the forecast, if applicable.
         map_link: Optional link to a generated map.
         model_label: Label for the data source/model.
         model_ack_url: Optional acknowledgement URL for the model data.
@@ -36,6 +39,9 @@ class ForecastPage:
     translated_text: Optional[str] = None
     translation_language: Optional[str] = None
     ibf_context: Optional[str] = None
+    context_provenance: Optional[str] = None
+    forecast_llm: Optional[str] = None
+    translation_llm: Optional[str] = None
     map_link: Optional[str] = None
     model_label: str = "ECMWF IFS 0.25° ensemble"
     model_ack_url: Optional[str] = None
@@ -54,7 +60,7 @@ def render_forecast_page(page: ForecastPage) -> Path:
         page.translated_text,
         page.translation_language,
     )
-    ibf_html = _render_ibf_block(page.ibf_context)
+    ibf_html = _render_ibf_block(page.ibf_context, page.context_provenance)
 
     body_parts = [
         f"<h1>Forecast for {display_name}</h1>",
@@ -81,13 +87,29 @@ def render_forecast_page(page: ForecastPage) -> Path:
     if page.model_ack_url:
         safe_ack_url = html.escape(page.model_ack_url, quote=True)
         footer_ack = f'  Additional acknowledgement: <a href="{safe_ack_url}" target="_blank" rel="noopener">open data licence</a>.<br>'
+    model_provenance_lines = []
+    if page.forecast_llm:
+        model_provenance_lines.append(
+            f"Forecast language model: {html.escape(page.forecast_llm, quote=True)}."
+        )
+    if page.translation_llm:
+        model_provenance_lines.append(
+            f"Translation language model: {html.escape(page.translation_llm, quote=True)}."
+        )
+    model_provenance = ""
+    if model_provenance_lines:
+        model_provenance = (
+            '<div class="footer-model-provenance">'
+            + "<br>".join(model_provenance_lines)
+            + "</div>"
+        )
     body_parts.extend(
         [
             '<p><a href="../index.html">Return to Menu</a></p>',
             f"""<div class="footer-note">
   Forecast produced using <a href="https://github.com/tehoro/ibf" target="_blank" rel="noopener">IBF</a>, developed by <a href="mailto:neil.gordon@hey.com?subject=Comment%20on%20IBF">Neil Gordon</a>.
   Data courtesy of <a href="https://open-meteo.com/" target="_blank" rel="noopener">open-meteo.com</a> using {safe_model_label}.
-{footer_ack}  If you want to interactively request a forecast for a location, visit the <a href="https://chatgpt.com/g/g-4OgZFHOPA-global-ensemble-weather-forecaster" target="_blank" rel="noopener">Global Ensemble Weather Forecaster</a> (ChatGPT account required).
+{footer_ack}{model_provenance}  If you want to interactively request a forecast for a location, visit the <a href="https://chatgpt.com/g/g-4OgZFHOPA-global-ensemble-weather-forecaster" target="_blank" rel="noopener">Global Ensemble Weather Forecaster</a> (ChatGPT account required).
 </div>""",
         ]
     )
@@ -185,17 +207,26 @@ def _render_translation_block(text: Optional[str], language: Optional[str]) -> t
     return _markdown_to_html(text), header
 
 
-def _render_ibf_block(context: Optional[str]) -> Optional[str]:
+def _render_ibf_block(
+    context: Optional[str],
+    provenance: Optional[str] = None,
+) -> Optional[str]:
     """Render the optional IBF context block for the forecast page."""
     if not context:
         return None
     context_html = _markdown_to_html(context)
+    provenance_html = ""
+    if provenance:
+        provenance_html = (
+            '<p class="ibf-context-provenance">Context source: '
+            f"{html.escape(provenance, quote=True)}.</p>"
+        )
     return f"""<div id="ibf-context-wrapper">
   <div id="ibf-context-header" onclick="toggleIbfContext()">
     <span id="ibf-context-toggle">▶</span>
     <span id="ibf-context-header-text">Impact-Based Forecast Context</span>
   </div>
-  <div id="ibf-context-content">{context_html}</div>
+  <div id="ibf-context-content">{context_html}{provenance_html}</div>
 </div>"""
 
 
@@ -219,12 +250,14 @@ h3 { color: #495057; font-size: 1.1em; font-weight: 600; margin-top: 0.8em; marg
 #ibf-context-content ul { margin: 0 0 1em 1.2em; padding: 0; }
 #ibf-context-content li { margin-bottom: 0.5em; }
 #ibf-context-content li:last-child { margin-bottom: 0; }
+.ibf-context-provenance { margin: 1.5em 0 0; padding-top: 0.8em; border-top: 1px solid #dee2e6; color: #6c757d; font-size: 0.85em; }
 #ibf-context-content.expanded { display: block; }
 h2 { color: #343a40; margin-top: 1.5em; margin-bottom: 0.8em; font-size: 1.4em; }
 a { color: #0d6efd; text-decoration: none; font-weight: 500; }
 a:hover { text-decoration: underline; color: #0a58ca; }
 .footer-note { margin-top: 2.5em; padding-top: 1em; border-top: 1px solid #dee2e6; font-size: 0.9em; color: #6c757d; text-align: center; }
 .footer-note a { font-weight: normal; }
+.footer-model-provenance { margin: 0.35em 0; }
 hr { display: none; }
 @media (max-width: 600px) { body { margin: 0.5em; padding: 0 0.8em; } h1 { font-size: 1.5em; } #forecast-content, #translated-forecast-content, #ibf-context-content { padding: 1em 1.2em; } h2 { font-size: 1.2em;} }
 </style>"""

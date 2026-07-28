@@ -58,12 +58,18 @@ class ImpactContext:
         content: The generated context text.
         from_cache: True if the content was loaded from disk cache.
         cache_path: Path to the cache file (if applicable).
+        provider: Research provider that produced the context.
+        model: Model that produced or synthesised the context.
+        generated_at: ISO timestamp recording when the context was generated.
     """
     name: str
     content: str
     from_cache: bool
     cache_path: Optional[Path] = None
     cost_cents: float = 0.0
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    generated_at: Optional[str] = None
 
 
 def fetch_impact_context(
@@ -128,6 +134,11 @@ def fetch_impact_context(
         max_age_days=max_age_days,
     )
     if cached_context:
+        cached_provider, cached_model, cached_generated_at = _load_context_provenance(
+            cache_path,
+            default_provider=context_provider,
+            default_model=context_llm,
+        )
         cached_local_date = get_local_now(timezone_name).date()
         cached_context, removed_events = _filter_invalid_upcoming_event_bullets(
             cached_context,
@@ -149,8 +160,13 @@ def fetch_impact_context(
             from_cache=True,
             cache_path=cache_path,
             cost_cents=0.0,
+            provider=cached_provider,
+            model=cached_model,
+            generated_at=cached_generated_at,
         )
 
+    source_provider = context_provider
+    source_model = context_llm
     if context_provider == "brave":
         try:
             context, cost_cents = _generate_context_brave(
@@ -188,6 +204,8 @@ def fetch_impact_context(
                     representative_locations=normalized_locations,
                 )
                 cost_cents = brave_cost_cents + fallback_cost_cents
+                source_provider = "llm-search"
+                source_model = context_fallback_llm
             else:
                 context, cost_cents = "", brave_cost_cents
     else:
@@ -202,6 +220,7 @@ def fetch_impact_context(
             representative_locations=normalized_locations,
         )
     if context:
+        generated_at = get_local_now(timezone_name).isoformat()
         store_impact_context(
             name,
             context,
@@ -210,6 +229,9 @@ def fetch_impact_context(
             timezone_name=timezone_name,
             context_llm=cache_identity,
             extra_context=extra_context,
+            source_provider=source_provider,
+            source_model=source_model,
+            generated_at=generated_at,
         )
         return ImpactContext(
             name=name,
@@ -217,6 +239,9 @@ def fetch_impact_context(
             from_cache=False,
             cache_path=cache_path,
             cost_cents=cost_cents,
+            provider=source_provider,
+            model=source_model,
+            generated_at=generated_at,
         )
 
     logger.info("Impact context unavailable for %s (%s); continuing without it.", name, context_type)
@@ -238,6 +263,9 @@ def store_impact_context(
     timezone_name: str = "UTC",
     context_llm: str = DEFAULT_CONTEXT_LLM,
     extra_context: Optional[str] = None,
+    source_provider: Optional[str] = None,
+    source_model: Optional[str] = None,
+    generated_at: Optional[str] = None,
 ) -> None:
     """
     Save generated impact context to the filesystem cache.
@@ -259,14 +287,17 @@ def store_impact_context(
         context_llm=context_llm,
         extra_context=extra_context,
     )
+    timestamp = generated_at or get_local_now(timezone_name).isoformat()
     payload = {
         "context": content,
-        "timestamp": get_local_now(timezone_name).isoformat(),
+        "timestamp": timestamp,
         "context_type": context_type,
         "name": name,
         "forecast_days": forecast_days,
         "context_llm": context_llm,
         "extra_context": extra_context,
+        "source_provider": source_provider,
+        "source_model": source_model,
     }
     try:
         write_text_file(cache_path, json.dumps(payload, indent=2, ensure_ascii=False))
@@ -364,6 +395,27 @@ def _load_cache(path: Path, *, max_age_days: int = MAX_CONTEXT_AGE_DAYS) -> Opti
     if now_utc - cached_ts.astimezone(timezone.utc) > timedelta(days=max_age_days):
         return None
     return data.get("context", "")
+
+
+def _load_context_provenance(
+    path: Optional[Path],
+    *,
+    default_provider: str,
+    default_model: str,
+) -> tuple[str, str, Optional[str]]:
+    """Read provenance from a context cache, retaining compatibility with older files."""
+    if path is None:
+        return default_provider, default_model, None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return default_provider, default_model, None
+    if not isinstance(data, dict):
+        return default_provider, default_model, None
+    provider = str(data.get("source_provider") or default_provider).strip()
+    model = str(data.get("source_model") or default_model).strip()
+    generated_at = data.get("timestamp")
+    return provider, model, str(generated_at) if generated_at else None
 
 
 def _delete_cache_file(path: Path) -> None:

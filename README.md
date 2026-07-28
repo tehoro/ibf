@@ -121,6 +121,10 @@ Impact context note:
 - If impact context cannot be obtained, IBF loudly logs the failure and continues without that
   extra context. Configure `context_fallback_llm` only if an experimental Brave run should try the
   recommended hosted-search method once.
+- Generated forecast pages identify the language model that actually wrote the forecast and, when
+  applicable, the model that produced the translation. The expanded impact-context panel also
+  records its research provider, model, and generation time; this metadata is retained when context
+  is reused from cache.
 
 Recommended LLM choices
 -----------------------
@@ -418,10 +422,16 @@ downloaded models as well as the models already held in memory.
 
 LM Studio's loaded context length must accommodate the complete system and user prompts plus the
 requested output allowance. Area prompts can be much larger than location prompts because they
-combine representative locations and ensemble scenarios. IBF logs the character/byte size, a
-rough input-token estimate, and the requested maximum output tokens before every LLM call. If LM
+combine representative locations and ensemble scenarios, but long spot forecasts with many
+retained ensemble members can also exceed a model's limit. IBF logs the character/byte size, a
+rough input-token estimate, the requested maximum output tokens, and their estimated combined
+context requirement before every LLM call. If LM
 Studio rejects a prompt for exceeding its context window, IBF identifies that cause explicitly and
-immediately tries `llm_fallback` when configured.
+immediately tries `llm_fallback` when configured. If an area or regional forecast still fails with
+an explicit context-size error, IBF rebuilds the prompt from the already downloaded data with half
+as many representative ensemble scenarios and retries, progressively reducing to one scenario only
+if necessary. The same recovery applies to ensemble spot forecasts. Deterministic forecasts and
+other LLM failures do not trigger scenario reduction.
 
 Useful LM Studio references:
 
@@ -710,9 +720,12 @@ Troubleshooting (technical)
 - LM Studio connection errors: start its API server, verify `lm_studio_base_url`, local-network and
   firewall settings, and authentication. The error lists the model identifiers visible from
   `/v1/models`; the configured `lms:` identifier must match exactly.
-- LM Studio context-length errors: increase the model's loaded context length, reduce forecast
-  days, representative locations, or `area_thin_select`, or configure a larger-context cloud model
-  as `llm_fallback`. Check the logged prompt-size estimate before choosing a context length.
+- LM Studio context-length errors: IBF automatically retries ensemble location, area and regional
+  forecasts with fewer representative scenarios when the server explicitly reports context
+  overflow. You can also increase the model's loaded context length, reduce forecast days or
+  representative locations, lower `location_thin_select` or `area_thin_select`, or configure a
+  larger-context cloud model as `llm_fallback`. The logged token count is an estimate because
+  OpenAI-compatible local servers do not expose a universal tokenizer.
 - Experimental Brave context errors: confirm `BRAVE_SEARCH_API_KEY`, subscription to Brave's Search plan, and
   network connectivity. Brave requires a new key to be generated for a new subscription. IBF logs
   Brave's structured error code and message. Configure `context_fallback_llm` only if you want the
@@ -734,4 +747,4 @@ If you use IBF in research, software, or documentation, please cite it using the
 
 A suggested citation (from `CITATION.cff`) is:
 
-> Gordon, Neil. *IBF (Impact-Based Forecast Toolkit): LLM-assisted generation of impact-based weather forecasts* (v0.8.0). 2026. [https://github.com/tehoro/ibf](https://github.com/tehoro/ibf)
+> Gordon, Neil. *IBF (Impact-Based Forecast Toolkit): LLM-assisted generation of impact-based weather forecasts* (v0.8.1). 2026. [https://github.com/tehoro/ibf](https://github.com/tehoro/ibf)
