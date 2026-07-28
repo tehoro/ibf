@@ -769,6 +769,7 @@ def _generate_location_text_with_adaptive_thinning(
             impact_instruction=impact_instr if ibf_context else "",
             impact_context=ibf_context or "",
             user_extra_context=location.extra_context,
+            model_kind=payload.model_kind,
         )
         if attempt_index:
             logger.warning(

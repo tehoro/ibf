@@ -88,6 +88,88 @@ def test_range_summary_collapses_identical_temperature_endpoints() -> None:
     assert "24°C to 24°C" not in summary
 
 
+def test_range_summary_collapses_one_degree_celsius_spans_to_median() -> None:
+    summary = calculate_range_summary(
+        [23.0, 23.4, 23.8, 24.0],
+        [29.0, 29.4, 29.8, 30.0],
+        [],
+        [],
+        "C",
+        "mm",
+        "cm",
+        False,
+        False,
+    )
+
+    assert "Likely low 24°C" in summary
+    assert "Likely high 30°C" in summary
+    assert "23°C to 24°C" not in summary
+
+
+def test_range_summary_collapses_two_degree_fahrenheit_spans_to_median() -> None:
+    summary = calculate_range_summary(
+        [68.0, 69.0, 70.0],
+        [75.0, 76.0, 77.0],
+        [],
+        [],
+        "F",
+        "inch",
+        "inch",
+        False,
+        False,
+    )
+
+    assert "Likely low 69°F" in summary
+    assert "Likely high 76°F" in summary
+    assert "68°F to 70°F" not in summary
+
+
+def test_range_summary_preserves_wider_temperature_spans() -> None:
+    celsius_summary = calculate_range_summary(
+        [23.0, 25.0],
+        [29.0, 32.0],
+        [],
+        [],
+        "C",
+        "mm",
+        "cm",
+        False,
+        False,
+    )
+    fahrenheit_summary = calculate_range_summary(
+        [68.0, 71.0],
+        [75.0, 78.0],
+        [],
+        [],
+        "F",
+        "inch",
+        "inch",
+        False,
+        False,
+    )
+
+    assert "Likely low 23°C to 25°C" in celsius_summary
+    assert "Likely high 29°C to 32°C" in celsius_summary
+    assert "Likely low 68°F to 71°F" in fahrenheit_summary
+    assert "Likely high 75°F to 78°F" in fahrenheit_summary
+
+
+def test_partial_period_range_summary_uses_only_collapsed_low() -> None:
+    summary = calculate_range_summary(
+        [10.0, 11.0],
+        [15.0, 18.0],
+        [],
+        [],
+        "C",
+        "mm",
+        "cm",
+        True,
+        False,
+    )
+
+    assert summary == "Likely low 11°C"
+
+
 def test_range_summary_collapses_rounded_precipitation_and_snowfall_endpoints() -> None:
     summary = calculate_range_summary(
         [10, 11, 12],
