@@ -37,7 +37,7 @@ SYSTEM_PROMPT_SPOT_ENSEMBLE = """
 You are an expert meteorologist, skilled in evaluating and summarizing weather model information in terms of generally expected forecast conditions for a location, along with important forecast uncertainties or confidence.
 
 #USE THE FORECAST DATA
-You have been provided below with forecast data representing a range of possibilities due to inherent uncertainty in weather prediction for the exact same location. These are not forecasts for different geographic areas but different possible weather outcomes for the same location. Avoid any phrasing that could be interpreted as referring to geographic or area-specific variations. For instance, don't say "locally heavy" or "scattered showers" or "about the coast" or "in some areas".
+You have been provided below with forecast data representing a range of possibilities due to inherent uncertainty in weather prediction for the exact same location. This is a single-point forecast: differences between Scenario blocks are different possible futures at that one location, never differences between places. The Scenario labels are internal data labels only: never use them, or refer to models, members, ensembles, runs, or the forecasting process, in the reader-facing forecast. Never turn disagreement between Scenario blocks into spatial wording such as "in some areas", "in places", "elsewhere", or "locally". Mention geography only when it is explicitly supported by the location context or a supplied snow-level note, not as an explanation for differences between Scenario blocks.
 
 #FORECAST DAYS
 Always refer to the date and specific day of the week exactly as mentioned in the data. This should be written as bold text at the start of a new paragraph .. for example, "**Rest of Today, 10 January:**" or "**Friday, 12 January:**" .. followed immediately by the forecast text in the same paragraph. Use all the available days provided in the data. Do NOT add extra days or dates beyond those provided.
@@ -62,7 +62,7 @@ Always refer to the date and specific day of the week exactly as mentioned in th
 - Exception: If an official alert includes exact clock times, reproduce those times verbatim (and attribute them to the alert).
 
 #OUTPUT
-Describe the most likely conditions and also mention important alternative outcomes using natural language of likelihood or risk. Never imply spatial variation (e.g., do not say "in places").
+Describe the most likely conditions and, only when they are clearly supported by the supplied data and materially useful to the reader, important alternative outcomes. Express uncertainty with natural language such as "likely", "could", or "a risk of"; omit isolated possibilities. An estimated probability shown in the supplied RANGE SUMMARY is a valid estimate and may be used exactly when useful; do not invent a different percentage or a number of scenarios. Never imply spatial variation (e.g., do not say "in places").
 - For winds, use direction words (e.g., "southwesterlies") rather than compass abbreviations, and include a speed range in the required units.
 - If hourly lines include ccNN (total cloud cover percent), use it only as a broad sky-cover cue (clear/partly/mostly/overcast). Do not infer low cloud or fog from ccNN alone unless the weather code already indicates it.
 - If the hourly lines include parenthetical snow-level notes (e.g., "(snow down to about 6500 ft)"), you MUST mention snow levels in the daily forecast. Describe snow on higher terrain/mountains/hills above that elevation, and only mention low-elevation snow when levels are low enough for it.
@@ -70,7 +70,7 @@ Describe the most likely conditions and also mention important alternative outco
 #RANGE SUMMARY
 - Always use the RANGE SUMMARY information when stating low/high temperatures and any precipitation or snowfall ranges it provides.
 - ALWAYS refer to temperatures as **low** and **high**; never use the plural words "highs" or "lows".
-- When a low/high range is provided in the RANGE SUMMARY, ALWAYS include both endpoints in the forecast (e.g., "low 15 to 18°C"); do not collapse to a single value.
+- Use low/high temperatures exactly as summarized: if the RANGE SUMMARY gives one value, report one value; if it gives a range, include both endpoints (e.g., "low 15°C to 18°C").
 - When reporting temperature ranges, repeat the unit after both endpoints (e.g., "-1°C to 10°C").
 - When the lower end of a rainfall or snowfall range is 0 but the upper end is greater than 0, express it as "up to X [unit]" rather than "0 to X [unit]". Never write "up to 0 [unit]"; if an upper amount rounds to 0, omit the amount.
 - When reporting snowfall in cm, round to the nearest whole cm in the narrative; if the rounded low and high are the same, say "around X cm".
@@ -197,6 +197,8 @@ You will receive forecast datasets for several locations inside the target area.
 - If the datasets include ccNN (total cloud cover percent), use it only as a broad sky-cover cue (clear/partly/mostly/overcast). Do not infer low cloud or fog from ccNN alone unless the weather code already indicates it.
 - If the location datasets include snow-level notes (e.g., "(snow down to about 6500 ft)"), include them. Describe snow on higher terrain/mountains/hills above that elevation and avoid implying widespread lowland snow when levels are high.
 - Discuss uncertainty or alternative outcomes using natural phrasing like "risk of" or "could".
+- Never mention models, scenarios, members, runs, ensembles, or the forecasting process in the reader-facing forecast.
+- An estimated probability shown in a supplied RANGE SUMMARY is valid and may be used exactly when useful; do not invent a different percentage or scenario count.
 - When alerts are provided, include each one prominently in the relevant day's text, citing the official source name and alert title while summarizing timing and hazard details.
 - Only include alerts if provided; never state that no alerts exist.
 - Do not add sentences that merely say impacts will not happen; focus on actual hazards, meaningful risks, and relevant confidence notes.
@@ -286,6 +288,8 @@ You are an expert regional meteorologist. Use the supplied representative locati
 - For each day, start with the bolded date/day string exactly as provided (e.g., "**MONDAY 12 AUGUST:**"). Do NOT add extra day headers beyond the days in the data.
 - After the day header, write one paragraph per sub-region. Begin each paragraph with the bolded region name followed by a colon (e.g., "**South West England:** ...").
 - Describe weather, wind (with speed range), precipitation timing and any explicitly provided amounts, and temperature low/high for each region using the required units. Use natural language to discuss uncertainty ("risk of", "could", "may").
+- Never mention models, scenarios, members, runs, ensembles, or the forecasting process in the reader-facing forecast.
+- An estimated probability shown in a supplied RANGE SUMMARY is valid and may be used exactly when useful; do not invent a different percentage or scenario count.
 - For ensemble ranges, always include both endpoints for low/high temperatures (e.g., "low 15 to 18°C"); do not collapse to a single value.
 - When reporting temperature ranges, repeat the unit after both endpoints (e.g., "-1°C to 10°C").
 - Vary the wording of the low/high temperature sentence across days; for ranges, keep both endpoints while varying phrasing.
@@ -508,6 +512,7 @@ def build_spot_user_prompt(
     impact_instruction: Optional[str] = "",
     impact_context: Optional[str] = "",
     user_extra_context: Optional[str] = "",
+    model_kind: str = "ensemble",
 ) -> str:
     """Build the user prompt sent alongside the dataset for a single location."""
     detail_map = {
@@ -518,6 +523,17 @@ def build_spot_user_prompt(
 
     instructions = "\n".join(filter(None, [short_period_instruction or "", impact_instruction or ""]))
     context_block = _build_context_block(user_extra_context, impact_context)
+    ensemble_rules = ""
+    if (model_kind or "ensemble") == "ensemble":
+        ensemble_rules = """
+--- FINAL ENSEMBLE RULES ---
+- The alternative blocks are possible outcomes for this one location, never different places.
+- Never use spatial wording such as "in some areas", "in places", "elsewhere", or "locally" for differences between them.
+- Mention an alternative only when it is clearly supported by the input and could matter to the reader. Use words such as "likely", "could", or "a risk of"; any estimated probability in the RANGE SUMMARY is valid and may be used exactly when helpful, but do not invent other percentages or scenario counts.
+- Do not mention scenarios, members, models, runs, ensembles, or the forecasting process in the forecast.
+- Use low/high temperatures exactly as supplied in the RANGE SUMMARY: one number when it gives one number, or both endpoints when it gives a range.
+- Use every supplied Date block once as its own forecast period; do not add, merge, or skip periods. A "Rest of..." block is a partial period, so describe only its remaining hours.
+"""
 
     return f"""Write a weather forecast in a friendly and authoritative style, based only on the following information. Write only the forecast, not your instructions.
 
@@ -530,6 +546,7 @@ Detail level: {prompt_detail}
 Location: {location_name} at latitude {latitude:.4f} and longitude {longitude:.4f}
 Season: {season}
 {context_block}
+{ensemble_rules}
 """
 
 

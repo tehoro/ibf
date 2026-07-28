@@ -249,8 +249,8 @@ def format_location_dataset(
                 members_output.append("\n".join(block_lines))
 
                 if math.isfinite(high_temp) and math.isfinite(low_temp):
-                    daily_highs.append(round(high_temp))
-                    daily_lows.append(round(low_temp))
+                    daily_highs.append(float(high_temp))
+                    daily_lows.append(float(low_temp))
                 daily_precip.append(_normalize_daily_total(total_precip, precipitation_unit, kind="rainfall"))
                 daily_snow.append(round(total_snow, 1))
 
@@ -620,11 +620,22 @@ def calculate_range_summary(
 
 
 def _format_temperature_range(label: str, values: List[float], unit: str) -> str:
-    """Format a temperature range without ever emitting an ``X to X`` span."""
-    lower = min(values)
-    upper = max(values)
-    if lower == upper:
-        return f"Likely {label} {lower}°{unit}"
+    """Format one median value for narrow spreads, otherwise a rounded range."""
+    numeric = [
+        float(value)
+        for value in values
+        if isinstance(value, (int, float)) and math.isfinite(value)
+    ]
+    if not numeric:
+        return ""
+
+    rounded_values = [_round_half_up(value) for value in numeric]
+    lower = min(rounded_values)
+    upper = max(rounded_values)
+    collapse_span = 2 if unit.upper() == "F" else 1
+    if upper - lower <= collapse_span:
+        median = _round_half_up(float(np.median(numeric)))
+        return f"Likely {label} {median}°{unit}"
     return f"Likely {label} {lower}°{unit} to {upper}°{unit}"
 
 

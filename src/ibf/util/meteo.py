@@ -37,8 +37,10 @@ _WMO_CODES = {
     85: "light snow showers",
     86: "heavy snow showers",
     95: "thunderstorm",
-    96: "thunderstorm with slight hail",
-    99: "thunderstorm with heavy hail",
+    # Open-Meteo also derives these codes from thunderstorm strength without
+    # hail-specific input, so the codes alone are not enough to forecast hail.
+    96: "strong thunderstorm",
+    99: "severe thunderstorm",
 }
 
 
