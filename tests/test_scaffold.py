@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from ibf import __version__
 from ibf.config import ForecastConfig, LocationConfig
 from ibf.web.scaffold import generate_site_structure
 from ibf.util import slugify
@@ -27,3 +28,4 @@ def test_scaffold_uses_unique_location_names(tmp_path: Path) -> None:
     menu_html = (web_root / "index.html").read_text(encoding="utf-8")
     assert "Duplicate City (Deterministic)" in menu_html
     assert "Duplicate City (Ensemble)" in menu_html
+    assert f">IBF</a> {__version__}, developed by" in menu_html

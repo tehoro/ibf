@@ -92,7 +92,7 @@ class ForecastConfig(BaseModel):
         area_impact_based: Enable impact-based context for areas.
         location_thin_select: Number of ensemble members to select for locations.
         area_thin_select: Number of ensemble members to select for areas.
-        llm: LLM model identifier (e.g., "gemini-3.5-flash-lite").
+        llm: LLM model identifier (e.g., "gemini-3-flash-preview").
         llm_fallback: Optional model used when the primary forecast model fails.
         lm_studio_base_url: Optional LM Studio server URL for ``lms:`` models.
         context_provider: Impact-context research provider (recommended ``llm-search`` or

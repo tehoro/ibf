@@ -16,9 +16,10 @@ def log_gemini_usage_and_cost(model_name: str, usage_metadata: Any, *, label: st
     """Log Gemini usage and return estimated cost in USD cents."""
     if not usage_metadata:
         logger.info(
-            "%s – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
+            "%s – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s thought_tokens=%s total_tokens=%s cost_usd_cents=%s",
             label,
             model_name,
+            "n/a",
             "n/a",
             "n/a",
             "n/a",
@@ -38,14 +39,19 @@ def log_gemini_usage_and_cost(model_name: str, usage_metadata: Any, *, label: st
     prompt_tokens = _get(usage_metadata, "prompt_token_count")
     cached_prompt_tokens = _get(usage_metadata, "cached_content_token_count")
     completion_tokens = _get(usage_metadata, "candidates_token_count")
+    thought_tokens = _get(usage_metadata, "thoughts_token_count")
     total_tokens = _get(usage_metadata, "total_token_count")
     try:
         prompt_tokens_i = int(prompt_tokens or 0)
         cached_prompt_tokens_i = int(cached_prompt_tokens or 0)
         completion_tokens_i = int(completion_tokens or 0)
-        total_tokens_i = int(total_tokens or (prompt_tokens_i + completion_tokens_i))
+        thought_tokens_i = int(thought_tokens or 0)
+        total_tokens_i = int(
+            total_tokens or (prompt_tokens_i + completion_tokens_i + thought_tokens_i)
+        )
     except (TypeError, ValueError):
-        prompt_tokens_i, cached_prompt_tokens_i, completion_tokens_i, total_tokens_i = 0, 0, 0, 0
+        prompt_tokens_i = cached_prompt_tokens_i = completion_tokens_i = 0
+        thought_tokens_i = total_tokens_i = 0
 
     cost_entry = get_model_cost(model_name)
     cost_display = "n/a"
@@ -53,19 +59,20 @@ def log_gemini_usage_and_cost(model_name: str, usage_metadata: Any, *, label: st
     if cost_entry:
         usd = cost_entry.cost_for_usage(
             input_tokens=prompt_tokens_i,
-            output_tokens=completion_tokens_i,
+            output_tokens=completion_tokens_i + thought_tokens_i,
             cached_input_tokens=cached_prompt_tokens_i,
         )
         cost_cents = usd * 100
         cost_display = f"{cost_cents:.2f}"
 
     logger.info(
-        "%s – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s total_tokens=%s cost_usd_cents=%s",
+        "%s – model=%s prompt_tokens=%s cached_prompt_tokens=%s completion_tokens=%s thought_tokens=%s total_tokens=%s cost_usd_cents=%s",
         label,
         model_name,
         prompt_tokens_i,
         cached_prompt_tokens_i,
         completion_tokens_i,
+        thought_tokens_i,
         total_tokens_i,
         cost_display,
     )

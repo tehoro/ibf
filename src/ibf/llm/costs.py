@@ -118,6 +118,27 @@ MODEL_COSTS: Dict[str, ModelCost] = {
         cached_input_per_million=0.03,
         output_per_million=2.50,
     ),
+    # Gemini 3.5 and 3.6 Flash standard paid-tier pricing (USD per 1M tokens).
+    "gemini-3.5-flash": ModelCost(
+        input_per_million=1.50,
+        cached_input_per_million=0.15,
+        output_per_million=9.00,
+    ),
+    "google/gemini-3.5-flash": ModelCost(
+        input_per_million=1.50,
+        cached_input_per_million=0.15,
+        output_per_million=9.00,
+    ),
+    "gemini-3.6-flash": ModelCost(
+        input_per_million=1.50,
+        cached_input_per_million=0.15,
+        output_per_million=7.50,
+    ),
+    "google/gemini-3.6-flash": ModelCost(
+        input_per_million=1.50,
+        cached_input_per_million=0.15,
+        output_per_million=7.50,
+    ),
 }
 
 

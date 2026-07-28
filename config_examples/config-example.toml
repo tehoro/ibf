@@ -1,18 +1,18 @@
 # Sample Configration Showing Different Options
 
 # Language Models to use
-llm = "gemini-3.5-flash-lite"
+llm = "gemini-3-flash-preview"
 # Recommended local family: Gemma 4; copy the exact loaded model ID from LM Studio.
 # llm = "lms:exact-loaded-gemma-4-model-id"  # local or network LM Studio
-# llm_fallback = "gemini-3.5-flash-lite"     # optional one-step fallback
+# llm_fallback = "gemini-3-flash-preview"     # optional one-step fallback
 # lm_studio_base_url = "http://192.168.1.50:1234/v1"
 
 # Recommended: Gemini hosted web search, cached for up to three local days.
 # Experimental Brave research remains available with context_provider = "brave".
 context_provider = "llm-search"
-context_llm = "gemini-3.5-flash-lite"
-# context_fallback_llm = "gemini-3.5-flash-lite"  # experimental Brave -> hosted fallback
-translation_llm = "gemini-3.5-flash-lite"
+context_llm = "gemini-3-flash-preview"
+# context_fallback_llm = "gemini-3-flash-preview"  # experimental Brave -> hosted fallback
+translation_llm = "gemini-3-flash-preview"
 # translation_llm_fallback = "gpt-4o-mini"
 enable_reasoning = true   # use reasoning or thinking where supported
 

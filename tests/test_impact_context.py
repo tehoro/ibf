@@ -79,6 +79,37 @@ def _valid_synthesis() -> str:
 • No relevant items found."""
 
 
+def _gemini_response(*, grounded: bool) -> SimpleNamespace:
+    metadata = None
+    if grounded:
+        metadata = SimpleNamespace(
+            web_search_queries=["official Otaki impact thresholds"],
+            grounding_chunks=[
+                SimpleNamespace(
+                    web=SimpleNamespace(
+                        uri="https://example.govt.nz/thresholds",
+                        title="Official thresholds",
+                        domain="example.govt.nz",
+                    )
+                )
+            ],
+            grounding_supports=[],
+        )
+    return SimpleNamespace(
+        text=_valid_synthesis(),
+        usage_metadata=None,
+        candidates=[
+            SimpleNamespace(
+                finish_reason=SimpleNamespace(value="STOP"),
+                grounding_metadata=metadata,
+                citation_metadata=None,
+            )
+        ],
+        response_id="response-grounded" if grounded else "response-ungrounded",
+        model_version="gemini-test",
+    )
+
+
 @pytest.mark.parametrize(
     ("choice", "provider"),
     [
@@ -397,6 +428,7 @@ def test_hosted_prompt_uses_canonical_identity_and_evidence_classes() -> None:
     assert "national meteorological" in prompt
     assert "Design/hazard reference" in prompt
     assert "Do NOT search for or summarise weather forecasts" in prompt
+    assert "You MUST use the supplied web-search tool before answering" in prompt
     assert "official municipal, tourism, venue, sports and organiser calendars" in prompt
     assert "25mm" not in prompt  # Do not seed plausible numbers into the model.
 
@@ -529,6 +561,101 @@ def test_gemini_context_fails_closed_without_grounding_metadata(monkeypatch, tmp
     assert list((tmp_path / "evidence").glob("hosted_*.json"))
 
 
+def test_gemini_context_retries_once_when_model_skips_search(monkeypatch, tmp_path) -> None:
+    from google import genai
+
+    responses = iter([_gemini_response(grounded=False), _gemini_response(grounded=True)])
+    requests = []
+
+    def generate_content(**kwargs):
+        requests.append(kwargs["contents"])
+        return next(responses)
+
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=generate_content)
+    )
+    monkeypatch.setattr(genai, "Client", lambda **kwargs: fake_client)
+    monkeypatch.setattr("ibf.api.impact.CACHE_DIR", tmp_path)
+
+    text, cost = _generate_context_gemini_search(
+        "research prompt",
+        model_name="gemini-test",
+        api_key="key",
+        name="Otaki, New Zealand",
+    )
+
+    assert text == _valid_synthesis()
+    assert cost == 0.0
+    assert len(requests) == 2
+    assert "MANDATORY SEARCH RETRY" in requests[1]
+
+
+def test_gemini_context_retries_transient_server_error(monkeypatch, tmp_path) -> None:
+    from google import genai
+    from google.genai import errors
+
+    calls = 0
+
+    def generate_content(**kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise errors.ServerError(
+                503,
+                {"error": {"message": "Deadline expired before operation could complete."}},
+            )
+        return _gemini_response(grounded=True)
+
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=generate_content)
+    )
+    monkeypatch.setattr(genai, "Client", lambda **kwargs: fake_client)
+    monkeypatch.setattr("ibf.api.impact.CACHE_DIR", tmp_path)
+
+    text, cost = _generate_context_gemini_search(
+        "research prompt",
+        model_name="gemini-3.6-flash",
+        api_key="key",
+        name="Otaki, New Zealand",
+    )
+
+    assert text == _valid_synthesis()
+    assert cost == 0.0
+    assert calls == 2
+
+
+def test_gemini_context_server_error_remains_non_fatal(monkeypatch, tmp_path) -> None:
+    from google import genai
+    from google.genai import errors
+
+    calls = 0
+
+    def generate_content(**kwargs):
+        nonlocal calls
+        calls += 1
+        raise errors.ServerError(
+            503,
+            {"error": {"message": "Deadline expired before operation could complete."}},
+        )
+
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=generate_content)
+    )
+    monkeypatch.setattr(genai, "Client", lambda **kwargs: fake_client)
+    monkeypatch.setattr("ibf.api.impact.CACHE_DIR", tmp_path)
+
+    text, cost = _generate_context_gemini_search(
+        "research prompt",
+        model_name="gemini-3.6-flash",
+        api_key="key",
+        name="Otaki, New Zealand",
+    )
+
+    assert text == ""
+    assert cost == 0.0
+    assert calls == 2
+
+
 def test_modern_impact_cache_key_includes_forecast_days(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr("ibf.api.impact.CACHE_DIR", tmp_path)
     date = datetime(2026, 7, 26, tzinfo=timezone.utc)
@@ -566,7 +693,7 @@ def test_context_cache_provenance_round_trips(tmp_path: Path) -> None:
     assert generated_at == "2026-07-28T08:30:00+12:00"
 
 
-def test_new_default_context_model_does_not_share_legacy_unsuffixed_cache_key(
+def test_restored_default_context_model_shares_preview_cache_key(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr("ibf.api.impact.CACHE_DIR", tmp_path)
@@ -582,9 +709,9 @@ def test_new_default_context_model_does_not_share_legacy_unsuffixed_cache_key(
         context_llm="gemini-3-flash-preview",
     )
 
-    assert "__gemini_35_flash_lite" in current.name
+    assert "__gemini" not in current.name
     assert "__gemini" not in legacy.name
-    assert current != legacy
+    assert current == legacy
 
 
 def test_brave_failure_can_fall_back_to_explicit_hosted_search_model(monkeypatch, tmp_path) -> None:

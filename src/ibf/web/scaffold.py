@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List
 
+from .. import __version__
 from ..config import ForecastConfig
 from ..util import slugify, write_text_file
 from ..util.naming import generate_unique_location_names
@@ -115,7 +116,7 @@ MENU_TEMPLATE = """<!DOCTYPE html>
   {area_section}
   <hr>
   <div class="footer-note">
-    Forecast produced using <a href="https://github.com/tehoro/ibf" target="_blank" rel="noopener">IBF</a>, developed by <a href="mailto:neil.gordon@hey.com?subject=Comment%20on%20IBF">Neil Gordon</a>.
+    Forecast produced using <a href="https://github.com/tehoro/ibf" target="_blank" rel="noopener">IBF</a> {ibf_version}, developed by <a href="mailto:neil.gordon@hey.com?subject=Comment%20on%20IBF">Neil Gordon</a>.
     Data courtesy of <a href="https://open-meteo.com/" target="_blank" rel="noopener">open-meteo.com</a>.
     <br>If you want to interactively request a forecast for a location, visit the <a href="https://chatgpt.com/g/g-4OgZFHOPA-global-ensemble-weather-forecaster" target="_blank" rel="noopener">Global Ensemble Weather Forecaster</a> (ChatGPT account required).
   </div>
@@ -283,6 +284,7 @@ def generate_site_structure(config: ForecastConfig, *, force: bool = False) -> S
     index_html = MENU_TEMPLATE.format(
         location_section=location_section or "<p>No individual locations configured.</p>",
         area_section=area_section or "<p>No areas configured.</p>",
+        ibf_version=__version__,
     )
     write_text_file(root / "index.html", index_html)
     report.menu_written = True
