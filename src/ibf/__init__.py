@@ -4,9 +4,17 @@ Core package for the unified Impact-Based Forecast tooling.
 
 from importlib import metadata as _metadata
 
-try:
-    __version__ = _metadata.version("ibf")
-except _metadata.PackageNotFoundError:  # pragma: no cover
-    __version__ = "0.0.0"
+_EMBEDDED_VERSION = "0.8.3"
+
+
+def _resolve_version() -> str:
+    """Return installed metadata when available, or the frozen-app version."""
+    try:
+        return _metadata.version("ibf")
+    except _metadata.PackageNotFoundError:
+        return _EMBEDDED_VERSION
+
+
+__version__ = _resolve_version()
 
 __all__ = ["__version__"]
