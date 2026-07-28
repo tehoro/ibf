@@ -29,8 +29,12 @@ jobs:
       - name: Build binary
         run: |
           python -m PyInstaller --clean --onefile --name ibf \
+            --copy-metadata ibf \
             --add-data "assets/terrain/global_terrain_ultra_compressed.pkl.gz:assets/terrain" \
             packaging/ibf_entrypoint.py
+
+      - name: Verify packaged version
+        run: python packaging/check_binary_version.py dist/ibf
 
       - name: Import signing certificate
         id: codesign
@@ -111,8 +115,12 @@ jobs:
       - name: Build binary
         run: |
           python -m PyInstaller --clean --onefile --name ibf \
+            --copy-metadata ibf \
             --add-data "assets/terrain/global_terrain_ultra_compressed.pkl.gz:assets/terrain" \
             packaging/ibf_entrypoint.py
+
+      - name: Verify packaged version
+        run: python packaging/check_binary_version.py dist/ibf
 
       - name: Import signing certificate
         id: codesign
@@ -192,10 +200,10 @@ jobs:
 
       - name: Build binary
         run: |
-          python -m PyInstaller --clean --onefile --name ibf --add-data "assets/terrain/global_terrain_ultra_compressed.pkl.gz;assets/terrain" packaging/ibf_entrypoint.py
+          python -m PyInstaller --clean --onefile --name ibf --copy-metadata ibf --add-data "assets/terrain/global_terrain_ultra_compressed.pkl.gz;assets/terrain" packaging/ibf_entrypoint.py
 
-      - name: Smoke test
-        run: .\dist\ibf.exe --version
+      - name: Verify packaged version
+        run: python packaging/check_binary_version.py dist\ibf.exe
 
       - name: Package release
         run: |
