@@ -37,9 +37,15 @@ def test_ensemble_spot_prompt_keeps_scenarios_internal() -> None:
         assert spatial_phrase in system_prompt
     assert "Mention geography only when it is explicitly supported" in system_prompt
     assert "An estimated probability shown in the supplied RANGE SUMMARY is a valid estimate" in system_prompt
-    assert "if the RANGE SUMMARY gives one value, report one value" in system_prompt
+    assert "RANGE SUMMARY as the authoritative source" in system_prompt
+    assert "report exactly that one value with no adjacent alternative" in system_prompt
+    assert "Whenever rain or snow is mentioned" in system_prompt
     assert "--- FINAL ENSEMBLE RULES ---" in user_prompt
     assert 'Never use spatial wording such as "in some areas"' in user_prompt
+    assert "the RANGE SUMMARY overrides all alternative-block and hourly values" in user_prompt
+    assert 'never "12°C or 13°C"' in user_prompt
+    assert "you MUST include that exact amount or both endpoints" in user_prompt
+    assert '"33 mm to 50 mm"' in user_prompt
     assert "Use every supplied Date block once as its own forecast period" in user_prompt
     assert user_prompt.index("<END>") < user_prompt.index("--- FINAL ENSEMBLE RULES ---")
 

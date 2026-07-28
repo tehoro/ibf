@@ -68,9 +68,10 @@ Describe the most likely conditions and, only when they are clearly supported by
 - If the hourly lines include parenthetical snow-level notes (e.g., "(snow down to about 6500 ft)"), you MUST mention snow levels in the daily forecast. Describe snow on higher terrain/mountains/hills above that elevation, and only mention low-elevation snow when levels are low enough for it.
 
 #RANGE SUMMARY
-- Always use the RANGE SUMMARY information when stating low/high temperatures and any precipitation or snowfall ranges it provides.
+- Treat each day's RANGE SUMMARY as the authoritative source for daily low/high temperatures and precipitation or snowfall amounts. Never substitute or recalculate these figures from Scenario blocks or hourly lines.
 - ALWAYS refer to temperatures as **low** and **high**; never use the plural words "highs" or "lows".
-- Use low/high temperatures exactly as summarized: if the RANGE SUMMARY gives one value, report one value; if it gives a range, include both endpoints (e.g., "low 15°C to 18°C").
+- Use low/high temperatures exactly as summarized: if the RANGE SUMMARY gives one value, report exactly that one value with no adjacent alternative; if it gives a range, include both endpoints (e.g., "low 15°C to 18°C"). The alternative-outcome rules do not apply to daily low/high figures.
+- Whenever rain or snow is mentioned and the RANGE SUMMARY supplies an amount or range, include that exact amount or both range endpoints. Never omit it, substitute an individual Scenario total, or calculate a different amount.
 - When reporting temperature ranges, repeat the unit after both endpoints (e.g., "-1°C to 10°C").
 - When the lower end of a rainfall or snowfall range is 0 but the upper end is greater than 0, express it as "up to X [unit]" rather than "0 to X [unit]". Never write "up to 0 [unit]"; if an upper amount rounds to 0, omit the amount.
 - When reporting snowfall in cm, round to the nearest whole cm in the narrative; if the rounded low and high are the same, say "around X cm".
@@ -531,7 +532,9 @@ def build_spot_user_prompt(
 - Never use spatial wording such as "in some areas", "in places", "elsewhere", or "locally" for differences between them.
 - Mention an alternative only when it is clearly supported by the input and could matter to the reader. Use words such as "likely", "could", or "a risk of"; any estimated probability in the RANGE SUMMARY is valid and may be used exactly when helpful, but do not invent other percentages or scenario counts.
 - Do not mention scenarios, members, models, runs, ensembles, or the forecasting process in the forecast.
-- Use low/high temperatures exactly as supplied in the RANGE SUMMARY: one number when it gives one number, or both endpoints when it gives a range.
+- For daily low/high temperatures and precipitation or snowfall amounts, the RANGE SUMMARY overrides all alternative-block and hourly values. Do not recalculate or widen its figures.
+- A single summarized low or high is final: report exactly that one value, never "X or Y", "X to Y", or an adjacent alternative. For example, "Likely high 12°C" means "high near 12°C", never "12°C or 13°C".
+- Whenever rain or snow is mentioned and the RANGE SUMMARY supplies an amount or range, you MUST include that exact amount or both endpoints. Never omit it or substitute an alternative-block total. For example, "Likely precipitation 33 mm to 50 mm" must be reported as "33 mm to 50 mm".
 - Use every supplied Date block once as its own forecast period; do not add, merge, or skip periods. A "Rest of..." block is a partial period, so describe only its remaining hours.
 """
 
