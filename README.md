@@ -124,38 +124,41 @@ Impact context note:
 - Generated forecast pages identify the language model that actually wrote the forecast and, when
   applicable, the model that produced the translation. The expanded impact-context panel also
   records its research provider, model, and generation time; this metadata is retained when context
-  is reused from cache.
+  is reused from cache. Forecast and menu footers identify the installed IBF version.
 
 Recommended LLM choices
 -----------------------
-For a simple cloud setup, the recommended model for all three LLM uses (context, forecast, and
-translation) is:
+For a simple cloud setup, the currently recommended and operationally tested model for all three
+LLM uses (context, forecast, and translation) is:
 
-- `gemini-3.5-flash-lite`
+- `gemini-3-flash-preview`
 
-It is a stable, low-cost Gemini model with Google Search grounding, and has performed well for
-IBF's relatively concise research, forecast-writing, and translation tasks.
-See Google's [Gemini 3.5 Flash-Lite model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite).
+It has produced reliable Google Search-grounded context in IBF testing and remains inexpensive.
+It is a preview model, so monitor Google's
+[deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations). The stable
+`gemini-3.6-flash` is a supported, more capable but more expensive alternative. Flash-Lite models
+remain useful low-cost choices for forecast writing or translation, but are not the recommended
+context model because they have sometimes returned text without invoking Search.
 
 Suggested config snippet:
 
 ```toml
-llm = "gemini-3.5-flash-lite"
+llm = "gemini-3-flash-preview"
 context_provider = "llm-search"
-context_llm = "gemini-3.5-flash-lite"
-translation_llm = "gemini-3.5-flash-lite"
+context_llm = "gemini-3-flash-preview"
+translation_llm = "gemini-3-flash-preview"
 ```
 
 For local forecast writing and translation while retaining recommended Gemini context research:
 
 ```toml
 llm = "lms:exact-loaded-gemma-4-model-id"
-llm_fallback = "gemini-3.5-flash-lite"
+llm_fallback = "gemini-3-flash-preview"
 lm_studio_base_url = "http://192.168.1.50:1234/v1"
 context_provider = "llm-search"
-context_llm = "gemini-3.5-flash-lite"
+context_llm = "gemini-3-flash-preview"
 translation_llm = "lms:exact-loaded-gemma-4-model-id"
-translation_llm_fallback = "gemini-3.5-flash-lite"
+translation_llm_fallback = "gemini-3-flash-preview"
 ```
 
 For LM Studio, Gemma 4 is the recommended local model family. Good candidates are Gemma 4 12B
@@ -174,7 +177,7 @@ Experimental Brave retrieval with local synthesis remains available for comparis
 ```toml
 context_provider = "brave"
 context_llm = "lms:exact-loaded-gemma-4-model-id"
-context_fallback_llm = "gemini-3.5-flash-lite"
+context_fallback_llm = "gemini-3-flash-preview"
 ```
 
 Outputs and File Structure
@@ -217,8 +220,9 @@ Minimal example:
 
 ```toml
 web_root = "./outputs/example-site"
-llm = "gemini-3.5-flash-lite"
-context_llm = "gemini-3.5-flash-lite"
+llm = "gemini-3-flash-preview"
+context_provider = "llm-search"
+context_llm = "gemini-3-flash-preview"
 
 [[location]]
 name = "Otaki Beach, New Zealand"
@@ -368,7 +372,10 @@ Gemini API key (Google AI Studio; recommended for impact context)
 -----------------------------------------------------------------
 1) Go to <https://aistudio.google.com/> and sign in.
 2) Click "Get API key" and create a new key (choose or create a project if prompted).
-3) Paste the key into your .env as `GEMINI_API_KEY=...`.
+3) Enable billing for the project when using Google Search grounding. Google currently makes
+   grounding unavailable on the purely free API tier, while billing-enabled Gemini 3 projects
+   receive a shared monthly grounding allowance before per-query charges begin.
+4) Paste the key into your .env as `GEMINI_API_KEY=...`.
 
 If you prefer using Google Cloud Console instead of AI Studio, enable the Generative Language API
 and create an API key under APIs & Services -> Credentials.
@@ -455,7 +462,7 @@ Global settings:
 | `llm_fallback` | Optional model tried once if forecast writing fails. | May use a different provider. Primary failure is logged prominently. |
 | `lm_studio_base_url` | LM Studio OpenAI-compatible server address. | Used for every `lms:` choice; defaults to `http://localhost:1234/v1`. |
 | `context_provider` | Impact research method. | `llm-search` is the recommended default; `brave` is an experimental controlled-evidence option. |
-| `context_llm` | Hosted-search model or experimental Brave evidence-synthesis model. | `llm-search` requires Gemini/OpenAI; `brave` supports any configured model provider. Defaults to `gemini-3.5-flash-lite`. |
+| `context_llm` | Hosted-search model or experimental Brave evidence-synthesis model. | `llm-search` requires Gemini/OpenAI; `brave` supports any configured model provider. Defaults to `gemini-3-flash-preview`. |
 | `context_fallback_llm` | Optional fallback if the Brave path fails. | Must be a Gemini or OpenAI model because it invokes the existing hosted web-search path. |
 | `translation_llm` | Optional model used for translations only. | Used only if translation is enabled. |
 | `translation_llm_fallback` | Optional model tried once if translation fails. | May use a different provider. |
@@ -557,13 +564,14 @@ Resolution order (highest to lowest):
 1) Explicit override (e.g., `translation_llm` for translation calls)
 2) `llm` from config
 3) `IBF_DEFAULT_LLM` environment variable
-4) Default fallback (`gemini-3.5-flash-lite`)
+4) Default fallback (`gemini-3-flash-preview`)
 
 Provider naming:
 - LM Studio: `lms:exact-model-id` (uses `lm_studio_base_url`; optional `LM_STUDIO_API_KEY`)
 - OpenRouter: `or:provider/model` (requires `OPENROUTER_API_KEY`)
 - OpenAI: `gpt-4o-mini`, `gpt-4o-latest` (requires `OPENAI_API_KEY`)
-- Gemini direct: `gemini-3.5-flash-lite` or `google/gemini-3.5-flash-lite` (requires `GEMINI_API_KEY`)
+- Gemini direct: `gemini-3-flash-preview`, `gemini-3.6-flash`, or the equivalent
+  `google/gemini-*` form (requires `GEMINI_API_KEY`)
 
 `llm_fallback` and `translation_llm_fallback` each permit one retry with another configured
 model. A primary failure is logged prominently before the fallback is tried. This is useful for
@@ -601,8 +609,9 @@ The recommended Gemini hosted-search path:
 - Checks official municipal, tourism, venue, sports and organiser calendars for significant events
   with exact dates within ten days and about 20 km. Cached event bullets are rechecked against the
   moving date window on every forecast run, without another web request.
-- Reuses the complete context for up to three local days. Incomplete model output permits at most
-  one continuation; category-specific application calls are not made.
+- Reuses the complete context for up to three local days. A transient Gemini server failure is
+  retried once and then treated as non-fatal. Incomplete output permits at most one continuation;
+  a response that skipped Search permits one explicit grounding retry.
 - For Gemini, privately records the provider-selected web queries, grounding source titles/URLs,
   supported response segments and confidence values. If Gemini returns text without grounding
   metadata, IBF fails closed rather than accepting unauditable model knowledge. Public forecasts
@@ -650,7 +659,8 @@ Reasoning levels (forecast text):
 
 LLM cost overrides (optional):
 - OpenRouter's provider-reported `usage.cost` is used when returned by a completed request.
-- Direct providers that return tokens but not a monetary cost use the current built-in price table.
+- Direct providers that return tokens but not a monetary cost use the current built-in price table;
+  Gemini thinking tokens are included at the model's output-token rate.
 - LM Studio is treated as unpriced unless its exact model identifier has an entry in
   `llm_costs.toml`.
 - Brave request cost is a list-price estimate because its response does not return a per-request
@@ -658,14 +668,17 @@ LLM cost overrides (optional):
 - Gemini's API reports token usage but not the final monetary effect of its monthly grounding
   allowance or any later Google Search tool charges. IBF records the returned search-query count
   privately, but the cost summary can only estimate the model-token portion.
+- In a representative run using `gemini-3-flash-preview`, eight distinct context jobs cost about
+  2.7 US cents in model tokens. At a three-day refresh cadence, 20 entities would be roughly
+  US$0.60–0.70 per month while Search remains within Google's included grounding allowance.
 - If `llm_costs.toml` exists in the working directory, IBF uses it to override token-based estimates in logs.
 - Costs are USD per million tokens:
   ```toml
   [[model]]
-  name = "gemini-3.5-flash-lite"
-  input = 0.30
-  cached_input = 0.03
-  output = 2.50
+  name = "gemini-3-flash-preview"
+  input = 0.50
+  cached_input = 0.05
+  output = 3.00
   ```
 
 Cache behavior (technical)
@@ -730,6 +743,9 @@ Troubleshooting (technical)
   network connectivity. Brave requires a new key to be generated for a new subscription. IBF logs
   Brave's structured error code and message. Configure `context_fallback_llm` only if you want the
   existing hosted-search method as a fallback.
+- Gemini context errors: confirm the Gemini project has billing enabled for Google Search grounding.
+  IBF retries one transient server failure or one response that skipped Search, then fails closed
+  and continues the forecast without unauditable context.
 - Other LLM errors: confirm the model prefix matches the provider and that the correct API key is set.
 - Outputs not updating: check `minimum_refresh_minutes` or delete the target HTML.
 - Maps not regenerating: use `--force-maps` or delete `<web_root>/.ibf_maps_hash`.

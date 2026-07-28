@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from ibf import __version__
 from ibf.render import ForecastPage, render_forecast_page
 
 
@@ -24,6 +25,7 @@ def test_forecast_page_renders_llm_and_context_provenance(tmp_path: Path) -> Non
     )
 
     rendered = destination.read_text(encoding="utf-8")
+    assert f">IBF</a> {__version__}, developed by" in rendered
     assert "Forecast language model: Gemini (gemini-3.5-flash-lite)." in rendered
     assert "Translation language model: LM Studio (gemma-4-12b-it)." in rendered
     assert "Context source: Gemini Google Search (gemini-3.5-flash)" in rendered

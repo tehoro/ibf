@@ -9,6 +9,7 @@ import html
 from pathlib import Path
 from typing import Optional
 
+from .. import __version__
 from ..util import ensure_directory, write_text_file
 
 
@@ -107,7 +108,7 @@ def render_forecast_page(page: ForecastPage) -> Path:
         [
             '<p><a href="../index.html">Return to Menu</a></p>',
             f"""<div class="footer-note">
-  Forecast produced using <a href="https://github.com/tehoro/ibf" target="_blank" rel="noopener">IBF</a>, developed by <a href="mailto:neil.gordon@hey.com?subject=Comment%20on%20IBF">Neil Gordon</a>.
+  Forecast produced using <a href="https://github.com/tehoro/ibf" target="_blank" rel="noopener">IBF</a> {html.escape(__version__)}, developed by <a href="mailto:neil.gordon@hey.com?subject=Comment%20on%20IBF">Neil Gordon</a>.
   Data courtesy of <a href="https://open-meteo.com/" target="_blank" rel="noopener">open-meteo.com</a> using {safe_model_label}.
 {footer_ack}{model_provenance}  If you want to interactively request a forecast for a location, visit the <a href="https://chatgpt.com/g/g-4OgZFHOPA-global-ensemble-weather-forecaster" target="_blank" rel="noopener">Global Ensemble Weather Forecaster</a> (ChatGPT account required).
 </div>""",

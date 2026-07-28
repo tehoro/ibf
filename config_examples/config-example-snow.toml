@@ -1,10 +1,10 @@
 # Sample Configration To Test Snow Levels
 
 # Language Models to use
-llm = "gemini-3.5-flash-lite"
+llm = "gemini-3-flash-preview"
 context_provider = "llm-search"  # recommended; Brave is experimental
-context_llm = "gemini-3.5-flash-lite"
-translation_llm = "gemini-3.5-flash-lite"
+context_llm = "gemini-3-flash-preview"
+translation_llm = "gemini-3-flash-preview"
 # Recommended local family: Gemma 4. Copy its exact ID and set lm_studio_base_url.
 # Optional fallbacks: llm_fallback, translation_llm_fallback, context_fallback_llm.
 enable_reasoning = true   # use reasoning or thjnking where supported
@@ -64,4 +64,3 @@ snow_levels = true
 temperature_unit = "fahrenheit"
 precipitation_unit = "in"
 windspeed_unit = "mph"
-
