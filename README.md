@@ -747,4 +747,4 @@ If you use IBF in research, software, or documentation, please cite it using the
 
 A suggested citation (from `CITATION.cff`) is:
 
-> Gordon, Neil. *IBF (Impact-Based Forecast Toolkit): LLM-assisted generation of impact-based weather forecasts* (v0.8.0). 2026. [https://github.com/tehoro/ibf](https://github.com/tehoro/ibf)
+> Gordon, Neil. *IBF (Impact-Based Forecast Toolkit): LLM-assisted generation of impact-based weather forecasts* (v0.8.1). 2026. [https://github.com/tehoro/ibf](https://github.com/tehoro/ibf)
