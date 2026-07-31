@@ -92,7 +92,7 @@ class ForecastConfig(BaseModel):
         area_impact_based: Enable impact-based context for areas.
         location_thin_select: Number of ensemble members to select for locations.
         area_thin_select: Number of ensemble members to select for areas.
-        llm: LLM model identifier (e.g., "gemini-3-flash-preview").
+        llm: LLM model identifier (e.g., "gpt-5.6-luna").
         llm_fallback: Optional model used when the primary forecast model fails.
         lm_studio_base_url: Optional LM Studio server URL for ``lms:`` models.
         context_provider: Impact-context research provider (recommended ``llm-search`` or
@@ -113,8 +113,8 @@ class ForecastConfig(BaseModel):
     location_wordiness: Optional[str] = None
     area_wordiness: Optional[str] = None
     enable_reasoning: bool = True
-    location_reasoning: Optional[str] = None
-    area_reasoning: Optional[str] = None
+    location_reasoning: Optional[str] = "high"
+    area_reasoning: Optional[str] = "high"
     location_impact_based: bool = True
     area_impact_based: bool = True
     location_thin_select: Optional[int] = None

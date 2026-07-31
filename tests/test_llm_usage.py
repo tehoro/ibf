@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from ibf.llm.costs import get_model_cost
 from ibf.llm.usage import log_gemini_usage_and_cost, log_openai_usage_and_cost
 
 
@@ -38,6 +39,27 @@ def test_direct_provider_uses_updated_estimate_when_cost_is_not_returned() -> No
     )
 
     assert cents == pytest.approx(200.0)
+
+
+@pytest.mark.parametrize(
+    ("model_name", "input_price", "cached_price", "output_price"),
+    [
+        ("gpt-5.6-luna", 0.20, 0.02, 1.20),
+        ("gpt-5.6-terra", 2.00, 0.20, 12.00),
+    ],
+)
+def test_gpt_56_models_use_current_standard_prices(
+    model_name: str,
+    input_price: float,
+    cached_price: float,
+    output_price: float,
+) -> None:
+    entry = get_model_cost(model_name)
+
+    assert entry is not None
+    assert entry.input_per_million == input_price
+    assert entry.cached_input_per_million == cached_price
+    assert entry.output_per_million == output_price
 
 
 def test_gemini_estimate_accounts_for_cached_input_tokens() -> None:

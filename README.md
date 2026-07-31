@@ -92,11 +92,12 @@ API Keys (Simple Guidance)
 Minimal setup for most users:
 - GOOGLE_API_KEY (recommended for reliable geocoding and elevation lookups).
 - OPENWEATHERMAP_API_KEY (for official alert feeds in many countries).
-- One model provider: GEMINI_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, or LM Studio.
+- OPENAI_API_KEY (used by the default GPT-5.6 Luna forecast and translation paths).
+- GEMINI_API_KEY (used by the default and recommended impact-context path).
 
 Optional:
 - OPENROUTER_API_KEY (if you want access to many models via OpenRouter).
-- OPENAI_API_KEY (if you want to use OpenAI models directly or use OpenAI hosted web search).
+- LM Studio settings when selecting a local forecast or translation model.
 - BRAVE_SEARCH_API_KEY (only for experimental `context_provider = "brave"`).
 - LM_STUDIO_BASE_URL and, if authentication is enabled, LM_STUDIO_API_KEY.
 
@@ -114,8 +115,12 @@ Alert sources:
 
 Impact context note:
 - IBF only fetches impact context when `location_impact_based` / `area_impact_based` are true (default).
-- `context_provider = "llm-search"` with Gemini is the recommended impact-context path. It uses one
-  primary hosted-search request and reuses the result for up to three local days.
+- `context_provider = "llm-search"` with `gemini-3-flash-preview` is the recommended
+  impact-context path. It uses Gemini's Google Search grounding, verifies that grounding metadata
+  was returned, and reuses the result for up to three local days.
+- Direct OpenAI GPT models, including GPT-5.6 Luna, remain valid `llm-search` choices. They use the
+  OpenAI Responses web-search tool and fail closed if a response was not actually searched, but
+  OpenAI's per-search tool fee usually makes them less economical for routine IBF context.
 - `context_provider = "brave"` is retained as an experimental option. It performs multiple Brave
   searches, then pays the selected local or cloud model to synthesise those results.
 - If impact context cannot be obtained, IBF loudly logs the failure and continues without that
@@ -128,37 +133,49 @@ Impact context note:
 
 Recommended LLM choices
 -----------------------
-For a simple cloud setup, the currently recommended and operationally tested model for all three
-LLM uses (context, forecast, and translation) is:
+For a simple cloud setup, IBF recommends:
 
-- `gemini-3-flash-preview`
+- `gpt-5.6-luna` for forecast writing and translation.
+- `gemini-3-flash-preview` for impact-context research with `context_provider = "llm-search"`.
 
-It has produced reliable Google Search-grounded context in IBF testing and remains inexpensive.
-It is a preview model, so monitor Google's
-[deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations). The stable
-`gemini-3.6-flash` is a supported, more capable but more expensive alternative. Flash-Lite models
-remain useful low-cost choices for forecast writing or translation, but are not the recommended
-context model because they have sometimes returned text without invoking Search.
+Luna's standard token pricing checked on 31 July 2026 is US$0.20 input, US$0.02 cached input, and
+US$1.20 output per million tokens. GPT-5.6 Terra is a more capable alternative at US$2.00,
+US$0.20, and US$12.00 respectively. Luna can also perform grounded context research through the
+OpenAI Responses web-search tool, but OpenAI charges US$10 per 1,000 web-search calls in addition
+to model tokens. See [OpenAI API pricing](https://developers.openai.com/api/docs/pricing).
+
+Gemini 3 Flash Preview costs US$0.50 input and US$3.00 output per million tokens, but paid Gemini
+projects currently receive 5,000 Google Search requests per month shared across Gemini 3.x models
+before US$14 per 1,000 requests applies. At IBF's usual three-day context-cache cadence, that
+included allowance normally outweighs Luna's lower token rates. Google counts each search query
+the model executes, not each IBF context prompt, so high-volume users should compare actual usage.
+This is a preview model and may change or be retired; check
+[Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing) and Google's
+[deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations) before long-term
+deployment.
 
 Suggested config snippet:
 
 ```toml
-llm = "gemini-3-flash-preview"
+llm = "gpt-5.6-luna"
 context_provider = "llm-search"
 context_llm = "gemini-3-flash-preview"
-translation_llm = "gemini-3-flash-preview"
+translation_llm = "gpt-5.6-luna"
+enable_reasoning = true
+location_reasoning = "high"
+area_reasoning = "high"
 ```
 
 For local forecast writing and translation while retaining recommended Gemini context research:
 
 ```toml
 llm = "lms:exact-loaded-gemma-4-model-id"
-llm_fallback = "gemini-3-flash-preview"
+llm_fallback = "gpt-5.6-luna"
 lm_studio_base_url = "http://192.168.1.50:1234/v1"
 context_provider = "llm-search"
 context_llm = "gemini-3-flash-preview"
 translation_llm = "lms:exact-loaded-gemma-4-model-id"
-translation_llm_fallback = "gemini-3-flash-preview"
+translation_llm_fallback = "gpt-5.6-luna"
 ```
 
 For LM Studio, Gemma 4 is the recommended local model family. Good candidates are Gemma 4 12B
@@ -220,7 +237,7 @@ Minimal example:
 
 ```toml
 web_root = "./outputs/example-site"
-llm = "gemini-3-flash-preview"
+llm = "gpt-5.6-luna"
 context_provider = "llm-search"
 context_llm = "gemini-3-flash-preview"
 
@@ -337,8 +354,8 @@ Environment variables:
 | `GOOGLE_API_KEY` | Geocoding and optional elevation lookup. Also used for reverse geocoding when resolving alert country codes. | Recommended for reliable geocoding/elevation. |
 | `OPENWEATHERMAP_API_KEY` | Alerts (OpenWeatherMap One Call for non‑US/NZ) and fallback reverse geocoding. | Required for non‑US/NZ alerts, otherwise optional. |
 | `OPENROUTER_API_KEY` | Any model name with an `or:` prefix. | Required for OpenRouter usage. |
-| `OPENAI_API_KEY` | OpenAI models such as `gpt-4o-mini` or `gpt-4o-latest`. | Required if using OpenAI models. |
-| `GEMINI_API_KEY` | Direct Gemini SDK usage (`gemini-*` or `google/gemini-*`). | Required if using direct Gemini models. |
+| `OPENAI_API_KEY` | OpenAI models such as the default forecast/translation model `gpt-5.6-luna`. | Required for the recommended cloud setup. |
+| `GEMINI_API_KEY` | Direct Gemini SDK usage (`gemini-*` or `google/gemini-*`), including the default context model. | Required for the recommended cloud setup. |
 | `BRAVE_SEARCH_API_KEY` | Experimental Brave LLM Context evidence retrieval. | Required when `context_provider = "brave"`. |
 | `LM_STUDIO_BASE_URL` | Optional environment alternative to the TOML `lm_studio_base_url`. | Optional; defaults to `http://localhost:1234/v1`. |
 | `LM_STUDIO_API_KEY` | LM Studio API token. | Only required when authentication is enabled on the LM Studio server. |
@@ -368,8 +385,17 @@ OpenWeatherMap API key (alerts)
 3) Ensure the One Call API is enabled for your account (alerts come from One Call).
 4) Paste the key into your .env as `OPENWEATHERMAP_API_KEY=...`.
 
-Gemini API key (Google AI Studio; recommended for impact context)
------------------------------------------------------------------
+OpenAI API key (default forecast and translation LLM)
+-----------------------------------------------------
+
+1) Go to <https://platform.openai.com/api-keys> and sign in.
+2) Create an API key for the project that will run IBF.
+3) Ensure the project has billing and access to the selected GPT model. Access to the web-search
+   tool is also required if you explicitly select a GPT model for impact context.
+4) Paste the key into your `.env` as `OPENAI_API_KEY=...`.
+
+Gemini API key (Google AI Studio; recommended context)
+------------------------------------------------------
 1) Go to <https://aistudio.google.com/> and sign in.
 2) Click "Get API key" and create a new key (choose or create a project if prompted).
 3) Enable billing for the project when using Google Search grounding. Google currently makes
@@ -468,8 +494,8 @@ Global settings:
 | `translation_llm_fallback` | Optional model tried once if translation fails. | May use a different provider. |
 | `translation_language` | Default translation language. | English output is always produced; translations are additional. |
 | `enable_reasoning` | Enable model reasoning when supported. | Boolean; defaults to true. |
-| `location_reasoning` | Reasoning level for location forecasts. | `off`/`minimal`, `low`, `medium`, `high`, or `auto`. |
-| `area_reasoning` | Reasoning level for area forecasts. | Same values as above. |
+| `location_reasoning` | Reasoning level for location forecasts. | `off`/`minimal`, `low`, `medium`, `high`, or `auto`; defaults to `high`. |
+| `area_reasoning` | Reasoning level for area forecasts. | Same values as above; defaults to `high`. |
 | `location_forecast_days` | Days of forecast for locations. | Defaults to 4 when unset. |
 | `area_forecast_days` | Days of forecast for areas. | Defaults to location days or 4. |
 | `location_wordiness` | `brief`, `normal`, or `detailed`. | Default is `normal`. |
@@ -564,12 +590,13 @@ Resolution order (highest to lowest):
 1) Explicit override (e.g., `translation_llm` for translation calls)
 2) `llm` from config
 3) `IBF_DEFAULT_LLM` environment variable
-4) Default fallback (`gemini-3-flash-preview`)
+4) Default fallback (`gpt-5.6-luna`)
 
 Provider naming:
 - LM Studio: `lms:exact-model-id` (uses `lm_studio_base_url`; optional `LM_STUDIO_API_KEY`)
 - OpenRouter: `or:provider/model` (requires `OPENROUTER_API_KEY`)
-- OpenAI: `gpt-4o-mini`, `gpt-4o-latest` (requires `OPENAI_API_KEY`)
+- OpenAI: `gpt-5.6-luna`, `gpt-5.6-terra`, or another `gpt-*`/`o*` model
+  (requires `OPENAI_API_KEY`)
 - Gemini direct: `gemini-3-flash-preview`, `gemini-3.6-flash`, or the equivalent
   `google/gemini-*` form (requires `GEMINI_API_KEY`)
 
@@ -591,10 +618,10 @@ The research provider and the model are separate choices:
 
 | `context_provider` | Retrieval | Allowed `context_llm` | Notes |
 | --- | --- | --- | --- |
-| `llm-search` | Gemini Google Search or OpenAI web search tool | Direct Gemini or OpenAI | **Recommended.** One primary context job is reused for up to three local days; the hosted provider decides its searches. |
+| `llm-search` | Gemini Google Search or OpenAI web search tool | Direct Gemini or OpenAI | **Recommended with `gemini-3-flash-preview`.** One primary context job is reused for up to three local days; the hosted provider decides its searches. |
 | `brave` | IBF-controlled Brave LLM Context requests | LM Studio, OpenRouter, Gemini, or OpenAI | **Experimental.** Brave returns evidence and the separately selected model synthesises it, adding cost and complexity. |
 
-The recommended Gemini hosted-search path:
+The recommended hosted-search path:
 
 - Supplies the canonical geocoded locality, district/region, country and representative places so
   near-name results from another place are not silently substituted.
@@ -648,26 +675,38 @@ The experimental Brave provider is staged and bounded:
 
 `context_fallback_llm` is intentionally different from a synthesis-model fallback. If the Brave
 path fails, it makes one attempt through the existing hosted-search path, so it must name a direct
-Gemini or OpenAI model. Leave it unset to fail closed and continue the forecast without researched
-context.
+Gemini or OpenAI model. `gemini-3-flash-preview` is recommended for this fallback for the same
+grounding-cost reason as the normal hosted-search path. Leave it unset to fail closed and continue
+the forecast without researched context.
 
 Reasoning levels (forecast text):
-- OpenAI reasoning models (direct or via OpenRouter) use `reasoning.effort` with `low`/`medium`/`high`; `minimal` maps to `low`, and `off` disables the reasoning payload.
+- Direct GPT-5 OpenAI Chat Completions calls use `reasoning_effort`; OpenRouter uses
+  `reasoning.effort`. `minimal` maps to `low`, and `off` disables the reasoning payload.
 - OpenRouter supports reasoning for select models (currently OpenAI o1/o3/GPT-5 and Grok). Other OpenRouter models ignore the reasoning settings.
 - Current Gemini 3 models use `thinkingLevel` with `minimal`/`low`/`medium`/`high`; `off` maps to `minimal` (Gemini does not fully disable thinking).
 - `auto` lets the provider choose its default (dynamic) behavior.
+- `enable_reasoning` is the master switch. When it is true and no location/area level is supplied,
+  IBF uses `high`; the two separate level fields remain available for explicit tuning.
 
 LLM cost overrides (optional):
 - OpenRouter's provider-reported `usage.cost` is used when returned by a completed request.
 - Direct providers that return tokens but not a monetary cost use the current built-in price table;
   Gemini thinking tokens are included at the model's output-token rate.
+- GPT-5.6 Luna is estimated at US$0.20 input / US$0.02 cached input / US$1.20 output
+  per million tokens; Terra is US$2.00 / US$0.20 / US$12.00.
+- OpenAI web search costs US$10 per 1,000 calls plus search-content tokens at the model rate.
+  These tool fees are separate from model-token charges and are not currently included in IBF's
+  token-based cost summary.
 - LM Studio is treated as unpriced unless its exact model identifier has an entry in
   `llm_costs.toml`.
 - Brave request cost is a list-price estimate because its response does not return a per-request
   monetary amount. At the price checked for 0.8.0, each new request is estimated at 0.5 US cents.
-- Gemini's API reports token usage but not the final monetary effect of its monthly grounding
-  allowance or any later Google Search tool charges. IBF records the returned search-query count
-  privately, but the cost summary can only estimate the model-token portion.
+- Paid Gemini projects currently include 5,000 Google Search requests per month, shared across all
+  Gemini 3.x models, then charge US$14 per 1,000 requests. Gemini may execute more than one search
+  query for a single IBF context prompt.
+- Gemini's API reports token usage but not the final monetary effect of that monthly grounding
+  allowance or later Google Search charges. IBF records the returned search-query count privately,
+  but the cost summary can only estimate the model-token portion.
 - In a representative run using `gemini-3-flash-preview`, eight distinct context jobs cost about
   2.7 US cents in model tokens. At a three-day refresh cadence, 20 entities would be roughly
   US$0.60–0.70 per month while Search remains within Google's included grounding allowance.
@@ -675,10 +714,10 @@ LLM cost overrides (optional):
 - Costs are USD per million tokens:
   ```toml
   [[model]]
-  name = "gemini-3-flash-preview"
-  input = 0.50
-  cached_input = 0.05
-  output = 3.00
+  name = "gpt-5.6-luna"
+  input = 0.20
+  cached_input = 0.02
+  output = 1.20
   ```
 
 Cache behavior (technical)

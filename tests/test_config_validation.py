@@ -65,6 +65,66 @@ def test_rejects_openrouter_context_llm(tmp_path: Path) -> None:
     assert "context_llm" in str(exc.value)
 
 
+@pytest.mark.parametrize("context_llm", ["gpt-5.6-luna", "gpt-5.6-terra"])
+def test_llm_search_accepts_openai_gpt_context_models(
+    tmp_path: Path,
+    context_llm: str,
+) -> None:
+    path = _write_config(
+        tmp_path,
+        f'''\
+        context_provider = "llm-search"
+        context_llm = "{context_llm}"
+
+        [[location]]
+        name = "Test City"
+        ''',
+    )
+
+    config = load_config(path)
+
+    assert config.context_provider == "llm-search"
+    assert config.context_llm == context_llm
+
+
+def test_reasoning_defaults_to_high_with_separate_master_switch(tmp_path: Path) -> None:
+    config = load_config(
+        _write_config(
+            tmp_path,
+            """
+            enable_reasoning = true
+
+            [[location]]
+            name = "Test City"
+            """,
+        )
+    )
+
+    assert config.enable_reasoning is True
+    assert config.location_reasoning == "high"
+    assert config.area_reasoning == "high"
+
+
+def test_explicit_legacy_reasoning_levels_are_preserved(tmp_path: Path) -> None:
+    config = load_config(
+        _write_config(
+            tmp_path,
+            """
+            enable_reasoning = false
+            location_reasoning = "low"
+            area_reasoning = "auto"
+
+            [[location]]
+            name = "Test City"
+            """,
+        )
+    )
+
+    assert config.enable_reasoning is False
+    assert config.location_reasoning == "low"
+    assert config.area_reasoning == "auto"
+
+
 @pytest.mark.parametrize("context_llm", ["or:openai/gpt-5-mini", "lms:local-context"])
 def test_brave_context_accepts_any_supported_synthesis_model(
     tmp_path: Path,

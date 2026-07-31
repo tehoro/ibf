@@ -35,6 +35,7 @@ from ..api import (
     ImpactContext,
     resolve_model_spec,
 )
+from ..api.impact import DEFAULT_CONTEXT_LLM
 from ..api.thin import select_members
 from ..render import ForecastPage, render_forecast_page
 from ..util import ensure_directory, safe_unlink, slugify, utc_now, write_text_file
@@ -175,15 +176,15 @@ def _log_cost_summary() -> None:
         total_forecast += entry.forecast_cents
         total_translation += entry.translation_cents
         lines.append(
-            f"{_format_label(label, label_width)} {entry.context_cents:>12.1f} {entry.forecast_cents:>12.1f} {entry.translation_cents:>12.1f}"
+            f"{_format_label(label, label_width)} {entry.context_cents:>12.2f} {entry.forecast_cents:>12.2f} {entry.translation_cents:>12.2f}"
         )
 
     lines.append("-" * len(header))
     lines.append(
-        f"{'TOTAL':<{label_width}} {total_context:>12.1f} {total_forecast:>12.1f} {total_translation:>12.1f}"
+        f"{'TOTAL':<{label_width}} {total_context:>12.2f} {total_forecast:>12.2f} {total_translation:>12.2f}"
     )
     grand_total = total_context + total_forecast + total_translation
-    lines.append(f"{'Grand total':<{label_width}} {grand_total:>12.1f}")
+    lines.append(f"{'Grand total':<{label_width}} {grand_total:>12.2f}")
 
     logger.info("LLM cost summary (USD cents):\n%s", "\n".join(lines))
 
@@ -326,7 +327,7 @@ def _process_location(location: LocationConfig, config: ForecastConfig, display_
     ibf_context = ""
     impact_context = None
     if impact_enabled:
-        context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
+        context_llm = (getattr(config, "context_llm", None) or DEFAULT_CONTEXT_LLM).strip()
         impact_context = fetch_impact_context(
             name,
             context_type="location",
@@ -467,7 +468,7 @@ def _process_area(area: AreaConfig, config: ForecastConfig) -> None:
     ibf_context = ""
     impact_context = None
     if impact_enabled:
-        context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
+        context_llm = (getattr(config, "context_llm", None) or DEFAULT_CONTEXT_LLM).strip()
         impact_context = fetch_impact_context(
             area.name,
             context_type="area",
@@ -615,7 +616,7 @@ def _process_regional_area(area: AreaConfig, config: ForecastConfig) -> None:
     ibf_context = ""
     impact_context = None
     if impact_enabled:
-        context_llm = (getattr(config, "context_llm", None) or "gemini-3-flash-preview").strip()
+        context_llm = (getattr(config, "context_llm", None) or DEFAULT_CONTEXT_LLM).strip()
         impact_context = fetch_impact_context(
             area.name,
             context_type="regional",
@@ -2260,7 +2261,7 @@ def _reasoning_payload(enabled: bool, level: Optional[str]) -> Optional[dict]:
     effort, max_tokens, disable_override = _parse_reasoning_setting(level)
     if disable_override:
         return None
-    resolved_effort = "low" if effort == "minimal" else (effort or "medium")
+    resolved_effort = "low" if effort == "minimal" else (effort or "high")
     payload: dict[str, object] = {"reasoning": {"effort": resolved_effort}}
     if max_tokens:
         payload["max_output_tokens"] = max_tokens
@@ -2312,8 +2313,10 @@ def _gemini_thinking_level(enabled: bool, level: Optional[str]) -> Optional[str]
     effort, _, disable_override = _parse_reasoning_setting(level)
     if not enabled or disable_override:
         return "minimal"
-    if not effort or effort == "auto":
+    if effort == "auto":
         return None
+    if not effort:
+        return "high"
     if effort in {"minimal", "low", "medium", "high"}:
         return effort
     return None

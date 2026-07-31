@@ -60,7 +60,7 @@ class ModelCost:
 
 # NOTE: Keep this mapping simple so users can edit it without digging through code.
 MODEL_COSTS: Dict[str, ModelCost] = {
-    # Pricing checked 27 July 2026 against official provider pricing pages.
+    # Pricing checked 31 July 2026 against official provider pricing pages.
     "gpt-4o-mini": ModelCost(
         input_per_million=0.15,
         cached_input_per_million=0.075,
@@ -85,6 +85,16 @@ MODEL_COSTS: Dict[str, ModelCost] = {
         input_per_million=0.25,
         cached_input_per_million=0.025,
         output_per_million=2.00,
+    ),
+    "gpt-5.6-luna": ModelCost(
+        input_per_million=0.20,
+        cached_input_per_million=0.02,
+        output_per_million=1.20,
+    ),
+    "gpt-5.6-terra": ModelCost(
+        input_per_million=2.00,
+        cached_input_per_million=0.20,
+        output_per_million=12.00,
     ),
     "gemini-2.5-flash": ModelCost(
         input_per_million=0.30,

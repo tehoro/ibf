@@ -2,7 +2,7 @@
 LLM utilities: prompt generation, formatting, and client wrappers.
 """
 
-from .settings import LLMSettings, resolve_llm_settings
+from .settings import DEFAULT_LLM, LLMSettings, resolve_llm_settings
 from .client import generate_forecast_text, consume_last_cost_cents
 from .formatter import (
     format_location_dataset,
@@ -22,6 +22,7 @@ from .prompts import (
 
 __all__ = [
     "LLMSettings",
+    "DEFAULT_LLM",
     "resolve_llm_settings",
     "generate_forecast_text",
     "consume_last_cost_cents",
@@ -37,4 +38,3 @@ __all__ = [
     "build_translation_system_prompt",
     "build_translation_user_prompt",
 ]
-

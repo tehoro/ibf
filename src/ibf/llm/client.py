@@ -81,17 +81,25 @@ def _call_openai_compatible(
     if settings.timeout_seconds is not None:
         client_kwargs["timeout"] = settings.timeout_seconds
     client = OpenAI(**client_kwargs)
-    request_kwargs = {
+    request_kwargs: dict[str, Any] = {
         "model": settings.model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt},
         ],
-        "temperature": settings.temperature,
-        "max_tokens": settings.max_tokens,
         "stream": False,
     }
-    if reasoning:
+    if settings.provider == "openai" and _uses_gpt5_chat_parameters(settings.model):
+        request_kwargs["max_completion_tokens"] = settings.max_tokens
+        effort = _reasoning_effort(reasoning)
+        if effort:
+            request_kwargs["reasoning_effort"] = effort
+    else:
+        request_kwargs["temperature"] = settings.temperature
+        request_kwargs["max_tokens"] = settings.max_tokens
+    if reasoning and not (
+        settings.provider == "openai" and _uses_gpt5_chat_parameters(settings.model)
+    ):
         request_kwargs["extra_body"] = reasoning
     response = client.chat.completions.create(**request_kwargs)
     cost_cents = log_openai_usage_and_cost(
@@ -136,6 +144,22 @@ def _call_openai_compatible(
             getattr(choice, "finish_reason", None),
         )
     return cleaned
+
+
+def _uses_gpt5_chat_parameters(model_name: str) -> bool:
+    """Return whether direct OpenAI Chat Completions needs GPT-5 parameters."""
+    return (model_name or "").strip().lower().startswith("gpt-5")
+
+
+def _reasoning_effort(reasoning: Optional[dict]) -> Optional[str]:
+    """Extract an effort value from IBF's provider-neutral reasoning payload."""
+    if not reasoning:
+        return None
+    nested = reasoning.get("reasoning")
+    if not isinstance(nested, dict):
+        return None
+    effort = nested.get("effort")
+    return str(effort) if effort else None
 
 
 @lru_cache(maxsize=32)

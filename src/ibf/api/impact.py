@@ -36,9 +36,9 @@ MAX_CONTEXT_AGE_DAYS = 3
 EVENT_LOOKAHEAD_DAYS = 10
 HOSTED_RESEARCH_VERSION = 2
 DEFAULT_CONTEXT_LLM = "gemini-3-flash-preview"
-# Before 0.8, this model's cache filenames omitted the model suffix. Preserve
-# that convention now that the proven model is again the recommended default.
-LEGACY_UNSUFFIXED_CONTEXT_LLM = "gemini-3-flash-preview"
+# Before 0.8, the default context model's cache filenames omitted the model
+# suffix. Preserve that convention so existing Gemini context remains reusable.
+LEGACY_UNSUFFIXED_CONTEXT_LLM = DEFAULT_CONTEXT_LLM
 CONTEXT_SECTION_HEADINGS = [
     "Existing Vulnerabilities",
     "Weather Impact Thresholds",
@@ -1325,6 +1325,13 @@ def _generate_context_openai_web_search(
             label="Impact context LLM usage",
             provider="openai",
         )
+        if not _openai_response_used_web_search(response):
+            logger.error(
+                "OpenAI returned impact context for %s without a web_search_call; "
+                "discarding the ungrounded response.",
+                name,
+            )
+            return "", cost_cents
         context_text = _extract_response_text(response)
         return context_text, cost_cents
     except (OpenAIError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
@@ -1335,6 +1342,15 @@ def _generate_context_openai_web_search(
             exc,
         )
         return "", 0.0
+
+
+def _openai_response_used_web_search(response: Any) -> bool:
+    """Return True only when a Responses result records an actual web search call."""
+    for item in getattr(response, "output", None) or []:
+        item_type = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
+        if item_type == "web_search_call":
+            return True
+    return False
 
 
 def _generate_context_gemini_search(

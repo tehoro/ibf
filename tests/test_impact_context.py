@@ -376,6 +376,56 @@ def test_openai_web_search_failure_does_not_use_ungrounded_chat(monkeypatch) -> 
     assert cost == 0.0
 
 
+def test_luna_context_uses_responses_web_search(monkeypatch) -> None:
+    captured = {}
+    response = SimpleNamespace(
+        output_text=_valid_synthesis(),
+        output=[SimpleNamespace(type="web_search_call", status="completed")],
+        usage=None,
+    )
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return response
+
+    fake_client = SimpleNamespace(responses=SimpleNamespace(create=create))
+    monkeypatch.setattr("ibf.api.impact.OpenAI", lambda **kwargs: fake_client)
+
+    text, cost = _generate_context_openai_web_search(
+        "prompt",
+        model_name="gpt-5.6-luna",
+        api_key="key",
+        name="Otaki",
+    )
+
+    assert text == _valid_synthesis()
+    assert cost == 0.0
+    assert captured["model"] == "gpt-5.6-luna"
+    assert captured["tools"] == [{"type": "web_search"}]
+
+
+def test_openai_context_discards_response_without_search_call(monkeypatch) -> None:
+    response = SimpleNamespace(
+        output_text=_valid_synthesis(),
+        output=[SimpleNamespace(type="message")],
+        usage=None,
+    )
+    fake_client = SimpleNamespace(
+        responses=SimpleNamespace(create=lambda **kwargs: response)
+    )
+    monkeypatch.setattr("ibf.api.impact.OpenAI", lambda **kwargs: fake_client)
+
+    text, cost = _generate_context_openai_web_search(
+        "prompt",
+        model_name="gpt-5.6-luna",
+        api_key="key",
+        name="Otaki",
+    )
+
+    assert text == ""
+    assert cost == 0.0
+
+
 def test_hosted_search_regional_prompt_includes_representative_places(monkeypatch) -> None:
     captured = {}
 
@@ -693,14 +743,14 @@ def test_context_cache_provenance_round_trips(tmp_path: Path) -> None:
     assert generated_at == "2026-07-28T08:30:00+12:00"
 
 
-def test_restored_default_context_model_shares_preview_cache_key(
+def test_gemini_default_reuses_legacy_cache_but_luna_does_not(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr("ibf.api.impact.CACHE_DIR", tmp_path)
     date = datetime(2026, 7, 26, tzinfo=timezone.utc)
 
-    current = _cache_path("location", "Otaki", 4, "UTC", date_override=date)
-    legacy = _cache_path(
+    default = _cache_path("location", "Otaki", 4, "UTC", date_override=date)
+    legacy_gemini = _cache_path(
         "location",
         "Otaki",
         4,
@@ -708,10 +758,19 @@ def test_restored_default_context_model_shares_preview_cache_key(
         date_override=date,
         context_llm="gemini-3-flash-preview",
     )
+    luna = _cache_path(
+        "location",
+        "Otaki",
+        4,
+        "UTC",
+        date_override=date,
+        context_llm="gpt-5.6-luna",
+    )
 
-    assert "__gemini" not in current.name
-    assert "__gemini" not in legacy.name
-    assert current == legacy
+    assert default == legacy_gemini
+    assert "__gemini" not in default.name
+    assert "__gpt_56_luna" in luna.name
+    assert luna != default
 
 
 def test_brave_failure_can_fall_back_to_explicit_hosted_search_model(monkeypatch, tmp_path) -> None:
