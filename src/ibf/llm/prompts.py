@@ -381,6 +381,17 @@ Rules:
 - Output only the translated forecast.
 """
 
+_FORECAST_WORDING_RULES = """
+#FINAL METEOROLOGICAL WORDING CHECK
+- Keep wind wording concise and meteorological. State direction, prevailing speed or range, useful gusts, and meaningful timing directly. Prefer constructions such as "Easterlies 10 to 20 {wind_unit}, gusting 40 {wind_unit}" or "Southerlies strengthen to 30 {wind_unit} in the afternoon", adapting the values to the data.
+- Do not pad wind sentences with phrases such as "winds will be present" or "winds will persist". Let the values convey wind strength; avoid dramatic or vague phrases such as "powerful gusts", "significant gusts", "heavy gusts", or "a major factor". Write "gusts up to 50 {wind_unit}" or "gusting 50 {wind_unit}", never "gusts reaching up to" or "gusts hitting up to". If duration matters, attach it directly: "Strong southerlies 40 to 50 {wind_unit}, gusting 110 {wind_unit} through the afternoon."
+- Keep timing concise. Combine adjacent periods when the weather does not meaningfully change, and do not pair nested labels such as "evening and late evening" for the same conditions. Summarise the prevailing sky and wind instead of narrating every minor hourly fluctuation or direction change.
+- Use one clear sky description rather than stacking synonyms such as "mostly clear or mainly clear" or "bright and clear with sunny skies". Use "sunny" or "bright" only for daylight; use "clear" for evening or night-time conditions.
+- Treat a snow level as the lower altitude boundary for snow. For example, "snow down to about 600 metres" means snow may fall on terrain around 600 metres and above; it never means snow below 600 metres or on "lower ground". Prefer wording such as "snow on hills above 600 metres" or "snow lowering to 600 metres".
+- When several snow levels are supplied, describe how the level changes with time, for example "the snow level lowers from 1600 to 800 metres". Never describe snow as confined to an elevation band such as "snow between 800 and 1600 metres".
+- Before returning the forecast, check that future full-day headings contain only the supplied day name and date, never a relative label such as "Tomorrow". Do not use clock times or "overnight" except when reproducing official alert wording. Retain a supplied partial-period label such as "Rest of Today".
+"""
+
 
 def build_spot_system_prompt(units: UnitInstructions, *, model_kind: str = "ensemble") -> str:
     """
@@ -412,13 +423,14 @@ def build_spot_system_prompt(units: UnitInstructions, *, model_kind: str = "ense
 
     conversion_text = "\n".join(conversion_lines)
     template = SYSTEM_PROMPT_SPOT_ENSEMBLE if (model_kind or "ensemble") == "ensemble" else SYSTEM_PROMPT_SPOT_DETERMINISTIC
-    return template.format(
+    prompt = template.format(
         temperature_unit_instruction=_format_unit_label(units.temperature_primary, "temperature"),
         rainfall_unit_instruction=_format_unit_label(units.precipitation_primary, "precipitation"),
         snowfall_unit_instruction=_format_unit_label(units.snowfall_primary, "snowfall"),
         windspeed_unit_instruction=_format_unit_label(units.windspeed_primary, "wind"),
         conversion_instructions=conversion_text,
     )
+    return _append_forecast_wording_rules(prompt, units)
 
 
 def build_area_system_prompt(units: UnitInstructions, *, model_kind: str = "ensemble") -> str:
@@ -434,13 +446,14 @@ def build_area_system_prompt(units: UnitInstructions, *, model_kind: str = "ense
         conversion_lines.append("If provided, include the secondary wind unit in brackets. Round wind speeds to the nearest whole number.")
     conversion_text = "\n".join(conversion_lines)
     template = SYSTEM_PROMPT_AREA if (model_kind or "ensemble") == "ensemble" else SYSTEM_PROMPT_AREA_DETERMINISTIC
-    return template.format(
+    prompt = template.format(
         temperature_unit_instruction=_format_unit_label(units.temperature_primary, "temperature"),
         rainfall_unit_instruction=_format_unit_label(units.precipitation_primary, "precipitation"),
         snowfall_unit_instruction=_format_unit_label(units.snowfall_primary, "snowfall"),
         windspeed_unit_instruction=_format_unit_label(units.windspeed_primary, "wind"),
         conversion_instructions=conversion_text,
     )
+    return _append_forecast_wording_rules(prompt, units)
 
 
 def build_regional_system_prompt(units: UnitInstructions, *, model_kind: str = "ensemble") -> str:
@@ -456,13 +469,21 @@ def build_regional_system_prompt(units: UnitInstructions, *, model_kind: str = "
         conversion_lines.append("If provided, include the secondary wind unit in brackets. Round wind speeds to the nearest whole number.")
     conversion_text = "\n".join(conversion_lines)
     template = SYSTEM_PROMPT_REGIONAL if (model_kind or "ensemble") == "ensemble" else SYSTEM_PROMPT_REGIONAL_DETERMINISTIC
-    return template.format(
+    prompt = template.format(
         temperature_unit_instruction=_format_unit_label(units.temperature_primary, "temperature"),
         rainfall_unit_instruction=_format_unit_label(units.precipitation_primary, "precipitation"),
         snowfall_unit_instruction=_format_unit_label(units.snowfall_primary, "snowfall"),
         windspeed_unit_instruction=_format_unit_label(units.windspeed_primary, "wind"),
         conversion_instructions=conversion_text,
     )
+    return _append_forecast_wording_rules(prompt, units)
+
+
+def _append_forecast_wording_rules(prompt: str, units: UnitInstructions) -> str:
+    """Append shared meteorological language rules to forecast prompts."""
+    wind_unit = _format_unit_label(units.windspeed_primary, "wind")
+    wording_rules = _FORECAST_WORDING_RULES.format(wind_unit=wind_unit)
+    return f"{prompt.rstrip()}\n\n{wording_rules.strip()}\n"
 
 
 def _format_unit_label(unit: str, unit_type: str) -> str:
@@ -517,7 +538,11 @@ def build_spot_user_prompt(
 ) -> str:
     """Build the user prompt sent alongside the dataset for a single location."""
     detail_map = {
-        "detailed": "Write a very detailed forecast for every day provided.",
+        "detailed": (
+            "Write a detailed forecast for every day, covering meaningful weather evolution, precipitation timing "
+            "and totals, important wind changes, temperatures, snow levels, and supported impacts. Combine adjacent "
+            "periods when conditions are similar; do not narrate every hourly fluctuation or repeat the same information."
+        ),
         "brief": "Write an extremely brief forecast with just the essential details.",
     }
     prompt_detail = detail_map.get(wordiness or "normal", "Write a succinct forecast.")
@@ -566,7 +591,11 @@ def build_area_user_prompt(
 ) -> str:
     """Compose the user prompt that instructs the LLM to write an area forecast."""
     detail_map = {
-        "detailed": "Write an extremely detailed area forecast summarizing all representative locations.",
+        "detailed": (
+            "Write a detailed area forecast covering meaningful weather evolution, important geographical contrasts, "
+            "precipitation, winds, temperatures, snow levels, and supported impacts. Combine adjacent periods and "
+            "similar locations when conditions are alike; do not enumerate every hourly fluctuation."
+        ),
         "brief": "Write a very concise area forecast focusing on the essentials.",
     }
     prompt_detail = detail_map.get(wordiness or "normal", "Write a succinct, authoritative area forecast.")
@@ -602,7 +631,11 @@ def build_regional_user_prompt(
 ) -> str:
     """Compose the user prompt for regional forecasts with sub-regional breakdowns."""
     detail_map = {
-        "detailed": "Write an extremely detailed regional breakdown referencing every representative sub-region.",
+        "detailed": (
+            "Write a detailed regional breakdown covering meaningful weather evolution, important sub-regional "
+            "contrasts, precipitation, winds, temperatures, snow levels, and supported impacts. Combine adjacent "
+            "periods when conditions are similar; do not narrate every hourly fluctuation."
+        ),
         "brief": "Write a concise regional breakdown highlighting only the key impacts.",
     }
     prompt_detail = detail_map.get(wordiness or "normal", "Write a succinct regional breakdown.")

@@ -5,8 +5,8 @@ authors:
   - family-names: Gordon
     given-names: Neil
     orcid: "https://orcid.org/0000-0002-7664-9434"
-version: "0.8.6"
-date-released: "2026-07-31"
+version: "0.8.7"
+date-released: "2026-08-02"
 repository-code: "https://github.com/tehoro/ibf"
 url: "https://github.com/tehoro/ibf"
 license: Apache-2.0
@@ -35,6 +35,6 @@ preferred-citation:
       orcid: "https://orcid.org/0000-0002-7664-9434"
   title: "IBF (Impact-Based Forecast Toolkit): LLM-assisted generation of impact-based weather forecasts"
   year: 2026
-  version: "0.8.6"
+  version: "0.8.7"
   url: "https://github.com/tehoro/ibf"
   license: Apache-2.0
