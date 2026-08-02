@@ -59,6 +59,11 @@ from ..llm import (
     build_regional_user_prompt,
     build_translation_system_prompt,
     build_translation_user_prompt,
+    build_spot_correction_prompts,
+    correction_preserves_other_numeric_facts,
+    format_spot_output_contract,
+    parse_spot_output_requirements,
+    validate_spot_forecast,
 )
 from ..llm.prompts import UnitInstructions
 
@@ -781,7 +786,7 @@ def _generate_location_text_with_adaptive_thinning(
                 _estimate_prompt_tokens(system_prompt, prompt),
             )
         try:
-            return _generate_text_with_fallback(
+            generated, settings, forecast_cost = _generate_text_with_fallback(
                 config,
                 prompt,
                 system_prompt,
@@ -793,6 +798,70 @@ def _generate_location_text_with_adaptive_thinning(
                 reasoning_enabled=_as_bool(config.enable_reasoning),
                 reasoning_level=getattr(config, "location_reasoning", None),
             )
+            requirements = parse_spot_output_requirements(
+                formatted_dataset,
+                model_kind=payload.model_kind,
+                external_context="\n".join(
+                    value
+                    for value in (location.extra_context or "", ibf_context or "")
+                    if value
+                ),
+            )
+            violations = validate_spot_forecast(
+                generated,
+                requirements,
+                alerts_present=bool(payload.alerts),
+            )
+            if not violations:
+                return generated, settings, forecast_cost
+
+            logger.warning(
+                "Forecast compliance check failed for '%s': %s. Requesting one bounded correction.",
+                payload.name,
+                "; ".join(violations),
+            )
+            contract = format_spot_output_contract(requirements)
+            correction_system, correction_prompt = build_spot_correction_prompts(
+                generated,
+                contract,
+                violations,
+            )
+            correction_settings = replace(
+                settings,
+                temperature=0.0,
+                max_tokens=min(settings.max_tokens, 2000),
+            )
+            _snapshot_prompt(
+                "forecast-correction",
+                payload.name,
+                correction_settings.model,
+                correction_system,
+                correction_prompt,
+            )
+            corrected = generate_forecast_text(
+                correction_prompt,
+                correction_system,
+                correction_settings,
+                reasoning=None,
+                thinking_level=None,
+            )
+            forecast_cost += consume_last_cost_cents()
+            if not corrected:
+                raise RuntimeError("the forecast correction returned no usable text")
+            if not correction_preserves_other_numeric_facts(generated, corrected):
+                raise RuntimeError("the forecast correction changed numeric weather facts")
+            remaining = validate_spot_forecast(
+                corrected,
+                requirements,
+                alerts_present=bool(payload.alerts),
+            )
+            if remaining:
+                raise RuntimeError(
+                    "the forecast correction still violates the output contract: "
+                    + "; ".join(remaining)
+                )
+            logger.info("Forecast compliance correction succeeded for '%s'.", payload.name)
+            return corrected, settings, forecast_cost
         except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
             has_smaller_retry = attempt_index + 1 < len(member_limits)
             if not _is_context_window_error(exc) or not has_smaller_retry:

@@ -291,6 +291,7 @@ def test_location_context_overflow_retries_with_half_the_scenarios(
         return "Reduced forecast", settings, 0.0
 
     monkeypatch.setattr(executor, "_generate_text_with_fallback", fake_generate)
+    monkeypatch.setattr(executor, "validate_spot_forecast", lambda *args, **kwargs: [])
 
     with caplog.at_level("WARNING"):
         text, used_settings, cost = executor._generate_location_text_with_adaptive_thinning(

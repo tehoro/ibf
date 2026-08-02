@@ -9,6 +9,13 @@ from .formatter import (
     format_area_dataset,
     determine_current_season,
 )
+from .compliance import (
+    build_spot_correction_prompts,
+    correction_preserves_other_numeric_facts,
+    format_spot_output_contract,
+    parse_spot_output_requirements,
+    validate_spot_forecast,
+)
 from .prompts import (
     build_spot_system_prompt,
     build_spot_user_prompt,
@@ -29,6 +36,11 @@ __all__ = [
     "format_location_dataset",
     "format_area_dataset",
     "determine_current_season",
+    "build_spot_correction_prompts",
+    "correction_preserves_other_numeric_facts",
+    "format_spot_output_contract",
+    "parse_spot_output_requirements",
+    "validate_spot_forecast",
     "build_spot_system_prompt",
     "build_spot_user_prompt",
     "build_area_system_prompt",

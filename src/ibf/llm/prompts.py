@@ -7,6 +7,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional
 
+from .compliance import format_spot_output_contract, parse_spot_output_requirements
+
 
 @dataclass
 class UnitInstructions:
@@ -549,6 +551,15 @@ def build_spot_user_prompt(
 
     instructions = "\n".join(filter(None, [short_period_instruction or "", impact_instruction or ""]))
     context_block = _build_context_block(user_extra_context, impact_context)
+    output_contract = format_spot_output_contract(
+        parse_spot_output_requirements(
+            formatted_dataset,
+            model_kind=model_kind,
+            external_context="\n".join(
+                value for value in (user_extra_context or "", impact_context or "") if value
+            ),
+        )
+    )
     ensemble_rules = ""
     if (model_kind or "ensemble") == "ensemble":
         ensemble_rules = """
@@ -575,6 +586,7 @@ Location: {location_name} at latitude {latitude:.4f} and longitude {longitude:.4
 Season: {season}
 {context_block}
 {ensemble_rules}
+{output_contract}
 """
 
 

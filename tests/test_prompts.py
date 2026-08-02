@@ -158,3 +158,24 @@ def test_detailed_wordiness_prioritizes_meaningful_changes() -> None:
         assert "every hourly fluctuation" in prompt
         assert "very detailed" not in prompt
         assert "extremely detailed" not in prompt
+
+
+def test_spot_output_contract_is_the_last_user_prompt_section() -> None:
+    formatted_dataset = """Date: TUESDAY 4 AUGUST
+midnight 10° Light rain S 20 gust 50
+ Low 7°C, High 10°C
+ Total rainfall: 2 mm.
+"""
+    prompt = build_spot_user_prompt(
+        formatted_dataset,
+        location_name="Wellington",
+        latitude=-41.3,
+        longitude=174.8,
+        season="winter",
+        wordiness="normal",
+        model_kind="deterministic",
+    )
+
+    assert prompt.index("<END>") < prompt.index("--- MANDATORY OUTPUT CONTRACT ---")
+    assert "TUESDAY 4 AUGUST: low 7°C; high 10°C; rainfall 2 mm (must be stated)" in prompt
+    assert prompt.rstrip().endswith("Return only the forecast.")
