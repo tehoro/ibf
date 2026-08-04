@@ -81,21 +81,7 @@ def test_forecast_prompts_assign_late_night_hours_to_the_correct_day(
     assert "overnight; towards dawn" not in prompt
 
 
-@pytest.mark.parametrize(
-    ("builder", "model_kind"),
-    [
-        (build_spot_system_prompt, "ensemble"),
-        (build_spot_system_prompt, "deterministic"),
-        (build_area_system_prompt, "ensemble"),
-        (build_area_system_prompt, "deterministic"),
-        (build_regional_system_prompt, "ensemble"),
-        (build_regional_system_prompt, "deterministic"),
-    ],
-)
-def test_forecast_prompts_use_direct_wind_and_correct_snow_level_wording(
-    builder,
-    model_kind: str,
-) -> None:
+def test_standard_prompt_does_not_append_compact_style_stack() -> None:
     units = UnitInstructions(
         temperature_primary="celsius",
         temperature_secondary=None,
@@ -107,24 +93,77 @@ def test_forecast_prompts_use_direct_wind_and_correct_snow_level_wording(
         windspeed_secondary=None,
     )
 
-    prompt = builder(units, model_kind=model_kind)
+    prompts = [
+        build_spot_system_prompt(units, model_kind="ensemble"),
+        build_spot_system_prompt(units, model_kind="deterministic"),
+        build_area_system_prompt(units, model_kind="ensemble"),
+        build_area_system_prompt(units, model_kind="deterministic"),
+        build_regional_system_prompt(units, model_kind="ensemble"),
+        build_regional_system_prompt(units, model_kind="deterministic"),
+    ]
 
-    assert "Keep wind wording concise and meteorological" in prompt
-    assert '"winds will be present"' in prompt
-    assert '"winds will persist"' in prompt
-    assert "Strong southerlies 40 to 50 km/h, gusting 110 km/h through the afternoon" in prompt
-    assert '"powerful gusts"' in prompt
-    assert 'never "gusts reaching up to" or "gusts hitting up to"' in prompt
-    assert '"evening and late evening"' in prompt
-    assert '"mostly clear or mainly clear"' in prompt
-    assert 'Use "sunny" or "bright" only for daylight' in prompt
-    assert "snow may fall on terrain around 600 metres and above" in prompt
-    assert 'never means snow below 600 metres or on "lower ground"' in prompt
-    assert '"snow lowering to 600 metres"' in prompt
-    assert "the snow level lowers from 1600 to 800 metres" in prompt
-    assert 'Never describe snow as confined to an elevation band such as "snow between 800 and 1600 metres"' in prompt
-    assert 'never a relative label such as "Tomorrow"' in prompt
-    assert 'Do not use clock times or "overnight"' in prompt
+    for prompt in prompts:
+        assert "COMPACT DAILY SIGNALS" not in prompt
+        assert "#FINAL METEOROLOGICAL WORDING CHECK" not in prompt
+        assert "#METEOROLOGICAL WRITING" not in prompt
+
+
+@pytest.mark.parametrize(
+    ("temperature_unit", "wind_unit", "temperature_symbol", "thresholds"),
+    [
+        ("celsius", "kph", "°C", "20 km/h"),
+        ("fahrenheit", "mph", "°F", "15 mph"),
+        ("celsius", "kt", "°C", "10 kt"),
+        ("celsius", "mps", "°C", "5 m/s"),
+    ],
+)
+def test_compact_spot_prompt_is_generalized_and_unit_aware(
+    temperature_unit: str,
+    wind_unit: str,
+    temperature_symbol: str,
+    thresholds: str,
+) -> None:
+    units = UnitInstructions(
+        temperature_primary=temperature_unit,
+        temperature_secondary=None,
+        precipitation_primary="in" if temperature_unit == "fahrenheit" else "mm",
+        precipitation_secondary=None,
+        snowfall_primary="in" if temperature_unit == "fahrenheit" else "cm",
+        snowfall_secondary=None,
+        windspeed_primary=wind_unit,
+        windspeed_secondary=None,
+    )
+
+    prompt = build_spot_system_prompt(
+        units,
+        model_kind="deterministic",
+        prompt_profile="compact",
+    )
+
+    assert "general-audience radio bulletin" in prompt
+    assert "UK or New Zealand English" in prompt
+    assert "COMPACT DAILY SIGNALS" in prompt
+    assert "at most two broad sky descriptions" in prompt
+    assert thresholds in prompt
+    assert f"repeating {temperature_symbol} on both values" in prompt
+    assert "ACTIVE ALERTS" in prompt
+    assert '"snow down to about X"' in prompt
+    assert 'Never say winds "will be present" or "will persist"' in prompt
+    assert 'Start it exactly as "**[supplied label]:**"' in prompt
+    assert "#TARGET SHAPE" in prompt
+
+
+def test_compact_profile_does_not_change_ensemble_spot_prompt() -> None:
+    units = UnitInstructions("celsius", None, "mm", None, "cm", None, "kph", None)
+
+    standard = build_spot_system_prompt(units, model_kind="ensemble")
+    compact_requested = build_spot_system_prompt(
+        units,
+        model_kind="ensemble",
+        prompt_profile="compact",
+    )
+
+    assert compact_requested == standard
 
 
 def test_detailed_wordiness_prioritizes_meaningful_changes() -> None:
@@ -178,4 +217,30 @@ midnight 10° Light rain S 20 gust 50
 
     assert prompt.index("<END>") < prompt.index("--- MANDATORY OUTPUT CONTRACT ---")
     assert "TUESDAY 4 AUGUST: low 7°C; high 10°C; rainfall 2 mm (must be stated)" in prompt
-    assert prompt.rstrip().endswith("Return only the forecast.")
+    assert "--- FINAL STYLE GUIDE ---" not in prompt
+    assert prompt.rstrip().endswith("Return only the forecast paragraphs.")
+
+
+def test_deterministic_spot_prompt_preserves_context_and_facts() -> None:
+    prompt = build_spot_user_prompt(
+        """Date: TUESDAY 4 AUGUST
+midnight 10° Light rain S 20 gust 50
+ Low 7°C, High 10°C
+ Total rainfall: 2 mm.
+""",
+        location_name="Wellington",
+        latitude=-41.3,
+        longitude=174.8,
+        season="winter",
+        wordiness="normal",
+        model_kind="deterministic",
+        user_extra_context="Use the supplied official warning context if relevant.",
+        impact_context="MetService Heavy Rain Watch applies Tuesday afternoon.",
+        prompt_profile="compact",
+    )
+
+    assert "IMPORTANT USER CONTEXT" in prompt
+    assert "Use the supplied official warning context if relevant." in prompt
+    assert "ADDITIONAL CONTEXT" in prompt
+    assert "MetService Heavy Rain Watch applies Tuesday afternoon." in prompt
+    assert "TUESDAY 4 AUGUST: low 7°C; high 10°C; rainfall 2 mm (must be stated)" in prompt

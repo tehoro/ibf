@@ -99,6 +99,59 @@ def test_deterministic_contract_accepts_supplied_total() -> None:
     assert validate_spot_forecast(forecast, requirements) == []
 
 
+def test_contract_suppresses_sub_reportable_rainfall() -> None:
+    requirements = parse_spot_output_requirements(
+        """Date: TUESDAY 4 AUGUST
+6 am 8° Light drizzle 0.5 mm/h S 10
+ Low 7°C, High 10°C
+ Total rainfall: 0.5 mm.
+""",
+        model_kind="deterministic",
+    )
+    contract = format_spot_output_contract(requirements)
+
+    assert requirements[0].rainfall is None
+    assert "rainfall 0.5 mm" not in contract
+    assert "no reportable rainfall amount supplied" in contract
+
+
+def test_partial_period_contract_does_not_force_full_day_temperatures() -> None:
+    requirements = parse_spot_output_requirements(
+        """Date: REST OF TODAY, TUESDAY 4 AUGUST
+6 pm 8° Clear S 10
+ Low 4°C, High 12°C
+""",
+        model_kind="deterministic",
+    )
+    contract = format_spot_output_contract(requirements)
+
+    assert requirements[0].partial is True
+    assert "low 4°C" not in contract
+    assert "high 12°C" not in contract
+    assert "overrides any request to be brief" not in contract
+    assert "FINAL STYLE GUIDE" not in contract
+
+
+def test_validator_can_check_facts_without_wording() -> None:
+    requirements = parse_spot_output_requirements(
+        DETERMINISTIC_DATA,
+        model_kind="deterministic",
+    )
+    forecast = """**Monday, 3 August:** Clear. Northerlies will be present at 20 km/h. The high will be 15°C and the low will be 10°C.
+
+**Tuesday, 4 August:** Light rain totalling 2 mm. Southerlies will persist at 20 km/h. The high will be 10°C and the low will be 7°C.
+
+**Wednesday, 5 August:** Partly cloudy. Southerlies 40 km/h. The high will be 9°C and the low will be 4°C."""
+
+    assert validate_spot_forecast(forecast, requirements)
+    assert validate_spot_forecast(forecast, requirements, check_wording=False) == []
+    assert validate_spot_forecast(
+        forecast.replace("high will be 9°C", "high will be 8°C"),
+        requirements,
+        check_wording=False,
+    )
+
+
 def test_validator_rejects_wrong_or_duplicate_full_day_headings() -> None:
     requirements = parse_spot_output_requirements(
         DETERMINISTIC_DATA,
@@ -123,7 +176,7 @@ def test_ensemble_contract_rejects_unapproved_scenario_total() -> None:
     contract = format_spot_output_contract(requirements)
 
     assert requirements[0].forbidden_rainfall == ("7 mm",)
-    assert "no approved rainfall amount; do not use a Scenario total" in contract
+    assert "no approved rainfall amount; do not use an individual scenario total" in contract
 
     forecast = (
         "**Wednesday, 5 August:** There is a 40% chance of rain, potentially bringing 7 mm. "
@@ -262,6 +315,65 @@ def test_location_generation_runs_one_non_reasoning_correction(monkeypatch) -> N
     assert correction_calls[0][3] == {"reasoning": None, "thinking_level": None}
 
 
+def test_compact_profile_is_selected_only_for_deterministic_spot_generation(monkeypatch) -> None:
+    payload = type(
+        "Payload",
+        (),
+        {
+            "name": "Wellington",
+            "formatted_dataset": DETERMINISTIC_DATA,
+            "dataset": [],
+            "model_kind": "deterministic",
+            "alerts": [],
+            "units": TEST_UNITS,
+            "geocode": type(
+                "Geocode",
+                (),
+                {"latitude": -41.3, "longitude": 174.8, "timezone": "UTC"},
+            )(),
+        },
+    )()
+    location = LocationConfig(name="Wellington")
+    config = ForecastConfig(
+        llm="lms:test-model",
+        location_wordiness="normal",
+        prompt_profile="compact",
+    )
+    settings = LLMSettings(model="test-model", api_key="local", provider="lmstudio")
+    valid = """**Monday, 3 August:** Clear. Light winds. A high of 15°C and a low of 10°C.
+
+**Tuesday, 4 August:** Light rain totalling 2 mm. Light winds. A high of 10°C and a low of 7°C.
+
+**Wednesday, 5 August:** Partly cloudy. Southerlies 40 km/h. A high of 9°C and a low of 4°C."""
+    captured = {}
+
+    def fake_format(_payload, _dataset, *, compact=False):
+        captured["compact"] = compact
+        return DETERMINISTIC_DATA
+
+    def fake_generate(_config, prompt, system_prompt, **_kwargs):
+        captured["prompt"] = prompt
+        captured["system_prompt"] = system_prompt
+        return valid, settings, 0.0
+
+    monkeypatch.setattr(executor, "_format_location_payload", fake_format)
+    monkeypatch.setattr(executor, "_generate_text_with_fallback", fake_generate)
+
+    text, used_settings, _cost = executor._generate_location_text_with_adaptive_thinning(
+        location,
+        config,
+        payload,
+        ibf_context="",
+        impact_enabled=False,
+    )
+
+    assert text == valid
+    assert used_settings is settings
+    assert captured["compact"] is True
+    assert "COMPACT DAILY SIGNALS" in captured["system_prompt"]
+    assert captured["prompt"].startswith("Write the deterministic spoken spot forecast")
+
+
 def test_location_generation_fails_closed_after_bad_correction(monkeypatch) -> None:
     payload = type(
         "Payload",
@@ -298,3 +410,55 @@ def test_location_generation_fails_closed_after_bad_correction(monkeypatch) -> N
             ibf_context="",
             impact_enabled=False,
         )
+
+
+def test_location_generation_publishes_factual_forecast_when_wording_remains(monkeypatch) -> None:
+    payload = type(
+        "Payload",
+        (),
+        {
+            "name": "Wellington",
+            "formatted_dataset": DETERMINISTIC_DATA,
+            "dataset": [],
+            "model_kind": "deterministic",
+            "alerts": [],
+            "units": TEST_UNITS,
+            "geocode": type("Geocode", (), {"latitude": -41.3, "longitude": 174.8, "timezone": "UTC"})(),
+        },
+    )()
+    location = LocationConfig(name="Wellington")
+    config = ForecastConfig(llm="lms:test-model", location_wordiness="normal")
+    settings = LLMSettings(model="test-model", api_key="local", provider="lmstudio")
+    initial = """**Monday, 3 August:** Clear. Northerlies will be present at 20 km/h. The high will be 15°C and the low will be 10°C.
+
+**Tuesday, 4 August:** Light rain totalling 2 mm. Southerlies will persist at 20 km/h. The high will be 10°C and the low will be 7°C.
+
+**Wednesday, 5 August:** Partly cloudy. Southerlies 40 km/h. The high will be 9°C and the low will be 4°C."""
+    correction_calls = []
+
+    monkeypatch.setattr(
+        executor,
+        "_generate_text_with_fallback",
+        lambda *args, **kwargs: (initial, settings, 1.5),
+    )
+
+    def fake_correction(prompt, system_prompt, correction_settings, **kwargs):
+        correction_calls.append((prompt, system_prompt, correction_settings, kwargs))
+        return initial
+
+    monkeypatch.setattr(executor, "generate_forecast_text", fake_correction)
+    monkeypatch.setattr(executor, "consume_last_cost_cents", lambda: 0.25)
+    monkeypatch.setattr(executor, "_snapshot_prompt", lambda *args, **kwargs: None)
+
+    text, used_settings, cost = executor._generate_location_text_with_adaptive_thinning(
+        location,
+        config,
+        payload,
+        ibf_context="",
+        impact_enabled=False,
+    )
+
+    assert text == initial
+    assert used_settings is settings
+    assert cost == 1.75
+    assert len(correction_calls) == 1

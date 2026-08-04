@@ -744,9 +744,14 @@ def _generate_location_text_with_adaptive_thinning(
     impact_enabled: bool,
 ) -> tuple[str, LLMSettings, float]:
     """Generate a spot forecast, reducing ensemble scenarios only after context overflow."""
+    prompt_profile = getattr(config, "prompt_profile", "standard") or "standard"
+    use_compact_profile = (
+        prompt_profile == "compact" and payload.model_kind == "deterministic"
+    )
     system_prompt = build_spot_system_prompt(
         _unit_instructions(payload.units),
         model_kind=payload.model_kind,
+        prompt_profile=prompt_profile,
     )
     short_instr = _short_period_instruction(
         payload.dataset,
@@ -760,7 +765,11 @@ def _generate_location_text_with_adaptive_thinning(
         member_limits.extend(_reduced_scenario_limits(initial_scenarios))
 
     for attempt_index, member_limit in enumerate(member_limits):
-        formatted_dataset = payload.formatted_dataset
+        formatted_dataset = (
+            _format_location_payload(payload, payload.dataset, compact=True)
+            if use_compact_profile
+            else payload.formatted_dataset
+        )
         if member_limit is not None:
             reduced_dataset = select_members(payload.dataset, thin_select=member_limit)
             formatted_dataset = _format_location_payload(payload, reduced_dataset)
@@ -776,6 +785,7 @@ def _generate_location_text_with_adaptive_thinning(
             impact_context=ibf_context or "",
             user_extra_context=location.extra_context,
             model_kind=payload.model_kind,
+            prompt_profile=prompt_profile,
         )
         if attempt_index:
             logger.warning(
@@ -847,8 +857,34 @@ def _generate_location_text_with_adaptive_thinning(
             )
             forecast_cost += consume_last_cost_cents()
             if not corrected:
+                factual_violations = validate_spot_forecast(
+                    generated,
+                    requirements,
+                    alerts_present=bool(payload.alerts),
+                    check_wording=False,
+                )
+                if not factual_violations:
+                    logger.warning(
+                        "Forecast correction returned no text for '%s'; using the "
+                        "original forecast because its factual contract is valid.",
+                        payload.name,
+                    )
+                    return generated, settings, forecast_cost
                 raise RuntimeError("the forecast correction returned no usable text")
             if not correction_preserves_other_numeric_facts(generated, corrected):
+                factual_violations = validate_spot_forecast(
+                    generated,
+                    requirements,
+                    alerts_present=bool(payload.alerts),
+                    check_wording=False,
+                )
+                if not factual_violations:
+                    logger.warning(
+                        "Forecast correction changed numeric weather facts for '%s'; "
+                        "using the original forecast because its factual contract is valid.",
+                        payload.name,
+                    )
+                    return generated, settings, forecast_cost
                 raise RuntimeError("the forecast correction changed numeric weather facts")
             remaining = validate_spot_forecast(
                 corrected,
@@ -856,9 +892,39 @@ def _generate_location_text_with_adaptive_thinning(
                 alerts_present=bool(payload.alerts),
             )
             if remaining:
+                corrected_factual = validate_spot_forecast(
+                    corrected,
+                    requirements,
+                    alerts_present=bool(payload.alerts),
+                    check_wording=False,
+                )
+                if not corrected_factual:
+                    logger.warning(
+                        "Forecast correction for '%s' still has wording warnings; "
+                        "publishing it because its factual contract is valid: %s",
+                        payload.name,
+                        "; ".join(remaining),
+                    )
+                    return corrected, settings, forecast_cost
+
+                original_factual = validate_spot_forecast(
+                    generated,
+                    requirements,
+                    alerts_present=bool(payload.alerts),
+                    check_wording=False,
+                )
+                if not original_factual:
+                    logger.warning(
+                        "Forecast correction for '%s' introduced factual violations; "
+                        "using the original forecast: %s",
+                        payload.name,
+                        "; ".join(corrected_factual),
+                    )
+                    return generated, settings, forecast_cost
+
                 raise RuntimeError(
                     "the forecast correction still violates the output contract: "
-                    + "; ".join(remaining)
+                    + "; ".join(corrected_factual)
                 )
             logger.info("Forecast compliance correction succeeded for '%s'.", payload.name)
             return corrected, settings, forecast_cost
@@ -1013,6 +1079,8 @@ def _maximum_dataset_scenarios(dataset: List[dict]) -> int:
 def _format_location_payload(
     payload: LocationForecastPayload,
     dataset: List[dict],
+    *,
+    compact: bool = False,
 ) -> str:
     """Format a payload's dataset using its location-specific units and alerts."""
     return format_location_dataset(
@@ -1023,6 +1091,7 @@ def _format_location_payload(
         precipitation_unit=payload.units.precipitation_primary,
         snowfall_unit=payload.units.snowfall_primary,
         windspeed_unit=payload.units.windspeed_primary,
+        compact=compact,
     )
 
 

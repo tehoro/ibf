@@ -383,19 +383,52 @@ Rules:
 - Output only the translated forecast.
 """
 
-_FORECAST_WORDING_RULES = """
-#FINAL METEOROLOGICAL WORDING CHECK
-- Keep wind wording concise and meteorological. State direction, prevailing speed or range, useful gusts, and meaningful timing directly. Prefer constructions such as "Easterlies 10 to 20 {wind_unit}, gusting 40 {wind_unit}" or "Southerlies strengthen to 30 {wind_unit} in the afternoon", adapting the values to the data.
-- Do not pad wind sentences with phrases such as "winds will be present" or "winds will persist". Let the values convey wind strength; avoid dramatic or vague phrases such as "powerful gusts", "significant gusts", "heavy gusts", or "a major factor". Write "gusts up to 50 {wind_unit}" or "gusting 50 {wind_unit}", never "gusts reaching up to" or "gusts hitting up to". If duration matters, attach it directly: "Strong southerlies 40 to 50 {wind_unit}, gusting 110 {wind_unit} through the afternoon."
-- Keep timing concise. Combine adjacent periods when the weather does not meaningfully change, and do not pair nested labels such as "evening and late evening" for the same conditions. Summarise the prevailing sky and wind instead of narrating every minor hourly fluctuation or direction change.
-- Use one clear sky description rather than stacking synonyms such as "mostly clear or mainly clear" or "bright and clear with sunny skies". Use "sunny" or "bright" only for daylight; use "clear" for evening or night-time conditions.
-- Treat a snow level as the lower altitude boundary for snow. For example, "snow down to about 600 metres" means snow may fall on terrain around 600 metres and above; it never means snow below 600 metres or on "lower ground". Prefer wording such as "snow on hills above 600 metres" or "snow lowering to 600 metres".
-- When several snow levels are supplied, describe how the level changes with time, for example "the snow level lowers from 1600 to 800 metres". Never describe snow as confined to an elevation band such as "snow between 800 and 1600 metres".
-- Before returning the forecast, check that future full-day headings contain only the supplied day name and date, never a relative label such as "Tomorrow". Do not use clock times or "overnight" except when reproducing official alert wording. Retain a supplied partial-period label such as "Rest of Today".
+SYSTEM_PROMPT_SPOT_DETERMINISTIC_COMPACT = """
+You are a meteorologist writing a spoken forecast for a general-audience radio bulletin. Use short, natural sentences in plain UK English. Sound calm, warm, and matter of fact. Report only supplied facts. Never embellish, dramatise, or use literary or figurative language.
+
+#OUTPUT
+- Write one paragraph for every supplied period, in the supplied order. Start it exactly as "**[supplied label]:**" and continue the forecast on the same line. Keep a partial label such as "Rest of Today". Never add, merge, or omit a period.
+- For a full day, normally use two or three connected sentences in this order: weather, wind, then temperature. End with "A high of [high] and a low of [low]", repeating {temperature_symbol} on both values.
+- For a partial first period, cover only its supplied hours and follow any partial-period instruction in the user prompt; do not force a formal high-and-low sentence when the factual contract omits it.
+- Output only forecast paragraphs: no bullets, analysis, greeting, sign-off, or general advice.
+
+#SELECT WHAT MATTERS
+- Use each COMPACT DAILY SIGNALS block as the authoritative guide to sky, wind, and snow-level salience. Use hourly rows for precipitation timing, temperature evolution, and other meaningful weather changes. Do not narrate every hourly fluctuation.
+- Use at most two broad sky descriptions in a paragraph, in time order. Ignore short-lived cloud flicker and unchanged restatements.
+- Describe one precipitation spell once, with its prevailing intensity. Do not stack conflicting intensities.
+- Put every required rain or snow amount and any reportable snow level in the weather sentence, never in the wind sentence or a separate sentence.
+- Join real changes naturally with words such as "with", "as", "turning to", "clearing to", or "followed by". Avoid padding that merely says conditions exist or persist.
+
+#WIND
+- Where natural in UK or New Zealand English, use plural direction nouns such as northerlies, southwesterlies, or westerlies. Otherwise use an equally clear local meteorological form. Never use compass abbreviations in the forecast.
+- If COMPACT DAILY SIGNALS says winds are light, the whole wind sentence is "Light winds."
+- Do not report a sustained speed below {light_wind_speed} {wind_unit}. Report gusts only when they reach {reportable_gust_speed} {wind_unit}. If a reportable gust occurs with otherwise light sustained wind, state the direction and gust without inventing a higher sustained speed.
+- Mention no more than two directions, and mention a second only for a lasting shift identified in COMPACT DAILY SIGNALS.
+- Include every reportable sustained speed or range and gust identified in COMPACT DAILY SIGNALS. For steady wind, use a direct noun phrase such as "Southwesterlies {light_wind_speed} {wind_unit}, gusting to {reportable_gust_speed} {wind_unit}." Never say winds "will be present" or "will persist". Use a verb only for a real change such as strengthening, easing, turning, or dying away.
+
+#AMOUNTS AND SNOW LEVELS
+- State a rain or snow amount only when the factual contract supplies it, and then state it plainly. Never invent or recalculate an amount.
+- Mention a snow level only when COMPACT DAILY SIGNALS marks it as reportable. Use direct lower-bound wording such as "snow down to about X" or "the snow level lowers to X". Never turn it into an elevation band or add hills, mountains, or impacts unless the supplied source explicitly does so.
+
+#TIMING, ALERTS, AND UNITS
+- Use broad parts of the named day, never clock times or "overnight", except when reproducing official alert timing.
+- If ACTIVE ALERTS are supplied, include the official source, title, hazard, and relevant timing prominently. Never invent an alert or say there are no alerts.
+- Use the configured units exactly: temperature {temperature_unit_instruction}; rainfall {rainfall_unit_instruction}; snowfall {snowfall_unit_instruction}; wind {wind_unit}. Repeat units wherever the factual contract requires them.
+{conversion_instructions}
+
+#TARGET SHAPE
+These examples show structure only; always substitute the supplied label and facts:
+"**Wednesday 5 August:** Cloudy with rain, turning to snow showers in the evening as the snow level lowers. Southwesterlies {light_wind_speed} {wind_unit}, gusting to {reportable_gust_speed} {wind_unit}. A high of 8{temperature_symbol} and a low of 2{temperature_symbol}."
+"**Thursday 6 August:** Mostly clear through the day. Light winds. A high of 9{temperature_symbol} and a low of 1{temperature_symbol}."
 """
 
 
-def build_spot_system_prompt(units: UnitInstructions, *, model_kind: str = "ensemble") -> str:
+def build_spot_system_prompt(
+    units: UnitInstructions,
+    *,
+    model_kind: str = "ensemble",
+    prompt_profile: str = "standard",
+) -> str:
     """
     Construct the system prompt for a single location forecast.
 
@@ -424,7 +457,30 @@ def build_spot_system_prompt(units: UnitInstructions, *, model_kind: str = "ense
         )
 
     conversion_text = "\n".join(conversion_lines)
-    template = SYSTEM_PROMPT_SPOT_ENSEMBLE if (model_kind or "ensemble") == "ensemble" else SYSTEM_PROMPT_SPOT_DETERMINISTIC
+    if (prompt_profile or "standard") == "compact" and model_kind == "deterministic":
+        light_wind_speed, reportable_gust_speed = _compact_wind_thresholds(
+            units.windspeed_primary
+        )
+        return SYSTEM_PROMPT_SPOT_DETERMINISTIC_COMPACT.format(
+            temperature_symbol=_temperature_symbol(units.temperature_primary),
+            temperature_unit_instruction=_format_unit_label(
+                units.temperature_primary, "temperature"
+            ),
+            rainfall_unit_instruction=_format_unit_label(
+                units.precipitation_primary, "precipitation"
+            ),
+            snowfall_unit_instruction=_format_unit_label(units.snowfall_primary, "snowfall"),
+            wind_unit=_format_unit_label(units.windspeed_primary, "wind"),
+            light_wind_speed=light_wind_speed,
+            reportable_gust_speed=reportable_gust_speed,
+            conversion_instructions=conversion_text,
+        ).strip() + "\n"
+
+    template = (
+        SYSTEM_PROMPT_SPOT_ENSEMBLE
+        if (model_kind or "ensemble") == "ensemble"
+        else SYSTEM_PROMPT_SPOT_DETERMINISTIC
+    )
     prompt = template.format(
         temperature_unit_instruction=_format_unit_label(units.temperature_primary, "temperature"),
         rainfall_unit_instruction=_format_unit_label(units.precipitation_primary, "precipitation"),
@@ -432,7 +488,7 @@ def build_spot_system_prompt(units: UnitInstructions, *, model_kind: str = "ense
         windspeed_unit_instruction=_format_unit_label(units.windspeed_primary, "wind"),
         conversion_instructions=conversion_text,
     )
-    return _append_forecast_wording_rules(prompt, units)
+    return prompt
 
 
 def build_area_system_prompt(units: UnitInstructions, *, model_kind: str = "ensemble") -> str:
@@ -455,7 +511,7 @@ def build_area_system_prompt(units: UnitInstructions, *, model_kind: str = "ense
         windspeed_unit_instruction=_format_unit_label(units.windspeed_primary, "wind"),
         conversion_instructions=conversion_text,
     )
-    return _append_forecast_wording_rules(prompt, units)
+    return prompt
 
 
 def build_regional_system_prompt(units: UnitInstructions, *, model_kind: str = "ensemble") -> str:
@@ -478,14 +534,24 @@ def build_regional_system_prompt(units: UnitInstructions, *, model_kind: str = "
         windspeed_unit_instruction=_format_unit_label(units.windspeed_primary, "wind"),
         conversion_instructions=conversion_text,
     )
-    return _append_forecast_wording_rules(prompt, units)
+    return prompt
 
 
-def _append_forecast_wording_rules(prompt: str, units: UnitInstructions) -> str:
-    """Append shared meteorological language rules to forecast prompts."""
-    wind_unit = _format_unit_label(units.windspeed_primary, "wind")
-    wording_rules = _FORECAST_WORDING_RULES.format(wind_unit=wind_unit)
-    return f"{prompt.rstrip()}\n\n{wording_rules.strip()}\n"
+def _temperature_symbol(unit: str) -> str:
+    """Return the configured temperature symbol."""
+    return "°F" if (unit or "").lower() == "fahrenheit" else "°C"
+
+
+def _compact_wind_thresholds(unit: str) -> tuple[int, int]:
+    """Return readable equivalents of the 20/40 km/h compact-profile thresholds."""
+    normalized = (unit or "kph").lower()
+    if normalized == "mph":
+        return 15, 25
+    if normalized == "kt":
+        return 10, 20
+    if normalized == "mps":
+        return 5, 10
+    return 20, 40
 
 
 def _format_unit_label(unit: str, unit_type: str) -> str:
@@ -537,6 +603,7 @@ def build_spot_user_prompt(
     impact_context: Optional[str] = "",
     user_extra_context: Optional[str] = "",
     model_kind: str = "ensemble",
+    prompt_profile: str = "standard",
 ) -> str:
     """Build the user prompt sent alongside the dataset for a single location."""
     detail_map = {
@@ -574,7 +641,14 @@ def build_spot_user_prompt(
 - Use every supplied Date block once as its own forecast period; do not add, merge, or skip periods. A "Rest of..." block is a partial period, so describe only its remaining hours.
 """
 
-    return f"""Write a weather forecast in a friendly and authoritative style, based only on the following information. Write only the forecast, not your instructions.
+    request = (
+        "Write the deterministic spoken spot forecast using the compact instructions and "
+        "the editorial summaries below."
+        if (prompt_profile or "standard") == "compact" and model_kind == "deterministic"
+        else "Write a weather forecast in a friendly and authoritative style, based only on the following information. Write only the forecast, not your instructions."
+    )
+
+    return f"""{request}
 
 {formatted_dataset}
 <END>

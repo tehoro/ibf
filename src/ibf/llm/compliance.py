@@ -87,7 +87,7 @@ def parse_spot_output_requirements(
             summary = block.rsplit("RANGE SUMMARY:", 1)[-1] if "RANGE SUMMARY:" in block else ""
             low = _line_value(summary, "Likely low")
             high = _line_value(summary, "Likely high")
-            rainfall = _line_value(summary, "Likely precipitation")
+            rainfall = _reportable_rainfall(_line_value(summary, "Likely precipitation"))
             snowfall = _line_value(summary, "Likely snowfall")
             scenario_section = block.split("RANGE SUMMARY:", 1)[0]
             if rainfall is None:
@@ -112,7 +112,7 @@ def parse_spot_output_requirements(
             if summary_matches:
                 low = summary_matches[-1].group("low").strip()
                 high = summary_matches[-1].group("high").strip()
-            rainfall = _total_line(block, "rainfall")
+            rainfall = _reportable_rainfall(_total_line(block, "rainfall"))
             snowfall = _total_line(block, "snowfall")
 
         requirements.append(
@@ -138,38 +138,27 @@ def format_spot_output_contract(requirements: Iterable[SpotPeriodRequirement]) -
     periods = list(requirements)
     lines = [
         "--- MANDATORY OUTPUT CONTRACT ---",
-        "This checklist overrides any request to be brief. Use each supplied period once.",
+        "Use each supplied period once. Keep the wording concise, but include every fact listed below.",
     ]
     for period in periods:
         facts: list[str] = []
-        if period.low:
+        if period.low and not period.partial:
             facts.append(f"low {period.low}")
-        if period.high:
+        if period.high and not period.partial:
             facts.append(f"high {period.high}")
         if period.rainfall:
             facts.append(f"rainfall {period.rainfall} (must be stated)")
         elif period.forbidden_rainfall:
-            facts.append("no approved rainfall amount; do not use a Scenario total")
+            facts.append("no approved rainfall amount; do not use an individual scenario total")
         else:
             facts.append("no reportable rainfall amount supplied; do not invent one")
         if period.snowfall:
             facts.append(f"snowfall {period.snowfall} (must be stated)")
         elif period.forbidden_snowfall:
-            facts.append("no approved snowfall amount; do not use a Scenario total")
+            facts.append("no approved snowfall amount; do not use an individual scenario total")
         lines.append(f"- {period.source_label}: " + "; ".join(facts) + ".")
 
-    lines.extend(
-        [
-            "--- FINAL WORDING CONSTRAINTS ---",
-            '- Never write "will be present", or say that winds "will persist".',
-            '- Write "gusts up to" or "gusting", never "gusts reaching up to" or "gusts hitting up to".',
-            '- Let wind values convey strength; omit "quite strong/gusty", "heavy/powerful/significant gusts", and "a major factor".',
-            '- When one unchanged condition covers the morning and afternoon, say "during the day" or "through the day", not "during the morning and afternoon".',
-            '- Never pair "evening and late evening" for the same unchanged condition.',
-            '- Use "late evening" before midnight and "early morning" after midnight; do not write "tonight" or "late in the night".',
-            "Return only the forecast.",
-        ]
-    )
+    lines.append("Return only the forecast paragraphs.")
     return "\n".join(lines)
 
 
@@ -178,9 +167,14 @@ def validate_spot_forecast(
     requirements: Iterable[SpotPeriodRequirement],
     *,
     alerts_present: bool = False,
+    check_wording: bool = True,
 ) -> list[str]:
-    """Return objective factual and wording violations in a generated spot forecast."""
-    violations = _wording_violations(forecast_text, alerts_present=alerts_present)
+    """Return factual violations and, optionally, stylistic wording violations."""
+    violations = (
+        _wording_violations(forecast_text, alerts_present=alerts_present)
+        if check_wording
+        else []
+    )
     periods = list(requirements)
     if not periods:
         return violations
@@ -381,6 +375,28 @@ def _line_value(text: str, label: str) -> Optional[str]:
 def _total_line(text: str, label: str) -> Optional[str]:
     match = re.search(rf"(?mi)^\s*Total\s+{re.escape(label)}:\s*(.+?)\.\s*$", text or "")
     return match.group(1).strip() if match else None
+
+
+def _reportable_rainfall(value: Optional[str]) -> Optional[str]:
+    """Suppress rain totals that round below a useful spoken amount."""
+    if not value:
+        return None
+    lowered = value.strip().lower()
+    measurements = re.findall(r"(-?\d+(?:\.\d+)?)\s*(mm|inches?|in)\b", lowered)
+    if not measurements:
+        return value
+
+    if lowered.startswith(("less than ", "under ")):
+        reportable = [
+            float(number) > (0.05 if unit.startswith("in") else 1.0)
+            for number, unit in measurements
+        ]
+        return value if any(reportable) else None
+    reportable = [
+        float(number) >= (0.05 if unit.startswith("in") else 1.0)
+        for number, unit in measurements
+    ]
+    return value if any(reportable) else None
 
 
 def _scenario_totals(

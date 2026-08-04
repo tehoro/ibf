@@ -94,6 +94,8 @@ class ForecastConfig(BaseModel):
         area_thin_select: Number of ensemble members to select for areas.
         llm: LLM model identifier (e.g., "gpt-5.6-luna").
         llm_fallback: Optional model used when the primary forecast model fails.
+        prompt_profile: Forecast-writing prompt profile. ``standard`` is the default;
+            ``compact`` is used only for deterministic spot forecasts.
         lm_studio_base_url: Optional LM Studio server URL for ``lms:`` models.
         context_provider: Impact-context research provider (recommended ``llm-search`` or
             experimental ``brave``).
@@ -121,6 +123,7 @@ class ForecastConfig(BaseModel):
     area_thin_select: Optional[int] = None
     llm: Optional[str] = None
     llm_fallback: Optional[str] = None
+    prompt_profile: Literal["standard", "compact"] = "standard"
     lm_studio_base_url: Optional[str] = None
     context_provider: Literal["llm-search", "brave"] = "llm-search"
     context_llm: Optional[str] = None

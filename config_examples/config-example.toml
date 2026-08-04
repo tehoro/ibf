@@ -4,6 +4,7 @@
 llm = "gpt-5.6-luna"
 # Recommended local family: Gemma 4; copy the exact loaded model ID from LM Studio.
 # llm = "lms:exact-loaded-gemma-4-model-id"  # local or network LM Studio
+# prompt_profile = "compact"  # small-model profile; deterministic spot forecasts only
 # llm_fallback = "gemini-3-flash-preview"     # optional one-step cross-provider fallback
 # lm_studio_base_url = "http://192.168.1.50:1234/v1"
 

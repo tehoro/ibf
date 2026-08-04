@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from ibf.pipeline.dataset import _parse_timestamp, build_processed_days
+from ibf.pipeline.dataset import _classify_day, _parse_timestamp, build_processed_days
 
 
 @pytest.fixture
@@ -50,6 +50,14 @@ def test_offset_open_meteo_times_are_converted_to_forecast_timezone(process_time
     assert parsed is not None
     assert parsed.tzinfo is forecast_tz
     assert parsed.strftime("%Y-%m-%d %H:%M") == "2030-01-02 15:00"
+
+
+def test_tomorrow_uses_stable_absolute_weekday_label() -> None:
+    timezone = ZoneInfo("Pacific/Auckland")
+    current = datetime(2030, 1, 2, 9, 0, tzinfo=timezone)
+    forecast = current + timedelta(days=1)
+
+    assert _classify_day(forecast, current) == forecast.strftime("%A")
 
 
 def test_processed_days_keep_naive_hour_in_location_timezone(process_timezone) -> None:

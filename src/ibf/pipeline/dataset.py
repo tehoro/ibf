@@ -558,7 +558,7 @@ def _estimate_snow_level(
 
 
 def _classify_day(forecast_dt: datetime, current_dt: datetime) -> str:
-    """Return human-friendly labels (e.g., 'Tomorrow, Monday') for each forecast day."""
+    """Return stable day labels without relative words that age after publication."""
     forecast_date = forecast_dt.date()
     current_date = current_dt.date()
     day_name = forecast_dt.strftime("%A")
@@ -575,7 +575,7 @@ def _classify_day(forecast_dt: datetime, current_dt: datetime) -> str:
             return f"Rest of today, {day_name}"
         return f"Today, {day_name}"
     if forecast_date == current_date + timedelta(days=1):
-        return f"Tomorrow, {day_name}"
+        return day_name
     if forecast_date < current_date:
         return "Past"
     return day_name

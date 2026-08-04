@@ -48,6 +48,49 @@ def test_rejects_invalid_units(tmp_path: Path) -> None:
     assert "temperature_unit" in str(exc.value)
 
 
+def test_prompt_profile_defaults_to_standard_and_accepts_compact(tmp_path: Path) -> None:
+    standard = load_config(
+        _write_config(
+            tmp_path,
+            """
+            [[location]]
+            name = "Test City"
+            """,
+        )
+    )
+    compact = load_config(
+        _write_config(
+            tmp_path,
+            """
+            prompt_profile = "compact"
+
+            [[location]]
+            name = "Test City"
+            """,
+        )
+    )
+
+    assert standard.prompt_profile == "standard"
+    assert compact.prompt_profile == "compact"
+
+
+def test_rejects_unknown_prompt_profile(tmp_path: Path) -> None:
+    path = _write_config(
+        tmp_path,
+        """
+        prompt_profile = "local"
+
+        [[location]]
+        name = "Test City"
+        """,
+    )
+
+    with pytest.raises(ConfigError) as exc:
+        load_config(path)
+
+    assert "prompt_profile" in str(exc.value)
+
+
 def test_rejects_openrouter_context_llm(tmp_path: Path) -> None:
     path = _write_config(
         tmp_path,

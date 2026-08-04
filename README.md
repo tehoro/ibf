@@ -171,12 +171,21 @@ For local forecast writing and translation while retaining recommended Gemini co
 ```toml
 llm = "lms:exact-loaded-gemma-4-model-id"
 llm_fallback = "gpt-5.6-luna"
+prompt_profile = "compact"
 lm_studio_base_url = "http://192.168.1.50:1234/v1"
 context_provider = "llm-search"
 context_llm = "gemini-3-flash-preview"
 translation_llm = "lms:exact-loaded-gemma-4-model-id"
 translation_llm_fallback = "gpt-5.6-luna"
 ```
+
+`prompt_profile = "standard"` is the default and retains the general cloud-model prompt. The
+`compact` profile is an explicit capability choice for smaller instruction-following models. It is
+applied only to deterministic single-location forecasts; ensemble, area, and regional forecasts
+continue to use the standard prompt. Compact formatting replaces noisy hourly cloud, wind, and
+snow-level detail with stable daily editorial signals while retaining hourly precipitation and
+temperature timing. The profile is independent of transport, so it works with LM Studio,
+OpenRouter, or any future provider.
 
 For LM Studio, Gemma 4 is the recommended local model family. Good candidates are Gemma 4 12B
 Unified, Gemma 4 26B A4B, and Gemma 4 31B, choosing the largest suitable version that fits
@@ -486,6 +495,7 @@ Global settings:
 | `snow_levels` | Enable snow-level estimates. | Only applies to deterministic models. |
 | `llm` | Model used for forecast text. | Supports LM Studio, OpenRouter, OpenAI, and Gemini naming. |
 | `llm_fallback` | Optional model tried once if forecast writing fails. | May use a different provider. Primary failure is logged prominently. |
+| `prompt_profile` | Forecast-writing prompt profile: `standard` or `compact`. | Defaults to `standard`; `compact` affects deterministic spot forecasts only. |
 | `lm_studio_base_url` | LM Studio OpenAI-compatible server address. | Used for every `lms:` choice; defaults to `http://localhost:1234/v1`. |
 | `context_provider` | Impact research method. | `llm-search` is the recommended default; `brave` is an experimental controlled-evidence option. |
 | `context_llm` | Hosted-search model or experimental Brave evidence-synthesis model. | `llm-search` requires Gemini/OpenAI; `brave` supports any configured model provider. Defaults to `gemini-3-flash-preview`. |
