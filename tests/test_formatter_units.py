@@ -36,41 +36,6 @@ def _single_hour_dataset(*, snow_level_m: float) -> list[dict]:
     ]
 
 
-def _compact_test_dataset() -> list[dict]:
-    hours = []
-    directions = ["SW", "N", "E", "NW", "S", "W", "NE", "SE"]
-    clouds = [5, 98, 5, 99, 8, 95, 10, 100]
-    for index, (direction, cloud) in enumerate(zip(directions, clouds), start=6):
-        hours.append(
-            {
-                "hour": f"{index:02d}:00",
-                "ensemble_members": {
-                    "member00": {
-                        "temperature": float(index),
-                        "precipitation": 0.0,
-                        "snowfall": 0.0,
-                        "weather": "clear sky" if cloud < 50 else "overcast",
-                        "cloud_cover": cloud,
-                        "wind_direction": direction,
-                        "wind_speed": 10.0,
-                        "wind_gust": 25.0,
-                        "snow_level": 1500.0,
-                    }
-                },
-            }
-        )
-    return [
-        {
-            "date": "2024-01-10",
-            "year": 2024,
-            "month": 1,
-            "day": 10,
-            "dayofweek": "Wednesday",
-            "hours": hours,
-        }
-    ]
-
-
 def test_formatter_converts_to_imperial_units() -> None:
     dataset = _single_hour_dataset(snow_level_m=1500.0)
     output = format_location_dataset(
@@ -104,25 +69,46 @@ def test_formatter_rounds_snow_level_metric() -> None:
     assert "(snow down to about 1400 m)" in output
 
 
-def test_compact_formatter_replaces_hourly_sky_and_wind_noise_with_daily_signals() -> None:
+def test_formatter_distinguishes_wintry_showers_from_settling_snow() -> None:
+    dataset = _single_hour_dataset(snow_level_m=520.0)
+    member = dataset[0]["hours"][0]["ensemble_members"]["member00"]
+    member["weather"] = "light wintry showers"
+    member["snowfall"] = 0.0
+    member["snow_settling_level"] = 520.0
+
     output = format_location_dataset(
-        _compact_test_dataset(),
+        dataset,
         [],
         "UTC",
         temperature_unit="celsius",
         precipitation_unit="mm",
         snowfall_unit="cm",
         windspeed_unit="kph",
-        compact=True,
     )
 
-    assert "COMPACT DAILY SIGNALS" in output
-    assert "write exactly 'Light winds.'" in output
-    assert "every supplied level is above the relevance limit" in output
-    assert "cc98" not in output
-    assert "SW 10" not in output
-    assert "Clear sky" not in output
-    assert "Overcast" not in output
+    assert "Light wintry showers" in output
+    assert "(snow mainly settling above about 500 m)" in output
+    assert "Total snowfall" not in output
+
+
+def test_formatter_hides_snow_level_marked_unreportable() -> None:
+    dataset = _single_hour_dataset(snow_level_m=1600.0)
+    member = dataset[0]["hours"][0]["ensemble_members"]["member00"]
+    member["snow_level_reportable"] = False
+    member["snow_settling_level"] = 1600.0
+
+    output = format_location_dataset(
+        dataset,
+        [],
+        "UTC",
+        temperature_unit="celsius",
+        precipitation_unit="mm",
+        snowfall_unit="cm",
+        windspeed_unit="kph",
+    )
+
+    assert "snow down to" not in output
+    assert "snow mainly settling" not in output
 
 
 def test_formatter_omits_sub_millimetre_daily_rainfall_total() -> None:
@@ -161,25 +147,6 @@ def test_formatter_removes_relative_tomorrow_from_cached_day_label() -> None:
 
     assert output.startswith("Date: WEDNESDAY 10 JANUARY")
     assert "TOMORROW" not in output
-
-
-def test_compact_partial_period_uses_hourly_temperature_trend_not_full_day_summary() -> None:
-    dataset = _single_hour_dataset(snow_level_m=500.0)
-    dataset[0]["dayofweek"] = "Rest of today, Wednesday"
-
-    output = format_location_dataset(
-        dataset,
-        [],
-        "UTC",
-        temperature_unit="celsius",
-        precipitation_unit="mm",
-        snowfall_unit="cm",
-        windspeed_unit="kph",
-        compact=True,
-    )
-
-    assert output.startswith("Date: REST OF TODAY, WEDNESDAY 10 JANUARY")
-    assert " Low 0°C, High 0°C" not in output
 
 
 def test_range_summary_collapses_identical_temperature_endpoints() -> None:

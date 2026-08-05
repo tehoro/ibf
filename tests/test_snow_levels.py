@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from ibf.pipeline.dataset import build_processed_days
 from ibf.pipeline import executor
+from ibf.util.snow import should_report_snow_level
 
 
 def _iso_times(hours: int = 1) -> list[str]:
@@ -70,6 +71,72 @@ def test_snow_levels_uses_freezing_level_when_present() -> None:
     member = days[0]["hours"][0]["ensemble_members"]["member00"]
     snow_level = member.get("snow_level")
     assert isinstance(snow_level, (int, float)) and snow_level > 0
+
+
+def test_snow_level_reporting_limit_is_relative_and_inclusive() -> None:
+    assert should_report_snow_level(1700.0, 500.0)
+    assert not should_report_snow_level(1700.1, 500.0)
+    assert should_report_snow_level(1100.0, 0.0)
+    assert not should_report_snow_level(1500.0, 100.0)
+
+
+def test_snow_code_is_reconciled_to_wintry_showers_below_settling_level() -> None:
+    raw = _base_forecast_raw(freezing_level=600.0)
+    raw["hourly"]["temperature_2m"] = [5.9]
+    raw["hourly"]["dewpoint_2m"] = [0.9]
+    raw["hourly"]["precipitation"] = [0.5]
+    raw["hourly"]["snowfall"] = [0.14]
+    raw["hourly"]["weather_code"] = [85]
+
+    days = build_processed_days(
+        raw,
+        timezone_name="UTC",
+        temperature_unit="celsius",
+        precipitation_unit="mm",
+        windspeed_unit="kph",
+        thin_select=1,
+        location_altitude=3.0,
+        snow_levels_enabled=True,
+        highest_terrain_m=3500.0,
+        pressure_levels_hpa=[1000, 925, 850, 700, 600, 500],
+    )
+
+    member = days[0]["hours"][0]["ensemble_members"]["member00"]
+    assert 450.0 <= member["snow_level"] <= 550.0
+    assert member["snow_settling_level"] == member["snow_level"]
+    assert member["weather"] == "light wintry showers"
+    assert member["snowfall"] == 0.0
+    assert member["model_weather"] == "light snow showers"
+    assert member["model_snowfall"] == 0.14
+
+
+def test_snow_code_and_amount_are_retained_at_the_snow_level() -> None:
+    raw = _base_forecast_raw(freezing_level=600.0)
+    raw["hourly"]["temperature_2m"] = [-1.0]
+    raw["hourly"]["dewpoint_2m"] = [-2.0]
+    raw["hourly"]["precipitation"] = [0.5]
+    raw["hourly"]["snowfall"] = [0.5]
+    raw["hourly"]["weather_code"] = [85]
+
+    days = build_processed_days(
+        raw,
+        timezone_name="UTC",
+        temperature_unit="celsius",
+        precipitation_unit="mm",
+        windspeed_unit="kph",
+        thin_select=1,
+        location_altitude=700.0,
+        snow_levels_enabled=True,
+        highest_terrain_m=3500.0,
+        pressure_levels_hpa=[1000, 925, 850, 700, 600, 500],
+    )
+
+    member = days[0]["hours"][0]["ensemble_members"]["member00"]
+    assert member["snow_level"] == 700.0
+    assert member["weather"] == "light snow showers"
+    assert member["snowfall"] == 0.5
+    assert "snow_settling_level" not in member
+    assert "model_weather" not in member
 
 
 def test_snow_levels_uses_profile_when_no_freezing_level() -> None:
@@ -173,4 +240,9 @@ def test_executor_profile_gate_uses_temperature_cutoff() -> None:
 
     # Temp below cutoff + precip -> should fetch profile.
     raw["hourly"]["temperature_2m"] = [5.0]
+    assert executor._needs_snow_profile_request(raw) is True
+
+    # Snow-coded hours also need the profile so falling snow and settling snow
+    # can be distinguished at the forecast location.
+    raw["hourly"]["weather_code"] = [85]
     assert executor._needs_snow_profile_request(raw) is True

@@ -17,6 +17,10 @@ _DATE_KEY_RE = re.compile(
     r"(?P<month>january|february|march|april|may|june|july|august|september|october|november|december)\b",
     re.IGNORECASE,
 )
+_WEEKDAY_RE = re.compile(
+    r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b",
+    re.IGNORECASE,
+)
 _TEMPERATURE_RE = re.compile(r"-?\d+(?:\.\d+)?\s*°[CF]\b", re.IGNORECASE)
 _PRECIP_MEASUREMENT_RE = re.compile(
     r"(?<![\w.])-?\d+(?:\.\d+)?\s*(?:mm|cm|inches?|in)\b",
@@ -30,7 +34,106 @@ _NON_PRECIP_FACT_RE = re.compile(
     re.IGNORECASE,
 )
 _RAIN_WORD_RE = re.compile(r"\b(?:rain|showers?|drizzle|precipitation)\b", re.IGNORECASE)
-_SNOW_WORD_RE = re.compile(r"\b(?:snow|snowfall|sleet|flurr(?:y|ies))\b", re.IGNORECASE)
+_SNOW_WORD_RE = re.compile(
+    r"\b(?:snow|snowfall|sleet|wintry|flurr(?:y|ies))\b",
+    re.IGNORECASE,
+)
+_COMPACT_DEICTIC_RE = re.compile(r"\bthis\s+(morning|afternoon|evening)\b", re.IGNORECASE)
+_COMPACT_WILL_BE_PRESENT_RE = re.compile(r"\s+will\s+be\s+present\b", re.IGNORECASE)
+_COMPACT_TEMPERATURE_VALUE = (
+    r"-?\d+(?:\.\d+)?\s*°[CF](?:\s*\(-?\d+(?:\.\d+)?\s*°[CF]\))?"
+)
+_COMPACT_TEMPERATURE_PAIR_RE = re.compile(
+    rf"\bA\s+(?P<first_kind>low|high)\s+of\s+"
+    rf"(?P<first_value>{_COMPACT_TEMPERATURE_VALUE})\s*"
+    rf"(?:,\s*(?:and\s+)?|\s+and\s+)a\s+"
+    rf"(?P<second_kind>low|high)\s+of\s+"
+    rf"(?P<second_value>{_COMPACT_TEMPERATURE_VALUE})",
+    re.IGNORECASE,
+)
+_COMPACT_GUST_CLAUSE_RE = re.compile(
+    r"(?:,\s*(?:(?:but|though)\s+)?(?:with\s+)?|\s+(?:and|with)\s+)"
+    r"(?:[a-z-]+\s+){0,2}"
+    r"(?:a\s+maximum\s+)?gust(?:s|ing)?\s+"
+    r"(?:reaching(?:\s+up\s+to)?|up\s+to|to|of)\s+"
+    r"(?P<value>\d+(?:\.\d+)?)\s*"
+    r"(?:km/h|mph|kt|m/s)\b(?:\s*\([^)]*\))?[^,.;!?]*",
+    re.IGNORECASE,
+)
+_COMPACT_SKY_STATE = (
+    r"(?:clear skies|(?:mainly|mostly) clear(?: skies)?"
+    r"(?:\s+to\s+(?:clear skies|partly cloudy))?|partly cloudy|cloudy|overcast)"
+)
+_COMPACT_WIND_STATE = (
+    r"(?:light winds|"
+    r"(?:north|south|east|west|northeast|northwest|southeast|southwest)"
+    r"(?:erly winds|erlies))"
+)
+_COMPACT_STEADY_DAY_RE = re.compile(
+    rf"\b(?P<state>{_COMPACT_SKY_STATE}|{_COMPACT_WIND_STATE})\s+"
+    r"(?:all day|throughout the day)\b",
+    re.IGNORECASE,
+)
+_COMPACT_PARTIAL_STEADY_RE = re.compile(
+    rf"\b(?P<state>{_COMPACT_SKY_STATE})\s+"
+    r"(?:(?:this|during the)\s+afternoon\s+and\s+)?"
+    r"throughout\s+(?:the\s+)?(?:afternoon\s+and\s+evening|evening)\b",
+    re.IGNORECASE,
+)
+_COMPACT_PARTIAL_REMAINS_CLEAR_RE = re.compile(
+    rf"\b(?P<state>{_COMPACT_SKY_STATE})\s+this afternoon,\s*"
+    r"(?:remaining|staying)\s+(?:mainly\s+|mostly\s+)?clear\s+"
+    r"through(?:out)?\s+(?:the\s+)?evening\b",
+    re.IGNORECASE,
+)
+_COMPACT_STEADY_BEFORE_CHANGE_RE = re.compile(
+    rf"\b(?P<state>{_COMPACT_SKY_STATE})\s+during the day"
+    r"(?=,\s*(?:turning|becoming)\b)",
+    re.IGNORECASE,
+)
+_COMPACT_INITIAL_MORNING_RE = re.compile(
+    rf"\b(?P<state>{_COMPACT_SKY_STATE})\s+(?:in|during) the morning"
+    r"(?=,\s*(?:turning|becoming)\b[^.]*\bfrom late morning\b)",
+    re.IGNORECASE,
+)
+_COMPACT_PERSISTENT_SKY_TAIL_RE = re.compile(
+    r"(?P<change>\b(?:becoming|turning)\s+(?:overcast|cloudy)\s+from\s+"
+    r"(?:early\s+|mid-?|late\s+)?(?:morning|afternoon|evening))"
+    r"(?:\s+and\s+(?:remaining\s+so|continuing))?\s+through(?:out)?\s+"
+    r"(?:much\s+of\s+)?(?:the\s+)?(?:afternoon\s+and\s+evening|rest\s+of\s+the\s+day)\b",
+    re.IGNORECASE,
+)
+_COMPACT_LIGHT_WINDS_THROUGHOUT_RE = re.compile(
+    r"\b(?P<state>light winds)\s+throughout\b",
+    re.IGNORECASE,
+)
+_COMPACT_CLEAR_WITH_LIGHT_WINDS_RE = re.compile(
+    r"\bA clear(?: and sunny)? day(?: from the start)?,?\s+with light winds\b",
+    re.IGNORECASE,
+)
+_COMPACT_INCLUDING_TOTAL_RE = re.compile(
+    r"\bincluding\s+a\s+total\s+of\s+"
+    r"(?P<amount>\d+(?:\.\d+)?\s*(?:mm|inches?|in)\b)(?:\s+of\s+rainfall)?",
+    re.IGNORECASE,
+)
+_COMPACT_SNOW_REACH_AREA_RE = re.compile(
+    r"\b(?:snow|light rain)\s+may\s+reach\s+the\s+area,\s*"
+    r"(?:though\s+it\s+is|with\s+snow)\s+mainly\s+settling\s+above(?:\s+about)?\s+"
+    r"(?P<level>\d+(?:\.\d+)?)\s*(?P<unit>metres?|meters?|feet|ft|m)\b"
+    r"(?:\s+to\s+\d+(?:\.\d+)?\s*(?:metres?|meters?|feet|ft|m)\b)?",
+    re.IGNORECASE,
+)
+_COMPACT_SNOW_MAINLY_SETTLING_RE = re.compile(
+    r"\bsnow\s+mainly\s+settling\s+above(?:\s+about)?\s+"
+    r"(?P<level>\d+(?:\.\d+)?)\s*(?P<unit>metres?|meters?|feet|ft|m)\b"
+    r"(?:\s+to\s+\d+(?:\.\d+)?\s*(?:metres?|meters?|feet|ft|m)\b)?",
+    re.IGNORECASE,
+)
+_COMPACT_THOUGH_SNOW_DOWN_RE = re.compile(
+    r"\bthough\s+snow\s+may\s+fall\s+down\s+to\s+about\s+"
+    r"(?P<level>\d+(?:\.\d+)?)\s*(?P<unit>metres?|meters?|feet|ft|m)\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -47,6 +150,109 @@ class SpotPeriodRequirement:
     snowfall: Optional[str] = None
     forbidden_rainfall: tuple[str, ...] = ()
     forbidden_snowfall: tuple[str, ...] = ()
+
+
+def postprocess_compact_spot_output(
+    forecast_text: str,
+    *,
+    gust_reporting_floor: int,
+    alerts_present: bool = False,
+) -> str:
+    """Apply objective compact-profile wording rules without another LLM call."""
+    processed = forecast_text or ""
+    matches = list(_OUTPUT_PERIOD_RE.finditer(processed))
+    for match in reversed(matches):
+        header = match.group("header").strip()
+        body = match.group("body")
+        partial = _is_partial_label(header)
+
+        if not partial:
+            body = _COMPACT_DEICTIC_RE.sub(_replace_future_deictic, body)
+        body = _COMPACT_WILL_BE_PRESENT_RE.sub("", body)
+        body = _normalise_compact_temperature_order(body, partial=partial)
+        if not alerts_present:
+            body = _normalise_compact_forecast_wording(body)
+            body = _remove_redundant_compact_timing(body, partial=partial)
+            body = _remove_unreportable_compact_gusts(
+                body,
+                gust_reporting_floor=gust_reporting_floor,
+            )
+
+        start, end = match.span("body")
+        processed = processed[:start] + body + processed[end:]
+    return processed
+
+
+def _replace_future_deictic(match: re.Match[str]) -> str:
+    replacement = f"in the {match.group(1).lower()}"
+    return replacement.capitalize() if match.group(0)[0].isupper() else replacement
+
+
+def _normalise_compact_temperature_order(text: str, *, partial: bool) -> str:
+    desired_first = "high" if partial else "low"
+
+    def replace(match: re.Match[str]) -> str:
+        values = {
+            match.group("first_kind").lower(): match.group("first_value"),
+            match.group("second_kind").lower(): match.group("second_value"),
+        }
+        if set(values) != {"low", "high"}:
+            return match.group(0)
+        desired_second = "low" if desired_first == "high" else "high"
+        return (
+            f"A {desired_first} of {values[desired_first]} and "
+            f"a {desired_second} of {values[desired_second]}"
+        )
+
+    return _COMPACT_TEMPERATURE_PAIR_RE.sub(replace, text)
+
+
+def _remove_unreportable_compact_gusts(
+    text: str,
+    *,
+    gust_reporting_floor: int,
+) -> str:
+    def replace(match: re.Match[str]) -> str:
+        return "" if float(match.group("value")) <= gust_reporting_floor else match.group(0)
+
+    return _COMPACT_GUST_CLAUSE_RE.sub(replace, text)
+
+
+def _remove_redundant_compact_timing(text: str, *, partial: bool) -> str:
+    """Remove narrow steady-state spans already supplied by the period heading."""
+    processed = _COMPACT_PERSISTENT_SKY_TAIL_RE.sub(r"\g<change>", text)
+    processed = _COMPACT_INITIAL_MORNING_RE.sub(r"\g<state> at first", processed)
+    processed = _COMPACT_STEADY_BEFORE_CHANGE_RE.sub(r"\g<state>", processed)
+    processed = _COMPACT_STEADY_DAY_RE.sub(r"\g<state>", processed)
+    processed = _COMPACT_LIGHT_WINDS_THROUGHOUT_RE.sub(r"\g<state>", processed)
+    if partial:
+        processed = _COMPACT_PARTIAL_REMAINS_CLEAR_RE.sub(r"\g<state>", processed)
+        processed = _COMPACT_PARTIAL_STEADY_RE.sub(r"\g<state>", processed)
+    return processed
+
+
+def _normalise_compact_forecast_wording(text: str) -> str:
+    """Apply narrow natural-language fixes approved for the compact profile."""
+    processed = _COMPACT_CLEAR_WITH_LIGHT_WINDS_RE.sub("Clear with light winds", text)
+    processed = _COMPACT_INCLUDING_TOTAL_RE.sub(r"giving \g<amount> in total", processed)
+    processed = _COMPACT_SNOW_REACH_AREA_RE.sub(_replace_compact_snow_above, processed)
+    processed = _COMPACT_SNOW_MAINLY_SETTLING_RE.sub(_replace_compact_snow_above, processed)
+    return _COMPACT_THOUGH_SNOW_DOWN_RE.sub(_replace_compact_snow_down, processed)
+
+
+def _replace_compact_snow_above(match: re.Match[str]) -> str:
+    unit = _compact_height_unit(match.group("unit"))
+    replacement = f"snow above about {match.group('level')} {unit}"
+    return replacement.capitalize() if match.group(0)[0].isupper() else replacement
+
+
+def _replace_compact_snow_down(match: re.Match[str]) -> str:
+    unit = _compact_height_unit(match.group("unit"))
+    return f"with snow down to about {match.group('level')} {unit}"
+
+
+def _compact_height_unit(unit: str) -> str:
+    return "ft" if unit.lower() in {"ft", "foot", "feet"} else "m"
 
 
 def parse_spot_output_requirements(
@@ -212,6 +418,18 @@ def validate_spot_forecast(
             violations.append(
                 f"{period.source_label} heading must use the supplied weekday {period.weekday.title()}."
             )
+
+        if period.weekday and not alerts_present:
+            other_weekdays = {
+                match.group(1).lower()
+                for match in _WEEKDAY_RE.finditer(body)
+                if match.group(1).lower() != period.weekday
+            }
+            for other_weekday in sorted(other_weekdays):
+                violations.append(
+                    f"{period.source_label} must not describe {other_weekday.title()} "
+                    "inside this forecast period."
+                )
 
         if not period.partial:
             violations.extend(_temperature_violations(paragraph, period))

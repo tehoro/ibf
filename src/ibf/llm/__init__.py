@@ -14,6 +14,7 @@ from .compliance import (
     correction_preserves_other_numeric_facts,
     format_spot_output_contract,
     parse_spot_output_requirements,
+    postprocess_compact_spot_output,
     validate_spot_forecast,
 )
 from .prompts import (
@@ -25,6 +26,7 @@ from .prompts import (
     build_regional_user_prompt,
     build_translation_system_prompt,
     build_translation_user_prompt,
+    compact_wind_thresholds,
 )
 
 __all__ = [
@@ -40,6 +42,7 @@ __all__ = [
     "correction_preserves_other_numeric_facts",
     "format_spot_output_contract",
     "parse_spot_output_requirements",
+    "postprocess_compact_spot_output",
     "validate_spot_forecast",
     "build_spot_system_prompt",
     "build_spot_user_prompt",
@@ -49,4 +52,5 @@ __all__ = [
     "build_regional_user_prompt",
     "build_translation_system_prompt",
     "build_translation_user_prompt",
+    "compact_wind_thresholds",
 ]

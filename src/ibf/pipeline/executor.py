@@ -59,10 +59,12 @@ from ..llm import (
     build_regional_user_prompt,
     build_translation_system_prompt,
     build_translation_user_prompt,
+    compact_wind_thresholds,
     build_spot_correction_prompts,
     correction_preserves_other_numeric_facts,
     format_spot_output_contract,
     parse_spot_output_requirements,
+    postprocess_compact_spot_output,
     validate_spot_forecast,
 )
 from ..llm.prompts import UnitInstructions
@@ -78,6 +80,8 @@ _SNOW_PROFILE_UNSUPPORTED_MODELS: ContextVar[Optional[set[str]]] = ContextVar(
 _DAY_HEADER_RE = re.compile(
     r"(?im)^(?!date:)(?:\*\*\s*)?(?:rest of the evening|this evening|this afternoon and evening|rest of today|today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)[^\n]*?\b\d{1,2}\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)[^\n]*?:"
 )
+_HOURLY_DATA_LINE_RE = re.compile(r"^(?:midnight|noon|\d{1,2}(?:am|pm))\b", re.IGNORECASE)
+_HOURLY_GUST_RE = re.compile(r"\s+gust\s+(\d+(?:\.\d+)?)\b", re.IGNORECASE)
 
 
 @dataclass
@@ -763,13 +767,19 @@ def _generate_location_text_with_adaptive_thinning(
     member_limits: List[Optional[int]] = [None]
     if payload.model_kind == "ensemble":
         member_limits.extend(_reduced_scenario_limits(initial_scenarios))
+    gust_reporting_floor = (
+        compact_wind_thresholds(payload.units.windspeed_primary)[1]
+        if use_compact_profile
+        else None
+    )
 
     for attempt_index, member_limit in enumerate(member_limits):
-        formatted_dataset = (
-            _format_location_payload(payload, payload.dataset, compact=True)
-            if use_compact_profile
-            else payload.formatted_dataset
-        )
+        formatted_dataset = payload.formatted_dataset
+        if gust_reporting_floor is not None:
+            formatted_dataset = _filter_unreportable_compact_gusts(
+                formatted_dataset,
+                gust_reporting_floor=gust_reporting_floor,
+            )
         if member_limit is not None:
             reduced_dataset = select_members(payload.dataset, thin_select=member_limit)
             formatted_dataset = _format_location_payload(payload, reduced_dataset)
@@ -808,6 +818,12 @@ def _generate_location_text_with_adaptive_thinning(
                 reasoning_enabled=_as_bool(config.enable_reasoning),
                 reasoning_level=getattr(config, "location_reasoning", None),
             )
+            if gust_reporting_floor is not None:
+                generated = postprocess_compact_spot_output(
+                    generated,
+                    gust_reporting_floor=gust_reporting_floor,
+                    alerts_present=bool(payload.alerts),
+                )
             requirements = parse_spot_output_requirements(
                 formatted_dataset,
                 model_kind=payload.model_kind,
@@ -856,6 +872,12 @@ def _generate_location_text_with_adaptive_thinning(
                 thinking_level=None,
             )
             forecast_cost += consume_last_cost_cents()
+            if corrected and gust_reporting_floor is not None:
+                corrected = postprocess_compact_spot_output(
+                    corrected,
+                    gust_reporting_floor=gust_reporting_floor,
+                    alerts_present=bool(payload.alerts),
+                )
             if not corrected:
                 factual_violations = validate_spot_forecast(
                     generated,
@@ -1076,11 +1098,28 @@ def _maximum_dataset_scenarios(dataset: List[dict]) -> int:
     return maximum
 
 
+def _filter_unreportable_compact_gusts(
+    formatted_dataset: str,
+    *,
+    gust_reporting_floor: int,
+) -> str:
+    """Remove routine gust values from compact hourly rows while preserving alerts."""
+    filtered_lines: List[str] = []
+    for line in formatted_dataset.splitlines():
+        if _HOURLY_DATA_LINE_RE.match(line):
+            line = _HOURLY_GUST_RE.sub(
+                lambda match: ""
+                if float(match.group(1)) <= gust_reporting_floor
+                else match.group(0),
+                line,
+            )
+        filtered_lines.append(line)
+    return "\n".join(filtered_lines)
+
+
 def _format_location_payload(
     payload: LocationForecastPayload,
     dataset: List[dict],
-    *,
-    compact: bool = False,
 ) -> str:
     """Format a payload's dataset using its location-specific units and alerts."""
     return format_location_dataset(
@@ -1091,7 +1130,6 @@ def _format_location_payload(
         precipitation_unit=payload.units.precipitation_primary,
         snowfall_unit=payload.units.snowfall_primary,
         windspeed_unit=payload.units.windspeed_primary,
-        compact=compact,
     )
 
 
@@ -1460,7 +1498,8 @@ def _needs_snow_profile_request(forecast_raw: dict) -> bool:
     Decide whether it's worth doing a second request for pressure-level snow diagnostics.
 
     We only do the extra call when the base data suggests snow might be relevant at all:
-    precip > 0, temp < ~15C, and weather_code not already a snow/freezing type.
+    precip > 0, temp < ~15C, and weather_code is not a freezing-liquid type. Snow-coded
+    hours are included so their surface phase and settling level can be reconciled.
     """
     try:
         hourly = forecast_raw.get("hourly", {})

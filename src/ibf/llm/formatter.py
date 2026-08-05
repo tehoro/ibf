@@ -7,7 +7,6 @@ from __future__ import annotations
 import logging
 import math
 import re
-from collections import Counter
 from datetime import datetime
 from typing import Any, Iterable, List
 
@@ -115,7 +114,6 @@ def format_location_dataset(
     precipitation_unit: str,
     snowfall_unit: str,
     windspeed_unit: str,
-    compact: bool = False,
 ) -> str:
     """
     Convert the structured dataset and alerts into a human-readable text block for the LLM.
@@ -131,9 +129,6 @@ def format_location_dataset(
         precipitation_unit: Unit for precipitation display.
         snowfall_unit: Unit for snowfall display.
         windspeed_unit: Unit for wind speed display.
-        compact: Replace noisy deterministic sky/wind/snow hourly signals with a
-            stable daily editorial summary for the compact prompt profile.
-
     Returns:
         A string containing the formatted dataset and alerts.
     """
@@ -159,8 +154,6 @@ def format_location_dataset(
 
         ensemble_keys = list(hours[0].get("ensemble_members", {}).keys())
         is_single_member = len(ensemble_keys) <= 1
-        compact_day = compact and is_single_member
-        compact_partial_day = compact_day and _is_partial_day_label(stable_label)
         members_output: List[str] = []
         daily_lows: List[float] = []
         daily_highs: List[float] = []
@@ -213,6 +206,14 @@ def format_location_dataset(
                     temperature_unit,
                     precipitation_unit,
                 )
+                snow_settling_level = _convert_snow_level(
+                    member_data.get("snow_settling_level"),
+                    temperature_unit,
+                    precipitation_unit,
+                )
+                if member_data.get("snow_level_reportable") is False:
+                    snow_level = None
+                    snow_settling_level = None
 
                 precip_text = _format_hourly_precip_rate(
                     precipitation=precip_val,
@@ -222,7 +223,12 @@ def format_location_dataset(
                 )
 
                 snow_text = ""
-                if isinstance(snow_level, int) and snow_level > 0:
+                if isinstance(snow_settling_level, int) and snow_settling_level > 0:
+                    snow_text = (
+                        f"(snow mainly settling above about {snow_settling_level} "
+                        f"{snow_level_unit})"
+                    )
+                elif isinstance(snow_level, int) and snow_level > 0:
                     snow_text = f"(snow down to about {snow_level} {snow_level_unit})"
 
                 wind_speed_rounded = round_windspeed(wind_speed, windspeed_unit)
@@ -234,38 +240,22 @@ def format_location_dataset(
                     cloud_text = f"cc{cloud_cover}"
 
                 temp_text = f"{_format_temp(temp)}" if isinstance(temp, (int, float)) else "N/A"
-                displayed_weather = (
-                    _compact_weather_description(weather_desc)
-                    if compact_day
-                    else weather_desc
-                )
                 details = [temp_text]
-                if displayed_weather:
-                    details.append(displayed_weather)
+                if weather_desc:
+                    details.append(weather_desc)
                 if precip_text:
                     details.append(precip_text)
-                if cloud_text and not compact_day:
+                if cloud_text:
                     details.append(cloud_text)
-                if snow_text and not compact_day:
+                if snow_text:
                     details.append(snow_text)
                 if pop_text:
                     details.append(pop_text)
-                if not compact_day:
-                    details.append(wind_text)
+                details.append(wind_text)
                 detail_str = " ".join(part.strip() for part in details if part)
                 block_lines.append(f"{hour_label} {detail_str}")
 
             if has_data:
-                if compact_day:
-                    block_lines.extend(
-                        _compact_daily_signals(
-                            hours,
-                            member,
-                            temperature_unit=temperature_unit,
-                            precipitation_unit=precipitation_unit,
-                            windspeed_unit=windspeed_unit,
-                        )
-                    )
                 summary = _member_summary(
                     high_temp,
                     low_temp,
@@ -274,7 +264,6 @@ def format_location_dataset(
                     temperature_unit,
                     precipitation_unit,
                     snowfall_unit,
-                    include_temperatures=not compact_partial_day,
                 )
                 block_lines.append(summary)
                 members_output.append("\n".join(block_lines))
@@ -408,258 +397,6 @@ def _format_wind(direction: str, speed: float, gust: float) -> str:
     if isinstance(gust, (int, float)) and gust - speed >= 5:
         gust_part = f" gust {int(gust)}"
     return f"{base}{gust_part}"
-
-
-def _compact_weather_description(description: str) -> str:
-    """Remove sky-only weather labels that are represented by the compact sky summary."""
-    normalized = (description or "").strip().lower()
-    sky_only = {
-        "clear",
-        "clear sky",
-        "mainly clear",
-        "mostly clear",
-        "partly cloudy",
-        "cloudy",
-        "overcast",
-    }
-    return "" if normalized in sky_only else description
-
-
-def _compact_daily_signals(
-    hours: List[dict],
-    member: str,
-    *,
-    temperature_unit: str,
-    precipitation_unit: str,
-    windspeed_unit: str,
-) -> List[str]:
-    """Build stable daily sky, wind, and snow guidance for compact prompt profiles."""
-    member_rows: List[tuple[int, dict]] = []
-    for hour_entry in hours:
-        member_data = hour_entry.get("ensemble_members", {}).get(member)
-        if not isinstance(member_data, dict):
-            continue
-        member_rows.append((_hour_from_string(hour_entry.get("hour", "0:00")), member_data))
-
-    lines = ["COMPACT DAILY SIGNALS (authoritative editorial summary):"]
-    sky = _compact_sky_signal(member_rows)
-    wind = _compact_wind_signal(member_rows, windspeed_unit)
-    snow = _compact_snow_signal(
-        member_rows,
-        temperature_unit=temperature_unit,
-        precipitation_unit=precipitation_unit,
-    )
-    if sky:
-        lines.append(f"- Sky: {sky}")
-    lines.append(f"- Wind: {wind}")
-    if snow:
-        lines.append(f"- Snow level: {snow}")
-    return lines
-
-
-def _compact_sky_signal(rows: List[tuple[int, dict]]) -> str:
-    """Return at most two dominant cloud-cover categories in chronological order."""
-    samples: List[tuple[int, float]] = []
-    for hour, data in rows:
-        cloud = data.get("cloud_cover")
-        if not isinstance(cloud, (int, float)) or not 0 <= float(cloud) <= 100:
-            continue
-        if hour < 6 and not _has_precipitation_signal(data):
-            continue
-        samples.append((hour, float(cloud)))
-    if not samples:
-        return "no reliable cloud-cover summary; use weather codes only."
-
-    smoothed: List[tuple[int, str]] = []
-    values = [value for _, value in samples]
-    for index, (hour, _value) in enumerate(samples):
-        window = values[max(0, index - 1) : min(len(values), index + 2)]
-        category = _cloud_category(float(np.median(window)))
-        smoothed.append((hour, category))
-
-    counts = Counter(category for _, category in smoothed)
-    chosen = [name for name, _count in counts.most_common(2)]
-    chosen.sort(key=lambda category: next(i for i, (_hour, value) in enumerate(smoothed) if value == category))
-    if len(chosen) == 1:
-        return f"dominant cover is {chosen[0]}; ignore shorter fluctuations."
-    return (
-        f"use no more than these dominant states, in order: {chosen[0]}, then {chosen[1]}; "
-        "ignore shorter fluctuations."
-    )
-
-
-def _cloud_category(value: float) -> str:
-    if value <= 20:
-        return "mostly clear"
-    if value <= 60:
-        return "partly cloudy"
-    if value <= 85:
-        return "cloudy"
-    return "overcast"
-
-
-def _has_precipitation_signal(data: dict) -> bool:
-    precipitation = data.get("precipitation")
-    snowfall = data.get("snowfall")
-    if isinstance(precipitation, (int, float)) and precipitation > 0:
-        return True
-    if isinstance(snowfall, (int, float)) and snowfall > 0:
-        return True
-    weather = str(data.get("weather", "")).lower()
-    return any(
-        word in weather
-        for word in ("rain", "shower", "drizzle", "snow", "sleet", "thunder", "storm")
-    )
-
-
-def _compact_wind_signal(rows: List[tuple[int, dict]], unit: str) -> str:
-    """Collapse light wind and direction noise into one stable editorial signal."""
-    relevant: List[tuple[int, str, float, float]] = []
-    for hour, data in rows:
-        speed = data.get("wind_speed")
-        gust = data.get("wind_gust")
-        speed_kph = float(speed) if isinstance(speed, (int, float)) else 0.0
-        gust_kph = float(gust) if isinstance(gust, (int, float)) else 0.0
-        if speed_kph < 20.0 and gust_kph < 40.0:
-            continue
-        direction = _eight_point_direction(str(data.get("wind_direction", "VAR")))
-        relevant.append((hour, direction, speed_kph, gust_kph))
-
-    if not relevant:
-        return "light; write exactly 'Light winds.' and omit directions and speeds."
-
-    direction_weights: Counter[str] = Counter()
-    direction_hours: Counter[str] = Counter()
-    for _hour, direction, speed, gust in relevant:
-        direction_weights[direction] += max(speed, gust * 0.5, 1.0)
-        direction_hours[direction] += 1
-    primary = direction_weights.most_common(1)[0][0]
-
-    secondary = None
-    for direction, _weight in direction_weights.most_common():
-        if direction == primary or direction == "VAR":
-            continue
-        if direction_hours[direction] >= 3 and _longest_direction_run(relevant, direction) >= 3:
-            secondary = direction
-            break
-
-    sustained = [
-        round_windspeed(_convert_wind(speed, unit), unit)
-        for _hour, _direction, speed, _gust in relevant
-        if speed >= 20.0
-    ]
-    reportable_gusts = [
-        round_windspeed(_convert_wind(gust, unit), unit)
-        for _hour, _direction, _speed, gust in relevant
-        if gust >= 40.0
-    ]
-    unit_label = _format_unit_label(unit)
-    parts = [f"prevailing direction {primary}"]
-    if secondary:
-        parts.append(f"one lasting shift to {secondary}")
-    if sustained:
-        low, high = min(sustained), max(sustained)
-        speed_text = f"{int(low)}" if low == high else f"{int(low)} to {int(high)}"
-        parts.append(f"reportable sustained speed {speed_text} {unit_label}")
-    else:
-        parts.append("sustained wind remains below the reporting threshold")
-    if reportable_gusts:
-        parts.append(f"maximum reportable gust {int(max(reportable_gusts))} {unit_label}")
-    else:
-        parts.append("omit gusts")
-    return "; ".join(parts) + "."
-
-
-def _eight_point_direction(value: str) -> str:
-    """Collapse common 16-point compass directions to the nearest 8-point direction."""
-    normalized = (value or "VAR").strip().upper()
-    mapping = {
-        "N": "N",
-        "NNE": "NE",
-        "NE": "NE",
-        "ENE": "NE",
-        "E": "E",
-        "ESE": "SE",
-        "SE": "SE",
-        "SSE": "SE",
-        "S": "S",
-        "SSW": "SW",
-        "SW": "SW",
-        "WSW": "SW",
-        "W": "W",
-        "WNW": "NW",
-        "NW": "NW",
-        "NNW": "NW",
-    }
-    return mapping.get(normalized, "VAR")
-
-
-def _longest_direction_run(rows: List[tuple[int, str, float, float]], direction: str) -> int:
-    longest = 0
-    current = 0
-    previous_hour: int | None = None
-    for hour, candidate, _speed, _gust in rows:
-        if candidate == direction and (previous_hour is None or hour == previous_hour + 1):
-            current += 1
-        elif candidate == direction:
-            current = 1
-        else:
-            current = 0
-        longest = max(longest, current)
-        previous_hour = hour
-    return longest
-
-
-def _compact_snow_signal(
-    rows: List[tuple[int, dict]],
-    *,
-    temperature_unit: str,
-    precipitation_unit: str,
-) -> str:
-    """Return one report/omit decision and, when useful, a snow-level progression."""
-    raw_levels: List[tuple[int, float]] = []
-    for hour, data in rows:
-        level = data.get("snow_level")
-        if isinstance(level, (int, float)) and level > 0:
-            raw_levels.append((hour, float(level)))
-    if not raw_levels:
-        return ""
-
-    minimum_hour, minimum_m = min(raw_levels, key=lambda item: item[1])
-    if minimum_m > 1000.0:
-        return "omit; every supplied level is above the relevance limit."
-
-    display_unit = (
-        "feet"
-        if _snow_level_unit_label(temperature_unit, precipitation_unit) == "ft"
-        else "metres"
-    )
-    first_m = raw_levels[0][1]
-    first_display = _convert_snow_level(first_m, temperature_unit, precipitation_unit)
-    minimum_display = _convert_snow_level(minimum_m, temperature_unit, precipitation_unit)
-    if first_display is None or minimum_display is None:
-        return ""
-    timing = _broad_period(minimum_hour)
-    if first_m - minimum_m >= 150.0:
-        return (
-            f"report; lowers from about {first_display} {display_unit} to around "
-            f"{minimum_display} {display_unit} by {timing}."
-        )
-    return f"report once; snow down to about {minimum_display} {display_unit} in the {timing}."
-
-
-def _broad_period(hour: int) -> str:
-    if hour < 6:
-        return "early morning"
-    if hour < 12:
-        return "morning"
-    if hour < 15:
-        return "early afternoon"
-    if hour < 18:
-        return "afternoon"
-    if hour < 21:
-        return "evening"
-    return "late evening"
 
 
 def _format_hourly_precip_rate(
@@ -1095,12 +832,6 @@ def convert_date_string(date_str: str) -> str:
 def _stable_day_label(label: str) -> str:
     """Remove relative tomorrow wording while preserving weekday and partial-day labels."""
     return re.sub(r"^\s*tomorrow\s*,?\s*", "", label or "", flags=re.IGNORECASE).strip()
-
-
-def _is_partial_day_label(label: str) -> bool:
-    """Return whether a day label covers only the remaining part of the current day."""
-    lowered = (label or "").strip().lower()
-    return lowered.startswith(("this ", "rest of ", "today"))
 
 
 def determine_current_season(latitude: float) -> str:

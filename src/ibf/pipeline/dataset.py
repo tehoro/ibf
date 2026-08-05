@@ -19,7 +19,9 @@ from ..util.snow import (
     extract_pressure_profile,
     rh_from_T_Td,
     estimate_snow_level_msl,
+    reconcile_surface_snow,
     should_check_snow_level,
+    should_report_snow_level,
     wet_bulb_dj,
 )
 from ..api.thin import select_members
@@ -369,13 +371,14 @@ def _build_member_record(
     if any(v is None for v in required):
         return None
 
+    try:
+        wx_code = int(weather_code) if weather_code is not None else 0
+    except (TypeError, ValueError):
+        wx_code = 0
+
     snow_level: float | None = None
     snow_level_debug: dict | None = None
     if snow_levels_enabled:
-        try:
-            wx_code = int(weather_code) if weather_code is not None else 0
-        except (TypeError, ValueError):
-            wx_code = 0
         # Avoid expensive or noisy calculations when snow is implausible.
         if (
             dewpoint_c is not None
@@ -452,17 +455,33 @@ def _build_member_record(
                         except (KeyError, TypeError, ValueError):
                             snow_level = None
 
+    model_weather = wmo_weather(wx_code)
+    surface_weather, surface_snowfall_cm, settling_level = reconcile_surface_snow(
+        weather_code=wx_code,
+        weather_description=model_weather,
+        snowfall_cm=float(snowfall_cm),
+        snow_level_m=snow_level,
+        location_elevation_m=float(location_altitude),
+    )
+    snow_level_reportable = should_report_snow_level(snow_level, location_altitude)
+
     record: Dict[str, Any] = {
         "temperature": temp_c,
         "precipitation": precip_mm,
-        "snowfall": snowfall_cm,
-        "weather": wmo_weather(weather_code),
+        "snowfall": surface_snowfall_cm,
+        "weather": surface_weather,
         "cloud_cover": int(cloud_cover) if cloud_cover is not None else None,
         "wind_direction": degrees_to_compass(wind_direction),
         "wind_speed": wind_kph,
         "wind_gust": gust_kph if gust_kph is not None else 0,
         "snow_level": float(snow_level) if snow_level is not None else None,
     }
+    if snow_level is not None:
+        record["snow_level_reportable"] = snow_level_reportable
+    if settling_level is not None:
+        record["snow_settling_level"] = settling_level
+        record["model_weather"] = model_weather
+        record["model_snowfall"] = float(snowfall_cm)
     if snow_level_debug is not None:
         record["_snow_level_debug"] = snow_level_debug
 
@@ -542,11 +561,15 @@ def _estimate_snow_level(
         lapse_rate = max(0.001, min(0.015, (temp_c - wet_bulb) / alt_diff))
     first_guess = (wet_bulb - 1.0) / lapse_rate + location_altitude if lapse_rate > 0 else fzl
 
-    if precip == 0 or (fzl is not None and fzl <= location_altitude):
+    if precip == 0:
         return None
 
+    if fzl is not None and fzl <= location_altitude:
+        return float(location_altitude)
+
     snow_level = min(first_guess, fzl - 100) if fzl is not None else first_guess
-    if snow_level < location_altitude or snow_level > (location_altitude + 3000):
+    snow_level = max(float(location_altitude), snow_level)
+    if snow_level > (location_altitude + 3000):
         return None
 
     if max_terrain_m is not None and math.isfinite(float(max_terrain_m)):

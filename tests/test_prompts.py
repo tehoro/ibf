@@ -109,19 +109,26 @@ def test_standard_prompt_does_not_append_compact_style_stack() -> None:
 
 
 @pytest.mark.parametrize(
-    ("temperature_unit", "wind_unit", "temperature_symbol", "thresholds"),
+    (
+        "temperature_unit",
+        "wind_unit",
+        "temperature_symbol",
+        "light_threshold",
+        "gust_floor",
+    ),
     [
-        ("celsius", "kph", "°C", "20 km/h"),
-        ("fahrenheit", "mph", "°F", "15 mph"),
-        ("celsius", "kt", "°C", "10 kt"),
-        ("celsius", "mps", "°C", "5 m/s"),
+        ("celsius", "kph", "°C", "20 km/h", "50 km/h"),
+        ("fahrenheit", "mph", "°F", "15 mph", "30 mph"),
+        ("celsius", "kt", "°C", "10 kt", "25 kt"),
+        ("celsius", "mps", "°C", "5 m/s", "15 m/s"),
     ],
 )
 def test_compact_spot_prompt_is_generalized_and_unit_aware(
     temperature_unit: str,
     wind_unit: str,
     temperature_symbol: str,
-    thresholds: str,
+    light_threshold: str,
+    gust_floor: str,
 ) -> None:
     units = UnitInstructions(
         temperature_primary=temperature_unit,
@@ -140,17 +147,30 @@ def test_compact_spot_prompt_is_generalized_and_unit_aware(
         prompt_profile="compact",
     )
 
-    assert "general-audience radio bulletin" in prompt
-    assert "UK or New Zealand English" in prompt
-    assert "COMPACT DAILY SIGNALS" in prompt
-    assert "at most two broad sky descriptions" in prompt
-    assert thresholds in prompt
+    assert "spoken weather forecast for a general audience" in prompt
+    assert "terminology that sounds natural for the forecast location" in prompt
+    assert "raw hourly rows" in prompt
+    assert "COMPACT DAILY SIGNALS" not in prompt
+    assert "no more than two broad sky descriptions" in prompt
+    assert light_threshold in prompt
+    assert f"gust exceeds {gust_floor}" in prompt
     assert f"repeating {temperature_symbol} on both values" in prompt
+    assert 'finish with "A low of [low] and a high of [high]"' in prompt
+    assert 'Use "this morning", "this afternoon" or "this evening" only' in prompt
+    assert "The period heading already supplies the overall timeframe" in prompt
+    assert "Once a change occurs and then persists, state when it begins" in prompt
+    assert "Retain duration wording when prolonged precipitation" in prompt
     assert "ACTIVE ALERTS" in prompt
-    assert '"snow down to about X"' in prompt
-    assert 'Never say winds "will be present" or "will persist"' in prompt
-    assert 'Start it exactly as "**[supplied label]:**"' in prompt
-    assert "#TARGET SHAPE" in prompt
+    assert '"snow down to about X m"' in prompt
+    assert "location-relative relevance filter" in prompt
+    assert 'say "snow above about X m"' in prompt
+    assert 'Never write "including a total of X"' in prompt
+    assert 'say "Clear with light winds."' in prompt
+    assert "1000 metres" not in prompt
+    assert '"will be present", "will persist" or "dominate"' in prompt
+    assert 'Begin it exactly as "**[supplied label]:**"' in prompt
+    assert "# EXAMPLES OF THE REGISTER" in prompt
+    assert "New Zealand meteorologist" not in prompt
 
 
 def test_compact_profile_does_not_change_ensemble_spot_prompt() -> None:

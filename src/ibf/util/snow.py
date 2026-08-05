@@ -16,6 +16,11 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+SNOW_WEATHER_CODES = frozenset({71, 73, 75, 77, 85, 86})
+FREEZING_LIQUID_WEATHER_CODES = frozenset({56, 57, 66, 67})
+SNOW_LEVEL_TRANSITION_M = 100.0
+SNOW_LEVEL_REPORTING_MAX_ABOVE_LOCATION_M = 1200.0
+
 # Thermodynamic constants
 Rd = 287.05  # J/kg/K
 Rv = 461.5
@@ -194,17 +199,77 @@ def should_check_snow_level(precipitation_mm: float, weather_code: int, temperat
     """
     Return True if conditions warrant a snow-level calculation.
 
-    This mirrors the logic from the Weather MCP Server:
+    This is based on the Weather MCP Server gate, but deliberately includes
+    snow-coded hours so the diagnostic can check whether snow is likely to
+    settle at the forecast location:
       - precip > 0
-      - weather code not already a freezing/snow type
+      - weather code not a freezing-liquid type
       - temperature < 15C
     """
-    freezing_codes = {56, 57, 66, 67, 71, 73, 75, 77, 85, 86}
     return (
         precipitation_mm > 0
-        and weather_code not in freezing_codes
+        and weather_code not in FREEZING_LIQUID_WEATHER_CODES
         and temperature_c < 15.0
     )
+
+
+def should_report_snow_level(
+    snow_level_m: float | None,
+    location_elevation_m: float,
+    *,
+    max_above_location_m: float = SNOW_LEVEL_REPORTING_MAX_ABOVE_LOCATION_M,
+) -> bool:
+    """Return whether a diagnosed snow level is locally relevant enough to report."""
+    if snow_level_m is None:
+        return False
+    try:
+        level = float(snow_level_m)
+        elevation = float(location_elevation_m)
+        maximum_height = float(max_above_location_m)
+    except (TypeError, ValueError):
+        return False
+    if not all(math.isfinite(value) for value in (level, elevation, maximum_height)):
+        return False
+    return level > 0.0 and level - elevation <= maximum_height
+
+
+def reconcile_surface_snow(
+    *,
+    weather_code: int,
+    weather_description: str,
+    snowfall_cm: float,
+    snow_level_m: float | None,
+    location_elevation_m: float,
+    transition_m: float = SNOW_LEVEL_TRANSITION_M,
+) -> tuple[str, float, float | None]:
+    """Reconcile model snow with the diagnosed level for settling snow.
+
+    A model snow signal is retained when no usable diagnostic exists or the
+    location lies at/near the diagnosed snow level.  When the location is well
+    below that level, falling flakes remain possible, but the forecast-facing
+    condition becomes wintry/mixed and the point snowfall accumulation is
+    suppressed.  The original values remain available to the caller.
+
+    Returns ``(surface_weather, settling_snowfall_cm, settling_level_m)``.
+    """
+    if weather_code not in SNOW_WEATHER_CODES:
+        return weather_description, snowfall_cm, None
+    if snow_level_m is None or not math.isfinite(float(snow_level_m)):
+        return weather_description, snowfall_cm, None
+
+    height_above_location = float(snow_level_m) - float(location_elevation_m)
+    if height_above_location <= max(0.0, float(transition_m)):
+        return weather_description, snowfall_cm, None
+
+    surface_descriptions = {
+        71: "light rain and wet snow",
+        73: "rain and wet snow",
+        75: "heavy rain and wet snow",
+        77: "wintry precipitation",
+        85: "light wintry showers",
+        86: "heavy wintry showers",
+    }
+    return surface_descriptions[weather_code], 0.0, float(snow_level_m)
 
 
 def extract_pressure_profile(
@@ -309,6 +374,12 @@ def compute_hourly_snow_level(
 
 __all__ = [
     "estimate_snow_level_msl",
+    "FREEZING_LIQUID_WEATHER_CODES",
+    "reconcile_surface_snow",
+    "should_report_snow_level",
+    "SNOW_LEVEL_REPORTING_MAX_ABOVE_LOCATION_M",
+    "SNOW_LEVEL_TRANSITION_M",
+    "SNOW_WEATHER_CODES",
     "wet_bulb_dj",
     "rh_from_T_Td",
     "sat_mixing_ratio",

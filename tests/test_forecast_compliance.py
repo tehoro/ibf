@@ -4,10 +4,12 @@ import pytest
 
 from ibf.config.models import ForecastConfig, LocationConfig
 from ibf.llm.compliance import (
+    SpotPeriodRequirement,
     build_spot_correction_prompts,
     correction_preserves_other_numeric_facts,
     format_spot_output_contract,
     parse_spot_output_requirements,
+    postprocess_compact_spot_output,
     validate_spot_forecast,
 )
 from ibf.llm.settings import LLMSettings
@@ -171,6 +173,44 @@ def test_validator_rejects_wrong_or_duplicate_full_day_headings() -> None:
     assert "Duplicate forecast period for 4 august." in violations
 
 
+def test_validator_rejects_a_different_weekday_inside_period_body() -> None:
+    requirements = [
+        SpotPeriodRequirement(
+            source_label="THIS AFTERNOON AND EVENING, WEDNESDAY 5 AUGUST",
+            date_key="5 august",
+            partial=True,
+            weekday="wednesday",
+        )
+    ]
+    forecast = (
+        "**THIS AFTERNOON AND EVENING, WEDNESDAY 5 AUGUST:** Clear skies. "
+        "Northwesterlies, turning easterly before returning early Thursday morning."
+    )
+
+    violations = validate_spot_forecast(forecast, requirements)
+
+    assert (
+        "THIS AFTERNOON AND EVENING, WEDNESDAY 5 AUGUST must not describe Thursday "
+        "inside this forecast period."
+    ) in violations
+
+
+def test_validator_allows_cross_day_wording_when_alerts_are_present() -> None:
+    requirements = [
+        SpotPeriodRequirement(
+            source_label="WEDNESDAY 5 AUGUST",
+            date_key="5 august",
+            partial=False,
+            weekday="wednesday",
+        )
+    ]
+    forecast = (
+        "**WEDNESDAY 5 AUGUST:** A wind warning remains in force until early Thursday morning."
+    )
+
+    assert validate_spot_forecast(forecast, requirements, alerts_present=True) == []
+
+
 def test_ensemble_contract_rejects_unapproved_scenario_total() -> None:
     requirements = parse_spot_output_requirements(ENSEMBLE_DATA, model_kind="ensemble")
     contract = format_spot_output_contract(requirements)
@@ -315,7 +355,7 @@ def test_location_generation_runs_one_non_reasoning_correction(monkeypatch) -> N
     assert correction_calls[0][3] == {"reasoning": None, "thinking_level": None}
 
 
-def test_compact_profile_is_selected_only_for_deterministic_spot_generation(monkeypatch) -> None:
+def test_compact_profile_uses_raw_deterministic_spot_data(monkeypatch) -> None:
     payload = type(
         "Payload",
         (),
@@ -340,23 +380,18 @@ def test_compact_profile_is_selected_only_for_deterministic_spot_generation(monk
         prompt_profile="compact",
     )
     settings = LLMSettings(model="test-model", api_key="local", provider="lmstudio")
-    valid = """**Monday, 3 August:** Clear. Light winds. A high of 15°C and a low of 10°C.
+    valid = """**Monday, 3 August:** Clear. Light winds. A low of 10°C and a high of 15°C.
 
-**Tuesday, 4 August:** Light rain totalling 2 mm. Light winds. A high of 10°C and a low of 7°C.
+**Tuesday, 4 August:** Light rain totalling 2 mm. Light winds. A low of 7°C and a high of 10°C.
 
-**Wednesday, 5 August:** Partly cloudy. Southerlies 40 km/h. A high of 9°C and a low of 4°C."""
+**Wednesday, 5 August:** Partly cloudy. Southerlies 40 km/h. A low of 4°C and a high of 9°C."""
     captured = {}
-
-    def fake_format(_payload, _dataset, *, compact=False):
-        captured["compact"] = compact
-        return DETERMINISTIC_DATA
 
     def fake_generate(_config, prompt, system_prompt, **_kwargs):
         captured["prompt"] = prompt
         captured["system_prompt"] = system_prompt
         return valid, settings, 0.0
 
-    monkeypatch.setattr(executor, "_format_location_payload", fake_format)
     monkeypatch.setattr(executor, "_generate_text_with_fallback", fake_generate)
 
     text, used_settings, _cost = executor._generate_location_text_with_adaptive_thinning(
@@ -369,9 +404,162 @@ def test_compact_profile_is_selected_only_for_deterministic_spot_generation(monk
 
     assert text == valid
     assert used_settings is settings
-    assert captured["compact"] is True
-    assert "COMPACT DAILY SIGNALS" in captured["system_prompt"]
+    assert "raw hourly rows" in captured["system_prompt"]
+    assert "COMPACT DAILY SIGNALS" not in captured["system_prompt"]
     assert captured["prompt"].startswith("Write the deterministic spoken spot forecast")
+    assert "midnight 10° Clear sky N 20 gust 40" not in captured["prompt"]
+    assert "midnight 10° Light rain S 20 gust 50" not in captured["prompt"]
+    assert "midnight 8° Partly cloudy S 40 gust 90" in captured["prompt"]
+
+
+def test_compact_gust_filter_changes_only_hourly_rows_at_or_below_floor() -> None:
+    formatted = """ACTIVE ALERTS:
+Description: Severe gusts reaching 50 km/h.
+
+Date: WEDNESDAY 5 AUGUST
+1pm 8° Partly cloudy S 20 gust 50
+2pm 9° Partly cloudy S 30 gust 60
+"""
+
+    filtered = executor._filter_unreportable_compact_gusts(
+        formatted,
+        gust_reporting_floor=50,
+    )
+
+    assert "Description: Severe gusts reaching 50 km/h." in filtered
+    assert "1pm 8° Partly cloudy S 20\n" in filtered
+    assert "2pm 9° Partly cloudy S 30 gust 60" in filtered
+
+
+def test_compact_output_postprocessing_enforces_objective_period_rules() -> None:
+    forecast = """**THIS AFTERNOON AND EVENING, TUESDAY 4 AUGUST:** Light rain this afternoon. Southwesterlies, gusting to 60 km/h. A low of 3°C and a high of 5°C.
+
+**WEDNESDAY 5 AUGUST:** Overcast early this morning, clearing in the afternoon. Light winds. A high of 7°C and a low of -2°C.
+
+**THURSDAY 6 AUGUST:** Clear, becoming cloudy late this evening. Southwesterly winds, gusting to 30 km/h late in the evening. A low of -4°C, a high of 8°C."""
+
+    processed = postprocess_compact_spot_output(
+        forecast,
+        gust_reporting_floor=50,
+    )
+
+    assert "this afternoon" in processed
+    assert "A high of 5°C and a low of 3°C" in processed
+    assert "Overcast early in the morning, clearing in the afternoon" in processed
+    assert "A low of -2°C and a high of 7°C" in processed
+    assert "cloudy late in the evening" in processed
+    assert "Southwesterly winds." in processed
+    assert "gusting to 30 km/h" not in processed
+    assert "A low of -4°C and a high of 8°C" in processed
+    assert "gusting to 60 km/h" in processed
+
+
+def test_compact_output_postprocessing_preserves_alert_gust_facts() -> None:
+    forecast = """**WEDNESDAY 5 AUGUST:** A MetService Strong Wind Watch is in force this evening, with gusts reaching 50 km/h. A high of 8°C and a low of 2°C."""
+
+    processed = postprocess_compact_spot_output(
+        forecast,
+        gust_reporting_floor=50,
+        alerts_present=True,
+    )
+
+    assert "in force in the evening, with gusts reaching 50 km/h" in processed
+    assert "A low of 2°C and a high of 8°C" in processed
+
+
+def test_compact_output_postprocessing_removes_redundant_steady_timing() -> None:
+    forecast = """**THIS AFTERNOON AND EVENING, WEDNESDAY 5 AUGUST:** Mainly clear to clear skies this afternoon, remaining clear through the evening. Southerly winds. A high of 10°C and a low of 3°C.
+
+**THURSDAY 6 AUGUST:** Clear skies all day, with light winds throughout. A low of 0°C and a high of 10°C.
+
+**FRIDAY 7 AUGUST:** Clear skies in the morning, becoming overcast from late morning and remaining so through much of the afternoon and evening. Northerly winds throughout the day. A low of 8°C and a high of 15°C.
+
+**SATURDAY 8 AUGUST:** Mostly clear to partly cloudy in the morning, becoming overcast from late morning through the afternoon and evening. A low of 3°C and a high of 14°C."""
+
+    processed = postprocess_compact_spot_output(
+        forecast,
+        gust_reporting_floor=50,
+    )
+
+    assert "Mainly clear to clear skies. Southerly winds." in processed
+    assert "Clear skies, with light winds." in processed
+    assert "Clear skies at first, becoming overcast from late morning." in processed
+    assert "Northerly winds." in processed
+    assert "Mostly clear to partly cloudy at first, becoming overcast from late morning." in processed
+    assert "throughout the afternoon and evening" not in processed
+    assert "through much of the afternoon and evening" not in processed
+    assert "throughout the day" not in processed
+
+
+def test_compact_timing_postprocessing_preserves_precipitation_duration_and_alerts() -> None:
+    forecast = """**FRIDAY 7 AUGUST:** Rain throughout the day, easing late evening. A low of 5°C and a high of 9°C."""
+
+    processed = postprocess_compact_spot_output(
+        forecast,
+        gust_reporting_floor=50,
+    )
+    alert_processed = postprocess_compact_spot_output(
+        "**FRIDAY 7 AUGUST:** A rain warning remains in force throughout the day.",
+        gust_reporting_floor=50,
+        alerts_present=True,
+    )
+
+    assert "Rain throughout the day" in processed
+    assert "warning remains in force throughout the day" in alert_processed
+
+
+def test_compact_output_postprocessing_normalises_final_wording_tweaks() -> None:
+    forecast = """**THURSDAY 6 AUGUST:** A clear day from the start, with light winds. A low of -1°C and a high of 11°C.
+
+**FRIDAY 7 AUGUST:** Light rain developing around midday, though snow may fall down to about 500 metres. A low of -4°C and a high of 8°C.
+
+**SATURDAY 8 AUGUST:** Overcast with light rain throughout the day, including a total of 1 mm. Snow mainly settling above 700 metres. A low of 5°C and a high of 11°C."""
+
+    processed = postprocess_compact_spot_output(
+        forecast,
+        gust_reporting_floor=50,
+    )
+
+    assert "Clear with light winds." in processed
+    assert "giving 1 mm in total" in processed
+    assert "with snow down to about 500 m" in processed
+    assert "Snow above about 700 m." in processed
+    assert "including a total" not in processed
+    assert "mainly settling" not in processed
+
+
+def test_compact_output_postprocessing_removes_snow_may_reach_area_wording() -> None:
+    forecast = """**SATURDAY 8 AUGUST:** Snow may reach the area, though it is mainly settling above 1800 metres. A low of 7°C and a high of 15°C.
+
+**SUNDAY 9 AUGUST:** Light rain may reach the area, with snow mainly settling above 1500 m to 1800 m. A low of 1°C and a high of 8°C."""
+
+    processed = postprocess_compact_spot_output(
+        forecast,
+        gust_reporting_floor=50,
+    )
+
+    assert "Snow above about 1800 m." in processed
+    assert "Snow above about 1500 m." in processed
+    assert "may reach the area" not in processed
+    assert "1500 m to 1800 m" not in processed
+
+
+def test_compact_output_postprocessing_removes_will_be_present_only() -> None:
+    forecast = """**WEDNESDAY 5 AUGUST:** Southwesterly winds will be present, turning to southerlies later. A low of 2°C and a high of 10°C.
+
+**THURSDAY 6 AUGUST:** Light easterly winds will be present throughout the day, turning to northwesterlies in the afternoon. A low of 1°C and a high of 9°C.
+
+**FRIDAY 7 AUGUST:** Easterly winds will be present in the morning, turning to northwesterlies and then northerlies. A low of 4°C and a high of 11°C."""
+
+    processed = postprocess_compact_spot_output(
+        forecast,
+        gust_reporting_floor=50,
+    )
+
+    assert "will be present" not in processed
+    assert "Southwesterly winds, turning to southerlies later." in processed
+    assert "Light easterly winds, turning to northwesterlies" in processed
+    assert "Easterly winds in the morning, turning to northwesterlies and then northerlies" in processed
 
 
 def test_location_generation_fails_closed_after_bad_correction(monkeypatch) -> None:
