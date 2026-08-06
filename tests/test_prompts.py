@@ -160,11 +160,14 @@ def test_compact_spot_prompt_is_generalized_and_unit_aware(
     assert "The period heading already supplies the overall timeframe" in prompt
     assert "Once a change occurs and then persists, state when it begins" in prompt
     assert "Retain duration wording when prolonged precipitation" in prompt
+    assert 'Write "rain becoming showery in the afternoon"' in prompt
+    assert 'never "rain throughout the day with showers in the afternoon"' in prompt
     assert "ACTIVE ALERTS" in prompt
     assert '"snow down to about X m"' in prompt
     assert "location-relative relevance filter" in prompt
     assert 'say "snow above about X m"' in prompt
     assert 'Never write "including a total of X"' in prompt
+    assert 'with X mm expected, clearing in the afternoon' in prompt
     assert 'say "Clear with light winds."' in prompt
     assert "1000 metres" not in prompt
     assert '"will be present", "will persist" or "dominate"' in prompt

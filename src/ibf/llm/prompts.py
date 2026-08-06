@@ -401,8 +401,10 @@ Write a real forecast, not a list of weather fields or a compressed telegram. Us
 - ccNN is total cloud cover: use it only as a broad sky cue. Ignore short-lived cloud flicker, especially before dawn, and never infer fog or low cloud from ccNN alone.
 - Use no more than two broad sky descriptions in a paragraph, in time order. Do not announce a change between similar states such as mostly clear and partly cloudy, or cloudy and overcast, unless it is sustained and important to the day's story.
 - Describe a spell of precipitation once, with its prevailing intensity and useful broad timing. Do not stack conflicting intensities. Never pair rain or snow with a clear or sunny sky in the same clause.
+- Treat rain and showers as one evolving spell. Write "rain becoming showery in the afternoon", never "rain throughout the day with showers in the afternoon".
 - Work required rain or snow amounts and any reportable snow level naturally into the weather sentence.
 - Link a rain total naturally to the precipitation sentence, for example "giving X mm in total" or "with X mm expected". Never leave the amount as a separate sentence or place it after the wind sentence. Never write "including a total of X".
+- If precipitation clears later, keep its amount beside the precipitation clause: write "Rain in the morning, with X mm expected, clearing in the afternoon", not "Rain in the morning, clearing in the afternoon, with X mm expected".
 - Use connecting words such as "with", "as", "turning to", "clearing", "followed by" and "later" where they help the forecast flow.
 - For a steady clear period with light winds, simply say "Clear with light winds."
 

@@ -435,6 +435,99 @@ Date: WEDNESDAY 5 AUGUST
     assert "2pm 9° Partly cloudy S 30 gust 60" in filtered
 
 
+def test_compact_short_dry_period_uses_one_broad_sky_cue() -> None:
+    cloud_values = [34, 79, 81, 71, 49, 20, 1]
+    weather_values = [
+        "Mainly clear",
+        "Partly cloudy",
+        "Overcast",
+        "Partly cloudy",
+        "Mainly clear",
+        "Mainly clear",
+        "Clear sky",
+    ]
+    hours = [
+        {
+            "hour": f"{hour}:00",
+            "ensemble_members": {
+                "member00": {
+                    "weather": weather,
+                    "cloud_cover": cloud,
+                    "precipitation": 0.0,
+                    "snowfall": 0.0,
+                }
+            },
+        }
+        for hour, weather, cloud in zip(
+            range(17, 24),
+            weather_values,
+            cloud_values,
+            strict=True,
+        )
+    ]
+    dataset = [{"dayofweek": "Rest of Today, Thursday", "hours": hours}]
+    formatted = """Date: REST OF TODAY, THURSDAY 6 AUGUST
+
+5pm 11° Mainly clear cc34 SE 10
+6pm 10° Partly cloudy cc79 S 10
+7pm 9° Overcast cc81 S 10
+8pm 8° Partly cloudy cc71 S 10
+9pm 7° Mainly clear cc49 SW 10
+10pm 6° Mainly clear cc20 SW 10
+11pm 4° Clear sky cc1 SW 10
+
+Date: FRIDAY 7 AUGUST
+midnight 3° Clear sky cc2 SW 10
+"""
+
+    prepared = executor._prepare_compact_short_period_sky_data(formatted, dataset)
+
+    assert "First-period broad sky (use instead of hourly sky changes): Mainly clear." in prepared
+    first_period, second_period = prepared.split("Date: FRIDAY 7 AUGUST")
+    assert "Partly cloudy" not in first_period
+    assert "Overcast" not in first_period
+    assert "cc" not in first_period
+    assert "midnight 3° Clear sky cc2" in second_period
+
+
+def test_compact_short_period_sky_cue_preserves_wet_or_full_day_data() -> None:
+    wet_dataset = [
+        {
+            "dayofweek": "This Evening, Thursday",
+            "hours": [
+                {
+                    "hour": "18:00",
+                    "ensemble_members": {
+                        "member00": {
+                            "weather": "Light rain",
+                            "cloud_cover": 90,
+                            "precipitation": 0.2,
+                            "snowfall": 0.0,
+                        }
+                    },
+                },
+                {
+                    "hour": "19:00",
+                    "ensemble_members": {
+                        "member00": {
+                            "weather": "Overcast",
+                            "cloud_cover": 90,
+                            "precipitation": 0.0,
+                            "snowfall": 0.0,
+                        }
+                    },
+                },
+            ],
+        }
+    ]
+    formatted = "Date: THIS EVENING, THURSDAY 6 AUGUST\n6pm 10° Light rain cc90 0.2 mm/h"
+
+    assert executor._prepare_compact_short_period_sky_data(formatted, wet_dataset) == formatted
+
+    wet_dataset[0]["dayofweek"] = "Friday"
+    assert executor._prepare_compact_short_period_sky_data(formatted, wet_dataset) == formatted
+
+
 def test_compact_output_postprocessing_enforces_objective_period_rules() -> None:
     forecast = """**THIS AFTERNOON AND EVENING, TUESDAY 4 AUGUST:** Light rain this afternoon. Southwesterlies, gusting to 60 km/h. A low of 3°C and a high of 5°C.
 
@@ -486,7 +579,7 @@ def test_compact_output_postprocessing_removes_redundant_steady_timing() -> None
     )
 
     assert "Mainly clear to clear skies. Southerly winds." in processed
-    assert "Clear skies, with light winds." in processed
+    assert "Clear skies with light winds." in processed
     assert "Clear skies at first, becoming overcast from late morning." in processed
     assert "Northerly winds." in processed
     assert "Mostly clear to partly cloudy at first, becoming overcast from late morning." in processed
@@ -548,7 +641,7 @@ def test_compact_output_postprocessing_normalises_reported_prose_defects() -> No
         gust_reporting_floor=50,
     )
 
-    assert "Mainly clear, with light winds turning easterly later." in processed
+    assert "Mainly clear with light winds." in processed
     assert "Clear skies. Light winds. A low of 2°C and a high of 12°C." in processed
     assert "temperatures rising to a high" not in processed
     assert "Rain developing in the morning, giving 56 mm in total. Easterly winds." in processed
@@ -590,8 +683,76 @@ def test_compact_output_postprocessing_removes_will_be_present_only() -> None:
 
     assert "will be present" not in processed
     assert "Southwesterly winds, turning to southerlies later." in processed
-    assert "Light easterly winds, turning to northwesterlies" in processed
+    assert "Light winds." in processed
     assert "Easterly winds in the morning, turning to northwesterlies and then northerlies" in processed
+
+
+def test_compact_output_postprocessing_removes_implicit_persistence() -> None:
+    forecast = """**FRIDAY 7 AUGUST:** Mainly clear at first, becoming overcast from the morning and remaining so for the rest of the day. Light winds, turning westerly later. A low of 0°C and a high of 11°C.
+
+**SATURDAY 8 AUGUST:** Overcast with light rain developing in the early morning, leading to a period of moderate rain showers throughout the day and evening, giving 15 mm. Winds remain light, becoming easterly later. A low of 6°C and a high of 13°C.
+
+**SUNDAY 9 AUGUST:** Rain developing in the morning and continuing through the afternoon before easing in the evening, giving 12 mm. A low of 7°C and a high of 12°C."""
+
+    processed = postprocess_compact_spot_output(
+        forecast,
+        gust_reporting_floor=50,
+    )
+
+    assert "Mainly clear at first, becoming overcast from the morning." in processed
+    assert "turning to moderate rain showers, giving 15 mm" in processed
+    assert "Light winds." in processed
+    assert "remaining so" not in processed
+    assert "throughout the day and evening" not in processed
+    assert "continuing through the afternoon before easing in the evening" in processed
+
+
+def test_compact_output_postprocessing_normalises_latest_observed_wording() -> None:
+    forecast = """**SATURDAY 8 AUGUST:** Mainly clear early on, turning overcast from late morning and remaining so for much of the day. A low of 4°C and a high of 12°C.
+
+**SUNDAY 9 AUGUST:** Light rain developing in the early hours and continuing through most of the day, giving 6 mm in total. A low of 9°C and a high of 14°C.
+
+**MONDAY 10 AUGUST:** Rain during the day, giving 8 mm in total, before clearing to a mostly sunny evening. A low of 11°C and a high of 15°C.
+
+**TUESDAY 11 AUGUST:** Mostly cloudy with early clear spells, remaining overcast for the rest of the day. A low of 8°C and a high of 14°C.
+
+**WEDNESDAY 12 AUGUST:** Moderate rain showers in the early morning, clearing to a mostly sunny afternoon, with 4 mm expected. Light winds. A low of 5°C and a high of 13°C."""
+
+    processed = postprocess_compact_spot_output(
+        forecast,
+        gust_reporting_floor=50,
+    )
+
+    assert "turning overcast from late morning." in processed
+    assert "Light rain developing in the early hours, giving 6 mm in total." in processed
+    assert "clearing to a mostly clear evening" in processed
+    assert "Mostly cloudy with early clear spells." in processed
+    assert (
+        "Moderate rain showers in the early morning, with 4 mm expected, "
+        "clearing to a mostly sunny afternoon."
+    ) in processed
+    assert "remaining so" not in processed
+    assert "continuing through most of the day" not in processed
+    assert "sunny evening" not in processed
+
+
+def test_compact_output_postprocessing_keeps_timing_inside_period() -> None:
+    forecast = """**THIS EVENING, THURSDAY 6 AUGUST:** Cloudy, clearing late tonight. Temperatures fall to 4°C by early morning. Light rain through the night.
+
+**FRIDAY 7 AUGUST:** Cloudy in the evening before clearing in the early morning. Light rain returning overnight. A low of 4°C and a high of 12°C."""
+
+    processed = postprocess_compact_spot_output(
+        forecast,
+        gust_reporting_floor=50,
+    )
+
+    assert "clearing late this evening" in processed
+    assert "by midnight" in processed
+    assert "through the evening" in processed
+    assert "Cloudy in the evening, then clearing late." in processed
+    assert "Light rain returning late in the evening." in processed
+    assert "early morning" not in processed
+    assert "overnight" not in processed
 
 
 def test_location_generation_fails_closed_after_bad_correction(monkeypatch) -> None:

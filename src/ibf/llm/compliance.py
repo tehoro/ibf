@@ -147,6 +147,14 @@ _COMPACT_STANDALONE_TOTAL_RE = re.compile(
     r"\bGiving\s+(?P<amount>\d+(?:\.\d+)?\s*(?:mm|cm|inches?|in)\b)\s+in\s+total\.\s*",
     re.IGNORECASE,
 )
+_COMPACT_TOTAL_AFTER_CLEARING_RE = re.compile(
+    r"(?P<precip>\b[^.!?]{0,160}\b(?:rain|showers?|snow)\b[^.!?]{0,100}?),\s+"
+    r"(?P<transition>(?:clearing|easing|turning)[^.!?]{0,100}?),\s+"
+    r"(?P<amount>with\s+\d+(?:\.\d+)?\s*(?:mm|cm|inches?|in)\s+"
+    r"(?:of\s+(?:rainfall|snowfall)\s+)?expected(?:\s+in\s+total)?)"
+    r"(?P<punct>[.!?])",
+    re.IGNORECASE,
+)
 _COMPACT_WIND_CLEARING_RE = re.compile(
     r"(?P<wind>\b[^.!?]{0,140}\b(?:winds?|northerlies|southerlies|easterlies|westerlies)\b"
     r"[^.!?]{0,140}?),\s*before\s+clearing\s+(?P<timing>[^.!?]+)(?P<punct>[.!?])",
@@ -164,6 +172,65 @@ _COMPACT_TEMPERATURE_NARRATIVE_SENTENCE_RE = re.compile(
 )
 _COMPACT_PARTIAL_REST_OF_DAY_RE = re.compile(
     rf"\b(?P<state>{_COMPACT_SKY_STATE})\s+for\s+the\s+rest\s+of\s+the\s+day\b",
+    re.IGNORECASE,
+)
+_COMPACT_PARTIAL_THIS_AFTERNOON_RE = re.compile(
+    rf"\b(?P<state>{_COMPACT_SKY_STATE})\s+this\s+afternoon\b",
+    re.IGNORECASE,
+)
+_COMPACT_PARTIAL_MOST_OF_EVENING_RE = re.compile(
+    rf"\b(?P<state>{_COMPACT_SKY_STATE})\s+for\s+most\s+of\s+the\s+evening\b",
+    re.IGNORECASE,
+)
+_COMPACT_PARTIAL_AFTER_MIDNIGHT_CLAUSE_RE = re.compile(
+    r",\s*(?:turning|becoming|clearing|changing)[^.!?]{0,80}"
+    r"\b(?:in|during)\s+the\s+early\s+morning\b",
+    re.IGNORECASE,
+)
+_COMPACT_EVENING_TO_EARLY_MORNING_RE = re.compile(
+    r"(?P<evening>\bevening)\s+before\s+(?P<change>clearing|easing|ending)\s+"
+    r"in\s+the\s+early\s+morning\b",
+    re.IGNORECASE,
+)
+_COMPACT_SUNNY_EVENING_RE = re.compile(
+    r"\b(?:(?P<modifier>mostly|mainly)\s+)?sunny"
+    r"(?P<timing>\s+(?:in\s+the\s+)?(?:(?:early|late)\s+)?(?:this\s+)?evening)\b",
+    re.IGNORECASE,
+)
+_COMPACT_CHANGE_RE = re.compile(
+    r"\b(?:becoming|turning|developing|starting|remaining|leading\s+to|followed\s+by)\b",
+    re.IGNORECASE,
+)
+_COMPACT_LATER_CHANGE_RE = re.compile(
+    r"\b(?:before|then|later)\b[^.!?]{0,80}"
+    r"\b(?:easing|clearing|ending|stopping|turning|becoming)\b",
+    re.IGNORECASE,
+)
+_COMPACT_PERSISTENCE_TAIL_RE = re.compile(
+    r",?\s+(?:and\s+)?(?:"
+    r"remaining(?:\s+so|\s+(?:mostly\s+|mainly\s+)?(?:clear|cloudy|overcast))?\s+"
+    r"(?:for\s+)?(?:the\s+)?(?:rest\s+of\s+the\s+day|during\s+the\s+day|"
+    r"(?:much|most)\s+of\s+(?:the\s+)?(?:day|morning|afternoon|evening)|"
+    r"through(?:out)?\s+(?:much\s+of\s+)?(?:the\s+)?(?:day|afternoon|evening)"
+    r"(?:\s+and\s+(?:the\s+)?evening)?)"
+    r"|(?:continuing|lasting)\s+(?:through(?:out)?|into)\s+"
+    r"(?:(?:much|most)\s+of\s+)?"
+    r"(?:the\s+)?(?:day|morning|afternoon|evening)(?:\s+and\s+(?:the\s+)?evening)?"
+    r"|through\s+to\s+the\s+rest\s+of\s+the\s+day"
+    r"|throughout\s+(?:the\s+)?day\s+and\s+(?:the\s+)?evening"
+    r")",
+    re.IGNORECASE,
+)
+_COMPACT_LIGHT_DIRECTIONAL_WIND_RE = re.compile(
+    r"\blight(?:\s+(?:north|south|east|west)(?:-?(?:east|west))?erly)?\s+winds\b",
+    re.IGNORECASE,
+)
+_COMPACT_WINDS_ARE_LIGHT_RE = re.compile(
+    r"\bwinds\s+(?:will\s+be|are|remain)\s+light\b",
+    re.IGNORECASE,
+)
+_COMPACT_SIGNIFICANT_WIND_RE = re.compile(
+    r"\b(?:gust|strong|fresh|gale|severe|storm-force|hurricane-force)\w*\b",
     re.IGNORECASE,
 )
 
@@ -258,10 +325,17 @@ def _remove_redundant_compact_timing(text: str, *, partial: bool) -> str:
     processed = _COMPACT_STEADY_DAY_RE.sub(r"\g<state>", processed)
     processed = _COMPACT_LIGHT_WINDS_THROUGHOUT_RE.sub(r"\g<state>", processed)
     if partial:
+        processed = _COMPACT_PARTIAL_THIS_AFTERNOON_RE.sub(r"\g<state>", processed)
         processed = _COMPACT_PARTIAL_REST_OF_DAY_RE.sub(r"\g<state>", processed)
+        processed = _COMPACT_PARTIAL_MOST_OF_EVENING_RE.sub(r"\g<state>", processed)
         processed = _COMPACT_PARTIAL_REMAINS_CLEAR_RE.sub(r"\g<state>", processed)
         processed = _COMPACT_PARTIAL_STEADY_RE.sub(r"\g<state>", processed)
-    return processed
+    return re.sub(
+        rf"\b(?P<state>{_COMPACT_SKY_STATE}),\s+with light winds\b",
+        r"\g<state> with light winds",
+        processed,
+        flags=re.IGNORECASE,
+    )
 
 
 def _normalise_compact_forecast_wording(text: str, *, partial: bool) -> str:
@@ -278,9 +352,132 @@ def _normalise_compact_forecast_wording(text: str, *, partial: bool) -> str:
     )
     processed = _normalise_wind_clearing(processed)
     processed = _attach_standalone_precipitation_total(processed)
+    processed = _COMPACT_TOTAL_AFTER_CLEARING_RE.sub(
+        r"\g<precip>, \g<amount>, \g<transition>\g<punct>",
+        processed,
+    )
+    processed = _normalise_compact_period_boundary(processed, partial=partial)
+    processed = _COMPACT_SUNNY_EVENING_RE.sub(_replace_sunny_evening, processed)
+    processed = re.sub(
+        r"\bleading\s+to\s+a\s+period\s+of\b",
+        "turning to",
+        processed,
+        flags=re.IGNORECASE,
+    )
+    processed = re.sub(
+        r"\bduring/through\s+the\s+day\b",
+        "during the day",
+        processed,
+        flags=re.IGNORECASE,
+    )
+    processed = _remove_implicit_persistence_tails(processed)
+    processed = _simplify_compact_light_winds(processed)
     if not partial:
         processed = _remove_repeated_temperature_narrative(processed)
     return processed
+
+
+def _replace_sunny_evening(match: re.Match[str]) -> str:
+    """Use night-time sky terminology for compact evening forecasts."""
+    modifier = match.group("modifier")
+    replacement = f"{modifier + ' ' if modifier else ''}clear{match.group('timing')}"
+    return replacement.capitalize() if match.group(0)[0].isupper() else replacement
+
+
+def _normalise_compact_period_boundary(text: str, *, partial: bool) -> str:
+    """Keep compact timing inside the paragraph's supplied calendar period."""
+    if partial:
+        processed = _COMPACT_PARTIAL_AFTER_MIDNIGHT_CLAUSE_RE.sub("", text)
+        processed = re.sub(
+            r"\bby\s+(?:the\s+)?(?:early\s+morning|late\s+(?:night|tonight))\b",
+            "by midnight",
+            processed,
+            flags=re.IGNORECASE,
+        )
+        processed = re.sub(
+            r"\bthrough\s+the\s+night\b",
+            "through the evening",
+            processed,
+            flags=re.IGNORECASE,
+        )
+        processed = re.sub(
+            r"\blate\s+tonight\b",
+            "late this evening",
+            processed,
+            flags=re.IGNORECASE,
+        )
+        return re.sub(r"\btonight\b", "this evening", processed, flags=re.IGNORECASE)
+
+    processed = _COMPACT_EVENING_TO_EARLY_MORNING_RE.sub(
+        r"\g<evening>, then \g<change> late",
+        text,
+    )
+    processed = re.sub(
+        r"\blate\s+(?:in\s+the\s+night|at\s+night|night)\b",
+        "late in the evening",
+        processed,
+        flags=re.IGNORECASE,
+    )
+    processed = re.sub(
+        r"\bovernight\b",
+        "late in the evening",
+        processed,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\btonight\b", "in the evening", processed, flags=re.IGNORECASE)
+
+
+def _remove_implicit_persistence_tails(text: str) -> str:
+    """Remove end-of-period persistence after an onset or change is already timed."""
+
+    def simplify_sentence(match: re.Match[str]) -> str:
+        sentence = match.group(0)
+        if not _COMPACT_CHANGE_RE.search(sentence):
+            return sentence
+
+        def remove_tail(tail: re.Match[str]) -> str:
+            if _COMPACT_LATER_CHANGE_RE.search(sentence[tail.end() :]):
+                return tail.group(0)
+            return ""
+
+        simplified = _COMPACT_PERSISTENCE_TAIL_RE.sub(remove_tail, sentence)
+        simplified = re.sub(r"\s+,", ",", simplified)
+        return re.sub(r",\s*,", ",", simplified)
+
+    return re.sub(r"(?:\d\.\d|[^.!?])+[.!?]", simplify_sentence, text)
+
+
+def _simplify_compact_light_winds(text: str) -> str:
+    """Suppress minor directions and shifts when the prose itself calls winds light."""
+
+    def simplify_sentence(match: re.Match[str]) -> str:
+        sentence = match.group(0)
+        if _COMPACT_SIGNIFICANT_WIND_RE.search(sentence):
+            return sentence
+        stripped = sentence.lstrip()
+        leading = sentence[: len(sentence) - len(stripped)]
+        if _COMPACT_LIGHT_DIRECTIONAL_WIND_RE.match(stripped) or _COMPACT_WINDS_ARE_LIGHT_RE.match(
+            stripped
+        ):
+            return f"{leading}Light winds."
+
+        inline = re.search(
+            r",?\s+with\s+light(?:\s+(?:north|south|east|west)"
+            r"(?:-?(?:east|west))?erly)?\s+winds\b[^.!?]*",
+            sentence,
+            re.IGNORECASE,
+        )
+        if inline:
+            simplified = sentence[: inline.start()] + ", with light winds" + sentence[inline.end() :]
+            return re.sub(
+                r"\b(clear|mainly clear|mostly clear),\s+with light winds\b",
+                r"\1 with light winds",
+                simplified,
+                flags=re.IGNORECASE,
+            )
+        return sentence
+
+    return re.sub(r"(?:\d\.\d|[^.!?])+[.!?]", simplify_sentence, text)
 
 
 def _replace_clear_and_clear(match: re.Match[str]) -> str:

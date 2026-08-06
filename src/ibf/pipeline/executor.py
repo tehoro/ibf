@@ -82,6 +82,18 @@ _DAY_HEADER_RE = re.compile(
 )
 _HOURLY_DATA_LINE_RE = re.compile(r"^(?:midnight|noon|\d{1,2}(?:am|pm))\b", re.IGNORECASE)
 _HOURLY_GUST_RE = re.compile(r"\s+gust\s+(\d+(?:\.\d+)?)\b", re.IGNORECASE)
+_HOURLY_SKY_RE = re.compile(
+    r"\s+(?:clear sky|mainly clear|partly cloudy|cloudy|overcast)\s+cc\d+\b",
+    re.IGNORECASE,
+)
+_COMPACT_SKY_ONLY_WEATHER = {
+    "clear",
+    "clear sky",
+    "mainly clear",
+    "partly cloudy",
+    "cloudy",
+    "overcast",
+}
 
 
 @dataclass
@@ -775,6 +787,11 @@ def _generate_location_text_with_adaptive_thinning(
 
     for attempt_index, member_limit in enumerate(member_limits):
         formatted_dataset = payload.formatted_dataset
+        if use_compact_profile and not payload.alerts:
+            formatted_dataset = _prepare_compact_short_period_sky_data(
+                formatted_dataset,
+                payload.dataset,
+            )
         if gust_reporting_floor is not None:
             formatted_dataset = _filter_unreportable_compact_gusts(
                 formatted_dataset,
@@ -1115,6 +1132,71 @@ def _filter_unreportable_compact_gusts(
             )
         filtered_lines.append(line)
     return "\n".join(filtered_lines)
+
+
+def _prepare_compact_short_period_sky_data(
+    formatted_dataset: str,
+    dataset: List[dict],
+) -> str:
+    """Replace dry short-period sky flicker with one broad compact-only cue."""
+    if not dataset:
+        return formatted_dataset
+    first_day = dataset[0]
+    label = str(first_day.get("dayofweek", "")).upper()
+    if not any(key in label for key in ("REST OF", "THIS EVENING", "THIS AFTERNOON")):
+        return formatted_dataset
+
+    hours = first_day.get("hours", [])
+    if not isinstance(hours, list) or not 2 <= len(hours) <= 9:
+        return formatted_dataset
+
+    cloud_cover: List[float] = []
+    for hour in hours:
+        members = hour.get("ensemble_members", {}) if isinstance(hour, dict) else {}
+        if not isinstance(members, dict) or len(members) != 1:
+            return formatted_dataset
+        member = next(iter(members.values()))
+        if not isinstance(member, dict):
+            return formatted_dataset
+        weather = str(member.get("weather", "")).strip().lower()
+        cloud = member.get("cloud_cover")
+        precipitation = member.get("precipitation", 0.0)
+        snowfall = member.get("snowfall", 0.0)
+        if (
+            weather not in _COMPACT_SKY_ONLY_WEATHER
+            or not isinstance(cloud, (int, float))
+            or not isinstance(precipitation, (int, float))
+            or not isinstance(snowfall, (int, float))
+            or precipitation > 0
+            or snowfall > 0
+        ):
+            return formatted_dataset
+        cloud_cover.append(float(cloud))
+
+    edge_size = min(2, len(cloud_cover))
+    starts_cloudy = sum(cloud_cover[:edge_size]) / edge_size >= 60
+    ends_cloudy = sum(cloud_cover[-edge_size:]) / edge_size >= 60
+    if starts_cloudy == ends_cloudy:
+        broad_sky = "Mostly cloudy." if starts_cloudy else "Mainly clear."
+    elif starts_cloudy:
+        broad_sky = "Mostly cloudy at first, clearing later."
+    else:
+        broad_sky = "Mainly clear at first, becoming mostly cloudy later."
+
+    lines = formatted_dataset.splitlines()
+    date_index = next((index for index, line in enumerate(lines) if line.startswith("Date:")), None)
+    if date_index is None:
+        return formatted_dataset
+    lines.insert(
+        date_index + 1,
+        "First-period broad sky (use instead of hourly sky changes): " + broad_sky,
+    )
+    for index in range(date_index + 2, len(lines)):
+        if lines[index].startswith("Date:"):
+            break
+        if _HOURLY_DATA_LINE_RE.match(lines[index]):
+            lines[index] = _HOURLY_SKY_RE.sub("", lines[index])
+    return "\n".join(lines)
 
 
 def _format_location_payload(
