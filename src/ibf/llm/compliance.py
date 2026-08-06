@@ -134,6 +134,38 @@ _COMPACT_THOUGH_SNOW_DOWN_RE = re.compile(
     r"(?P<level>\d+(?:\.\d+)?)\s*(?P<unit>metres?|meters?|feet|ft|m)\b",
     re.IGNORECASE,
 )
+_COMPACT_CLEAR_AND_CLEAR_RE = re.compile(
+    r"\bclear(?: skies)?\s+and\s+(?P<modifier>mainly|mostly)\s+clear(?: skies)?\b",
+    re.IGNORECASE,
+)
+_COMPACT_STRENGTHENING_TO_DIRECTION_RE = re.compile(
+    r"\bstrengthening\s+to\s+(?:an?\s+)?"
+    r"(?P<direction>(?:north|south|east|west)(?:-?(?:east|west))?erly)\b",
+    re.IGNORECASE,
+)
+_COMPACT_STANDALONE_TOTAL_RE = re.compile(
+    r"\bGiving\s+(?P<amount>\d+(?:\.\d+)?\s*(?:mm|cm|inches?|in)\b)\s+in\s+total\.\s*",
+    re.IGNORECASE,
+)
+_COMPACT_WIND_CLEARING_RE = re.compile(
+    r"(?P<wind>\b[^.!?]{0,140}\b(?:winds?|northerlies|southerlies|easterlies|westerlies)\b"
+    r"[^.!?]{0,140}?),\s*before\s+clearing\s+(?P<timing>[^.!?]+)(?P<punct>[.!?])",
+    re.IGNORECASE,
+)
+_COMPACT_INLINE_TEMPERATURE_NARRATIVE_RE = re.compile(
+    rf",\s*(?:with\s+)?(?:temperatures?\b|(?:a|the)\s+(?:low|high)\b)"
+    rf"[^.!?]*{_COMPACT_TEMPERATURE_VALUE}[^.!?]*[.!?]",
+    re.IGNORECASE,
+)
+_COMPACT_TEMPERATURE_NARRATIVE_SENTENCE_RE = re.compile(
+    r"(?P<lead>^|[.!?]\s+)(?:(?:temperatures?|the\s+temperature)\b|"
+    rf"(?:a|the)\s+(?:low|high)\b)[^.!?]*{_COMPACT_TEMPERATURE_VALUE}[^.!?]*[.!?]\s*",
+    re.IGNORECASE,
+)
+_COMPACT_PARTIAL_REST_OF_DAY_RE = re.compile(
+    rf"\b(?P<state>{_COMPACT_SKY_STATE})\s+for\s+the\s+rest\s+of\s+the\s+day\b",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -171,7 +203,7 @@ def postprocess_compact_spot_output(
         body = _COMPACT_WILL_BE_PRESENT_RE.sub("", body)
         body = _normalise_compact_temperature_order(body, partial=partial)
         if not alerts_present:
-            body = _normalise_compact_forecast_wording(body)
+            body = _normalise_compact_forecast_wording(body, partial=partial)
             body = _remove_redundant_compact_timing(body, partial=partial)
             body = _remove_unreportable_compact_gusts(
                 body,
@@ -226,18 +258,95 @@ def _remove_redundant_compact_timing(text: str, *, partial: bool) -> str:
     processed = _COMPACT_STEADY_DAY_RE.sub(r"\g<state>", processed)
     processed = _COMPACT_LIGHT_WINDS_THROUGHOUT_RE.sub(r"\g<state>", processed)
     if partial:
+        processed = _COMPACT_PARTIAL_REST_OF_DAY_RE.sub(r"\g<state>", processed)
         processed = _COMPACT_PARTIAL_REMAINS_CLEAR_RE.sub(r"\g<state>", processed)
         processed = _COMPACT_PARTIAL_STEADY_RE.sub(r"\g<state>", processed)
     return processed
 
 
-def _normalise_compact_forecast_wording(text: str) -> str:
+def _normalise_compact_forecast_wording(text: str, *, partial: bool) -> str:
     """Apply narrow natural-language fixes approved for the compact profile."""
     processed = _COMPACT_CLEAR_WITH_LIGHT_WINDS_RE.sub("Clear with light winds", text)
     processed = _COMPACT_INCLUDING_TOTAL_RE.sub(r"giving \g<amount> in total", processed)
     processed = _COMPACT_SNOW_REACH_AREA_RE.sub(_replace_compact_snow_above, processed)
     processed = _COMPACT_SNOW_MAINLY_SETTLING_RE.sub(_replace_compact_snow_above, processed)
-    return _COMPACT_THOUGH_SNOW_DOWN_RE.sub(_replace_compact_snow_down, processed)
+    processed = _COMPACT_THOUGH_SNOW_DOWN_RE.sub(_replace_compact_snow_down, processed)
+    processed = _COMPACT_CLEAR_AND_CLEAR_RE.sub(_replace_clear_and_clear, processed)
+    processed = _COMPACT_STRENGTHENING_TO_DIRECTION_RE.sub(
+        r"strengthening and turning \g<direction>",
+        processed,
+    )
+    processed = _normalise_wind_clearing(processed)
+    processed = _attach_standalone_precipitation_total(processed)
+    if not partial:
+        processed = _remove_repeated_temperature_narrative(processed)
+    return processed
+
+
+def _replace_clear_and_clear(match: re.Match[str]) -> str:
+    replacement = f"{match.group('modifier').lower()} clear"
+    return replacement.capitalize() if match.group(0)[0].isupper() else replacement
+
+
+def _normalise_wind_clearing(text: str) -> str:
+    """Make a wind-subject clearing clause unambiguous."""
+    rain_present = bool(_RAIN_WORD_RE.search(text))
+
+    def replace(match: re.Match[str]) -> str:
+        ending = f"easing {match.group('timing')}"
+        if rain_present:
+            ending += " as the rain clears"
+        return f"{match.group('wind')}, {ending}{match.group('punct')}"
+
+    return _COMPACT_WIND_CLEARING_RE.sub(replace, text)
+
+
+def _attach_standalone_precipitation_total(text: str) -> str:
+    """Move a detached total back to the nearest preceding precipitation sentence."""
+    total_match = _COMPACT_STANDALONE_TOTAL_RE.search(text)
+    if not total_match:
+        return text
+
+    preceding = text[: total_match.start()]
+    sentences = list(re.finditer(r"(?:\d\.\d|[^.!?])+[.!?]", preceding))
+    precipitation_sentence = next(
+        (
+            sentence
+            for sentence in reversed(sentences)
+            if _RAIN_WORD_RE.search(sentence.group(0)) or _SNOW_WORD_RE.search(sentence.group(0))
+        ),
+        None,
+    )
+    if precipitation_sentence is None:
+        return text
+
+    sentence = precipitation_sentence.group(0).rstrip()
+    attached = f"{sentence[:-1].rstrip()}, giving {total_match.group('amount')} in total."
+    processed = (
+        preceding[: precipitation_sentence.start()]
+        + attached
+        + preceding[precipitation_sentence.end() :]
+        + text[total_match.end() :]
+    )
+    return re.sub(r" {2,}", " ", processed)
+
+
+def _remove_repeated_temperature_narrative(text: str) -> str:
+    """Keep full-day extrema in their final low/high sentence only."""
+    summaries = list(_COMPACT_TEMPERATURE_PAIR_RE.finditer(text))
+    if not summaries:
+        return text
+
+    summary = summaries[-1]
+    preceding = text[: summary.start()]
+    preceding = _COMPACT_INLINE_TEMPERATURE_NARRATIVE_RE.sub(".", preceding)
+
+    def remove_sentence(match: re.Match[str]) -> str:
+        lead = match.group("lead")
+        return "" if not lead else f"{lead.rstrip()} "
+
+    preceding = _COMPACT_TEMPERATURE_NARRATIVE_SENTENCE_RE.sub(remove_sentence, preceding)
+    return preceding + text[summary.start() :]
 
 
 def _replace_compact_snow_above(match: re.Match[str]) -> str:
@@ -345,6 +454,9 @@ def format_spot_output_contract(requirements: Iterable[SpotPeriodRequirement]) -
     lines = [
         "--- MANDATORY OUTPUT CONTRACT ---",
         "Use each supplied period once. Keep the wording concise, but include every fact listed below.",
+        "Only the precipitation amounts listed below are approved for publication. When none is "
+        "listed for a period, describe precipitation qualitatively. Never use an individual "
+        "scenario total.",
     ]
     for period in periods:
         facts: list[str] = []
@@ -354,15 +466,12 @@ def format_spot_output_contract(requirements: Iterable[SpotPeriodRequirement]) -
             facts.append(f"high {period.high}")
         if period.rainfall:
             facts.append(f"rainfall {period.rainfall} (must be stated)")
-        elif period.forbidden_rainfall:
-            facts.append("no approved rainfall amount; do not use an individual scenario total")
-        else:
-            facts.append("no reportable rainfall amount supplied; do not invent one")
         if period.snowfall:
             facts.append(f"snowfall {period.snowfall} (must be stated)")
-        elif period.forbidden_snowfall:
-            facts.append("no approved snowfall amount; do not use an individual scenario total")
-        lines.append(f"- {period.source_label}: " + "; ".join(facts) + ".")
+        if facts:
+            lines.append(f"- {period.source_label}: " + "; ".join(facts) + ".")
+        else:
+            lines.append(f"- {period.source_label}.")
 
     lines.append("Return only the forecast paragraphs.")
     return "\n".join(lines)

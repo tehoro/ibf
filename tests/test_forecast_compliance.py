@@ -74,7 +74,9 @@ def test_deterministic_contract_requires_supplied_total_and_temperatures() -> No
     contract = format_spot_output_contract(requirements)
 
     assert "TUESDAY 4 AUGUST: low 7°C; high 10°C; rainfall 2 mm (must be stated)" in contract
-    assert "MONDAY 3 AUGUST: low 10°C; high 15°C; no reportable rainfall amount supplied" in contract
+    assert "MONDAY 3 AUGUST: low 10°C; high 15°C." in contract
+    assert "describe precipitation qualitatively" in contract
+    assert "no reportable rainfall amount supplied" not in contract
 
     forecast = """**Monday, 3 August:** Clear. Northerlies 20 km/h. The high will be 15°C and the low will be 10°C.
 
@@ -114,7 +116,8 @@ def test_contract_suppresses_sub_reportable_rainfall() -> None:
 
     assert requirements[0].rainfall is None
     assert "rainfall 0.5 mm" not in contract
-    assert "no reportable rainfall amount supplied" in contract
+    assert "TUESDAY 4 AUGUST: low 7°C; high 10°C." in contract
+    assert "no reportable rainfall amount supplied" not in contract
 
 
 def test_partial_period_contract_does_not_force_full_day_temperatures() -> None:
@@ -216,7 +219,8 @@ def test_ensemble_contract_rejects_unapproved_scenario_total() -> None:
     contract = format_spot_output_contract(requirements)
 
     assert requirements[0].forbidden_rainfall == ("7 mm",)
-    assert "no approved rainfall amount; do not use an individual scenario total" in contract
+    assert "Never use an individual scenario total" in contract
+    assert "no approved rainfall amount" not in contract
 
     forecast = (
         "**Wednesday, 5 August:** There is a 40% chance of rain, potentially bringing 7 mm. "
@@ -526,6 +530,34 @@ def test_compact_output_postprocessing_normalises_final_wording_tweaks() -> None
     assert "Snow above about 700 m." in processed
     assert "including a total" not in processed
     assert "mainly settling" not in processed
+
+
+def test_compact_output_postprocessing_normalises_reported_prose_defects() -> None:
+    forecast = """**THIS AFTERNOON AND EVENING, THURSDAY 6 AUGUST:** Clear and mainly clear for the rest of the day, with light winds turning easterly later. A high of 10°C and a low of 3°C.
+
+**FRIDAY 7 AUGUST:** Clear skies, with temperatures rising to a high of 12°C before falling away in the evening. Light winds. A low of 2°C and a high of 12°C.
+
+**SATURDAY 8 AUGUST:** Rain developing in the morning. Easterly winds. Giving 56 mm in total. A low of 7°C and a high of 11°C.
+
+**SUNDAY 9 AUGUST:** Moderate rain and thunderstorms. Strong northeasterly winds will gust to 80 km/h during the afternoon, before clearing in the evening. Northerly winds, strengthening to a north-easterly later. A low of 8°C and a high of 13°C.
+
+**MONDAY 10 AUGUST:** A high chance of rain. Temperatures rise to 14°C in the afternoon. Light winds. A low of 6°C and a high of 14°C."""
+
+    processed = postprocess_compact_spot_output(
+        forecast,
+        gust_reporting_floor=50,
+    )
+
+    assert "Mainly clear, with light winds turning easterly later." in processed
+    assert "Clear skies. Light winds. A low of 2°C and a high of 12°C." in processed
+    assert "temperatures rising to a high" not in processed
+    assert "Rain developing in the morning, giving 56 mm in total. Easterly winds." in processed
+    assert "Giving 56 mm" not in processed
+    assert "easing in the evening as the rain clears" in processed
+    assert "strengthening and turning north-easterly later" in processed
+    assert "before clearing" not in processed
+    assert "strengthening to" not in processed
+    assert "A high chance of rain. Light winds. A low of 6°C and a high of 14°C." in processed
 
 
 def test_compact_output_postprocessing_removes_snow_may_reach_area_wording() -> None:

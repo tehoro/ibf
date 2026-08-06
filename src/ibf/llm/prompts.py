@@ -393,7 +393,7 @@ Write a real forecast, not a list of weather fields or a compressed telegram. Us
 # PERIOD STRUCTURE
 - Write one paragraph for every supplied period, in the supplied order. Begin it exactly as "**[supplied label]:**" and continue on the same line. Never add, merge or omit a period.
 - Cover only the supplied hours. Keep a partial label such as "Rest of Today". For that current partial period, describe the temperature trend, or put the remaining-period high before the low if both are stated.
-- Let each paragraph breathe. Usually give the weather first, then the wind. For a full midnight-to-midnight day, finish with "A low of [low] and a high of [high]", repeating {temperature_symbol} on both values. Join related facts when that sounds more natural; do not force every category into its own clipped sentence.
+- Let each paragraph breathe. Usually give the weather first, then the wind. For a full midnight-to-midnight day, finish with "A low of [low] and a high of [high]", repeating {temperature_symbol} on both values. State those daily extremes only in that final sentence; do not repeat them in the weather narrative. Join related facts when that sounds more natural; do not force every category into its own clipped sentence.
 - Output only forecast paragraphs: no bullets, analysis, greeting, sign-off or general advice.
 
 # WEATHER
@@ -402,7 +402,7 @@ Write a real forecast, not a list of weather fields or a compressed telegram. Us
 - Use no more than two broad sky descriptions in a paragraph, in time order. Do not announce a change between similar states such as mostly clear and partly cloudy, or cloudy and overcast, unless it is sustained and important to the day's story.
 - Describe a spell of precipitation once, with its prevailing intensity and useful broad timing. Do not stack conflicting intensities. Never pair rain or snow with a clear or sunny sky in the same clause.
 - Work required rain or snow amounts and any reportable snow level naturally into the weather sentence.
-- Link a rain total naturally, for example "giving X mm in total" or "with X mm expected". Never write "including a total of X".
+- Link a rain total naturally to the precipitation sentence, for example "giving X mm in total" or "with X mm expected". Never leave the amount as a separate sentence or place it after the wind sentence. Never write "including a total of X".
 - Use connecting words such as "with", "as", "turning to", "clearing", "followed by" and "later" where they help the forecast flow.
 - For a steady clear period with light winds, simply say "Clear with light winds."
 
@@ -411,7 +411,7 @@ Write a real forecast, not a list of weather fields or a compressed telegram. Us
 - If sustained speeds remain below {light_wind_speed} {wind_unit} and no gust exceeds {gust_reporting_floor} {wind_unit}, simply say "Light winds." Omit directions, numbers and minor shifts.
 - Otherwise describe the prevailing direction and general wind strength without reciting routine speeds. Mention a gust only when it exceeds {gust_reporting_floor} {wind_unit}, and then give the maximum once without making it the focus of the paragraph.
 - Mention no more than two directions, and a second only for a genuine shift lasting several hours. Keep the directions in chronological order and give the shift useful broad timing.
-- Use a natural verb for a real change, such as strengthening, easing, turning or dying away. Never pad the prose with "will be present", "will persist" or "dominate".
+- Use a natural verb for a real change, such as strengthening, easing, turning or dying away. Winds ease rather than clear. If both strength and direction change, say "strengthening and turning northwesterly", not "strengthening to a northwesterly". Never pad the prose with "will be present", "will persist" or "dominate".
 
 # AMOUNTS AND SNOW LEVELS
 - State a rain or snow amount only when the factual contract supplies it, and use that amount exactly. Never invent or recalculate one.
