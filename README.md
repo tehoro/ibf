@@ -115,7 +115,7 @@ Alert sources:
 
 Impact context note:
 - IBF only fetches impact context when `location_impact_based` / `area_impact_based` are true (default).
-- `context_provider = "llm-search"` with `gemini-3-flash-preview` is the recommended
+- `context_provider = "llm-search"` with `gemini-3.7-flash` is the recommended
   impact-context path. It uses Gemini's Google Search grounding, verifies that grounding metadata
   was returned, and reuses the result for up to three local days.
 - Direct OpenAI GPT models, including GPT-5.6 Luna, remain valid `llm-search` choices. They use the
@@ -136,7 +136,7 @@ Recommended LLM choices
 For a simple cloud setup, IBF recommends:
 
 - `gpt-5.6-luna` for forecast writing and translation.
-- `gemini-3-flash-preview` for impact-context research with `context_provider = "llm-search"`.
+- `gemini-3.7-flash` for impact-context research with `context_provider = "llm-search"`.
 
 Luna's standard token pricing checked on 31 July 2026 is US$0.20 input, US$0.02 cached input, and
 US$1.20 output per million tokens. GPT-5.6 Terra is a more capable alternative at US$2.00,
@@ -144,22 +144,28 @@ US$0.20, and US$12.00 respectively. Luna can also perform grounded context resea
 OpenAI Responses web-search tool, but OpenAI charges US$10 per 1,000 web-search calls in addition
 to model tokens. See [OpenAI API pricing](https://developers.openai.com/api/docs/pricing).
 
-Gemini 3 Flash Preview costs US$0.50 input and US$3.00 output per million tokens, but paid Gemini
-projects currently receive 5,000 Google Search requests per month shared across Gemini 3.x models
-before US$14 per 1,000 requests applies. At IBF's usual three-day context-cache cadence, that
-included allowance normally outweighs Luna's lower token rates. Google counts each search query
-the model executes, not each IBF context prompt, so high-volume users should compare actual usage.
-This is a preview model and may change or be retired; check
-[Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing) and Google's
-[deprecation schedule](https://ai.google.dev/gemini-api/docs/deprecations) before long-term
-deployment.
+Gemini 3.7 Flash is the new default for context research. Its introductory standard pricing through
+31 December 2026 is US$0.75 input, US$0.075 cached input, and US$3.75 output (including thinking)
+per million tokens. Google schedules US$1.50, US$0.15, and US$7.50 respectively from 1 January
+2027. Paid Gemini projects currently receive 5,000 Google Search requests per month shared across
+Gemini 3.x models before US$14 per 1,000 requests applies. Google counts each search query the model
+executes, not each IBF context prompt, so high-volume users should compare actual usage. Check the
+[Gemini 3.7 Flash model page](https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash) and
+[Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing) before long-term deployment.
+
+Why this changed in v0.8.12: a 14 August 2026 A/B trial used IBF's standard grounded-context prompt
+for ten targets from the routine MacRouter configuration. All 20 calls succeeded. Gemini 3.7 was
+preferred for eight targets, with two ties; it returned 41 grounding sources versus 13, finished
+35.7% faster, and used 75.2% fewer thinking tokens. Despite its higher published per-token rates
+than `gemini-3-flash-preview`, its total measured model-token cost was about US$0.0789 versus
+US$0.1587. This is one operationally representative trial, not a guarantee for every location.
 
 Suggested config snippet:
 
 ```toml
 llm = "gpt-5.6-luna"
 context_provider = "llm-search"
-context_llm = "gemini-3-flash-preview"
+context_llm = "gemini-3.7-flash"
 translation_llm = "gpt-5.6-luna"
 enable_reasoning = true
 location_reasoning = "high"
@@ -174,7 +180,7 @@ llm_fallback = "gpt-5.6-luna"
 prompt_profile = "compact"
 lm_studio_base_url = "http://192.168.1.50:1234/v1"
 context_provider = "llm-search"
-context_llm = "gemini-3-flash-preview"
+context_llm = "gemini-3.7-flash"
 translation_llm = "lms:exact-loaded-gemma-4-model-id"
 translation_llm_fallback = "gpt-5.6-luna"
 ```
@@ -203,7 +209,7 @@ Experimental Brave retrieval with local synthesis remains available for comparis
 ```toml
 context_provider = "brave"
 context_llm = "lms:exact-loaded-gemma-4-model-id"
-context_fallback_llm = "gemini-3-flash-preview"
+context_fallback_llm = "gemini-3.7-flash"
 ```
 
 Outputs and File Structure
@@ -248,7 +254,7 @@ Minimal example:
 web_root = "./outputs/example-site"
 llm = "gpt-5.6-luna"
 context_provider = "llm-search"
-context_llm = "gemini-3-flash-preview"
+context_llm = "gemini-3.7-flash"
 
 [[location]]
 name = "Otaki Beach, New Zealand"
@@ -498,7 +504,7 @@ Global settings:
 | `prompt_profile` | Forecast-writing prompt profile: `standard` or `compact`. | Defaults to `standard`; `compact` affects deterministic spot forecasts only. |
 | `lm_studio_base_url` | LM Studio OpenAI-compatible server address. | Used for every `lms:` choice; defaults to `http://localhost:1234/v1`. |
 | `context_provider` | Impact research method. | `llm-search` is the recommended default; `brave` is an experimental controlled-evidence option. |
-| `context_llm` | Hosted-search model or experimental Brave evidence-synthesis model. | `llm-search` requires Gemini/OpenAI; `brave` supports any configured model provider. Defaults to `gemini-3-flash-preview`. |
+| `context_llm` | Hosted-search model or experimental Brave evidence-synthesis model. | `llm-search` requires Gemini/OpenAI; `brave` supports any configured model provider. Defaults to `gemini-3.7-flash`. |
 | `context_fallback_llm` | Optional fallback if the Brave path fails. | Must be a Gemini or OpenAI model because it invokes the existing hosted web-search path. |
 | `translation_llm` | Optional model used for translations only. | Used only if translation is enabled. |
 | `translation_llm_fallback` | Optional model tried once if translation fails. | May use a different provider. |
@@ -607,8 +613,8 @@ Provider naming:
 - OpenRouter: `or:provider/model` (requires `OPENROUTER_API_KEY`)
 - OpenAI: `gpt-5.6-luna`, `gpt-5.6-terra`, or another `gpt-*`/`o*` model
   (requires `OPENAI_API_KEY`)
-- Gemini direct: `gemini-3-flash-preview`, `gemini-3.6-flash`, or the equivalent
-  `google/gemini-*` form (requires `GEMINI_API_KEY`)
+- Gemini direct: `gemini-3.7-flash` (recommended), `gemini-3-flash-preview`,
+  `gemini-3.6-flash`, or the equivalent `google/gemini-*` form (requires `GEMINI_API_KEY`)
 
 `llm_fallback` and `translation_llm_fallback` each permit one retry with another configured
 model. A primary failure is logged prominently before the fallback is tried. This is useful for
@@ -628,7 +634,7 @@ The research provider and the model are separate choices:
 
 | `context_provider` | Retrieval | Allowed `context_llm` | Notes |
 | --- | --- | --- | --- |
-| `llm-search` | Gemini Google Search or OpenAI web search tool | Direct Gemini or OpenAI | **Recommended with `gemini-3-flash-preview`.** One primary context job is reused for up to three local days; the hosted provider decides its searches. |
+| `llm-search` | Gemini Google Search or OpenAI web search tool | Direct Gemini or OpenAI | **Recommended with `gemini-3.7-flash`.** One primary context job is reused for up to three local days; the hosted provider decides its searches. |
 | `brave` | IBF-controlled Brave LLM Context requests | LM Studio, OpenRouter, Gemini, or OpenAI | **Experimental.** Brave returns evidence and the separately selected model synthesises it, adding cost and complexity. |
 
 The recommended hosted-search path:
@@ -685,7 +691,7 @@ The experimental Brave provider is staged and bounded:
 
 `context_fallback_llm` is intentionally different from a synthesis-model fallback. If the Brave
 path fails, it makes one attempt through the existing hosted-search path, so it must name a direct
-Gemini or OpenAI model. `gemini-3-flash-preview` is recommended for this fallback for the same
+Gemini or OpenAI model. `gemini-3.7-flash` is recommended for this fallback for the same
 grounding-cost reason as the normal hosted-search path. Leave it unset to fail closed and continue
 the forecast without researched context.
 
@@ -704,6 +710,10 @@ LLM cost overrides (optional):
   Gemini thinking tokens are included at the model's output-token rate.
 - GPT-5.6 Luna is estimated at US$0.20 input / US$0.02 cached input / US$1.20 output
   per million tokens; Terra is US$2.00 / US$0.20 / US$12.00.
+- Gemini 3.6 and 3.7 Flash are estimated at their introductory US$0.75 input / US$0.075 cached
+  input / US$3.75 output rates through 31 December 2026. Google's scheduled rates from 1 January
+  2027 are US$1.50 / US$0.15 / US$7.50; use `llm_costs.toml` to override the built-in estimate
+  after the introductory period if a later IBF release has not yet updated it.
 - OpenAI web search costs US$10 per 1,000 calls plus search-content tokens at the model rate.
   These tool fees are separate from model-token charges and are not currently included in IBF's
   token-based cost summary.
@@ -717,9 +727,11 @@ LLM cost overrides (optional):
 - Gemini's API reports token usage but not the final monetary effect of that monthly grounding
   allowance or later Google Search charges. IBF records the returned search-query count privately,
   but the cost summary can only estimate the model-token portion.
-- In a representative run using `gemini-3-flash-preview`, eight distinct context jobs cost about
-  2.7 US cents in model tokens. At a three-day refresh cadence, 20 entities would be roughly
-  US$0.60–0.70 per month while Search remains within Google's included grounding allowance.
+- In the v0.8.12 ten-target comparison, `gemini-3.7-flash` cost about 7.9 US cents in model tokens,
+  roughly half the measured Preview cost for the same jobs. Actual cost varies with source material,
+  searches, thinking, output length, and cache reuse.
+- The end-of-run cost table reports thousandths of a US cent so small context and translation calls
+  remain visible.
 - If `llm_costs.toml` exists in the working directory, IBF uses it to override token-based estimates in logs.
 - Costs are USD per million tokens:
   ```toml

@@ -75,7 +75,7 @@ def test_enabled_reasoning_defaults_high_but_explicit_values_win() -> None:
     assert _gemini_thinking_level(False, "high") == "minimal"
 
 
-def test_cost_summary_logs_two_decimal_places(caplog) -> None:
+def test_cost_summary_logs_three_decimal_places(caplog) -> None:
     _reset_cost_tracker()
     _record_cost(
         "Location",
@@ -88,7 +88,7 @@ def test_cost_summary_logs_two_decimal_places(caplog) -> None:
     with caplog.at_level(logging.INFO, logger="ibf.pipeline.executor"):
         _log_cost_summary()
 
-    assert "0.13" in caplog.text
-    assert "0.23" in caplog.text
-    assert "0.34" in caplog.text
+    assert "0.126" in caplog.text
+    assert "0.234" in caplog.text
+    assert "0.345" in caplog.text
     assert "Grand total" in caplog.text

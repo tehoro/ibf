@@ -60,7 +60,7 @@ class ModelCost:
 
 # NOTE: Keep this mapping simple so users can edit it without digging through code.
 MODEL_COSTS: Dict[str, ModelCost] = {
-    # Pricing checked 31 July 2026 against official provider pricing pages.
+    # Pricing checked 14 August 2026 against official provider pricing pages.
     "gpt-4o-mini": ModelCost(
         input_per_million=0.15,
         cached_input_per_million=0.075,
@@ -128,7 +128,7 @@ MODEL_COSTS: Dict[str, ModelCost] = {
         cached_input_per_million=0.03,
         output_per_million=2.50,
     ),
-    # Gemini 3.5 and 3.6 Flash standard paid-tier pricing (USD per 1M tokens).
+    # Gemini 3.5 Flash standard paid-tier pricing (USD per 1M tokens).
     "gemini-3.5-flash": ModelCost(
         input_per_million=1.50,
         cached_input_per_million=0.15,
@@ -139,15 +139,27 @@ MODEL_COSTS: Dict[str, ModelCost] = {
         cached_input_per_million=0.15,
         output_per_million=9.00,
     ),
+    # Gemini 3.6 and 3.7 Flash introductory pricing through 31 December 2026.
+    # Google schedules $1.50/$0.15/$7.50 from 1 January 2027.
     "gemini-3.6-flash": ModelCost(
-        input_per_million=1.50,
-        cached_input_per_million=0.15,
-        output_per_million=7.50,
+        input_per_million=0.75,
+        cached_input_per_million=0.075,
+        output_per_million=3.75,
     ),
     "google/gemini-3.6-flash": ModelCost(
-        input_per_million=1.50,
-        cached_input_per_million=0.15,
-        output_per_million=7.50,
+        input_per_million=0.75,
+        cached_input_per_million=0.075,
+        output_per_million=3.75,
+    ),
+    "gemini-3.7-flash": ModelCost(
+        input_per_million=0.75,
+        cached_input_per_million=0.075,
+        output_per_million=3.75,
+    ),
+    "google/gemini-3.7-flash": ModelCost(
+        input_per_million=0.75,
+        cached_input_per_million=0.075,
+        output_per_million=3.75,
     ),
 }
 

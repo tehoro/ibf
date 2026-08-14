@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from ibf.llm.client import _build_gemini_config
 from ibf.llm.settings import LLMSettings
 
@@ -22,11 +24,17 @@ def _settings(model: str) -> LLMSettings:
     )
 
 
-def test_gemini_35_flash_lite_omits_deprecated_sampling_parameters() -> None:
+@pytest.mark.parametrize(
+    "model",
+    ["gemini-3.5-flash-lite", "gemini-3.7-flash", "google/gemini-3.7-flash"],
+)
+def test_recent_gemini_flash_models_omit_deprecated_sampling_parameters(
+    model: str,
+) -> None:
     config = _build_gemini_config(
         _FakeTypes,
         "system",
-        _settings("gemini-3.5-flash-lite"),
+        _settings(model),
     )
 
     assert "temperature" not in config.kwargs

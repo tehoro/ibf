@@ -15,6 +15,8 @@ from ibf.api.context_research import (
     ResearchResult,
 )
 from ibf.api.impact import (
+    DEFAULT_CONTEXT_LLM,
+    LEGACY_UNSUFFIXED_CONTEXT_LLM,
     _build_hosted_context_prompt,
     _cache_path,
     _extract_gemini_grounding_audit,
@@ -640,6 +642,34 @@ def test_gemini_context_retries_once_when_model_skips_search(monkeypatch, tmp_pa
     assert "MANDATORY SEARCH RETRY" in requests[1]
 
 
+def test_gemini_37_context_omits_deprecated_sampling_parameters(
+    monkeypatch, tmp_path
+) -> None:
+    from google import genai
+
+    captured = {}
+
+    def generate_content(**kwargs):
+        captured.update(kwargs)
+        return _gemini_response(grounded=True)
+
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=generate_content)
+    )
+    monkeypatch.setattr(genai, "Client", lambda **kwargs: fake_client)
+    monkeypatch.setattr("ibf.api.impact.CACHE_DIR", tmp_path)
+
+    text, _ = _generate_context_gemini_search(
+        "research prompt",
+        model_name="gemini-3.7-flash",
+        api_key="key",
+        name="Otaki, New Zealand",
+    )
+
+    assert text == _valid_synthesis()
+    assert "temperature" not in captured["config"].model_dump(exclude_unset=True)
+
+
 def test_gemini_context_retries_transient_server_error(monkeypatch, tmp_path) -> None:
     from google import genai
     from google.genai import errors
@@ -743,14 +773,14 @@ def test_context_cache_provenance_round_trips(tmp_path: Path) -> None:
     assert generated_at == "2026-07-28T08:30:00+12:00"
 
 
-def test_gemini_default_reuses_legacy_cache_but_luna_does_not(
+def test_gemini_37_default_uses_new_cache_but_preview_remains_compatible(
     tmp_path, monkeypatch
 ) -> None:
     monkeypatch.setattr("ibf.api.impact.CACHE_DIR", tmp_path)
     date = datetime(2026, 7, 26, tzinfo=timezone.utc)
 
     default = _cache_path("location", "Otaki", 4, "UTC", date_override=date)
-    legacy_gemini = _cache_path(
+    legacy_preview = _cache_path(
         "location",
         "Otaki",
         4,
@@ -767,10 +797,12 @@ def test_gemini_default_reuses_legacy_cache_but_luna_does_not(
         context_llm="gpt-5.6-luna",
     )
 
-    assert default == legacy_gemini
-    assert "__gemini" not in default.name
+    assert DEFAULT_CONTEXT_LLM == "gemini-3.7-flash"
+    assert LEGACY_UNSUFFIXED_CONTEXT_LLM == "gemini-3-flash-preview"
+    assert "__gemini_37_flash" in default.name
+    assert "__gemini" not in legacy_preview.name
     assert "__gpt_56_luna" in luna.name
-    assert luna != default
+    assert default != legacy_preview != luna
 
 
 def test_brave_failure_can_fall_back_to_explicit_hosted_search_model(monkeypatch, tmp_path) -> None:

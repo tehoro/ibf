@@ -35,10 +35,11 @@ CACHE_DIR = ensure_directory("ibf_cache/impact")
 MAX_CONTEXT_AGE_DAYS = 3
 EVENT_LOOKAHEAD_DAYS = 10
 HOSTED_RESEARCH_VERSION = 2
-DEFAULT_CONTEXT_LLM = "gemini-3-flash-preview"
+DEFAULT_CONTEXT_LLM = "gemini-3.7-flash"
 # Before 0.8, the default context model's cache filenames omitted the model
-# suffix. Preserve that convention so existing Gemini context remains reusable.
-LEGACY_UNSUFFIXED_CONTEXT_LLM = DEFAULT_CONTEXT_LLM
+# suffix. Keep that historical model explicit so its existing cache remains
+# reusable while a new default receives a distinct model-qualified cache key.
+LEGACY_UNSUFFIXED_CONTEXT_LLM = "gemini-3-flash-preview"
 CONTEXT_SECTION_HEADINGS = [
     "Existing Vulnerabilities",
     "Weather Impact Thresholds",
@@ -1280,8 +1281,8 @@ def _is_gemini_model(model_name: str) -> bool:
 def _normalize_gemini_model_name(model_name: str) -> str:
     """
     Accept either:
-    - "gemini-3.5-flash-lite"
-    - "google/gemini-3.5-flash-lite"
+    - "gemini-3.7-flash"
+    - "google/gemini-3.7-flash"
     and normalize to the direct Gemini model name for the Google SDK.
     """
     raw = (model_name or "").strip()
@@ -1294,7 +1295,7 @@ def _normalize_gemini_model_name(model_name: str) -> str:
 def _gemini_omits_sampling_parameters(model_name: str) -> bool:
     """Return whether a Gemini model requires sampling parameters to be omitted."""
     normalized = _normalize_gemini_model_name(model_name).lower()
-    return normalized.startswith(("gemini-3.5-", "gemini-3.6-"))
+    return normalized.startswith(("gemini-3.5-", "gemini-3.6-", "gemini-3.7-"))
 
 
 def _generate_context_openai_web_search(
@@ -1461,7 +1462,7 @@ def _generate_context_gemini_search(
         "tools": [tool],
         "max_output_tokens": 15000,
     }
-    # Gemini 3.5 Flash-Lite and later models deprecate sampling parameters.
+    # Recent Gemini Flash models deprecate sampling parameters.
     # Omitting temperature avoids a future API error while preserving it for
     # older Gemini models that still use it.
     if not _gemini_omits_sampling_parameters(model_name):

@@ -5,14 +5,14 @@ llm = "gpt-5.6-luna"
 # Recommended local family: Gemma 4; copy the exact loaded model ID from LM Studio.
 # llm = "lms:exact-loaded-gemma-4-model-id"  # local or network LM Studio
 # prompt_profile = "compact"  # small-model profile; deterministic spot forecasts only
-# llm_fallback = "gemini-3-flash-preview"     # optional one-step cross-provider fallback
+# llm_fallback = "gemini-3.7-flash"           # optional one-step cross-provider fallback
 # lm_studio_base_url = "http://192.168.1.50:1234/v1"
 
 # Recommended: Gemini hosted web search, cached for up to three local days.
 # Experimental Brave research remains available with context_provider = "brave".
 context_provider = "llm-search"
-context_llm = "gemini-3-flash-preview"
-# context_fallback_llm = "gemini-3-flash-preview"  # experimental Brave -> hosted fallback
+context_llm = "gemini-3.7-flash"
+# context_fallback_llm = "gemini-3.7-flash"  # experimental Brave -> hosted fallback
 translation_llm = "gpt-5.6-luna"
 # translation_llm_fallback = "gpt-4o-mini"
 enable_reasoning = true   # use reasoning or thinking where supported

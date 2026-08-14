@@ -99,7 +99,8 @@ class ForecastConfig(BaseModel):
         lm_studio_base_url: Optional LM Studio server URL for ``lms:`` models.
         context_provider: Impact-context research provider (recommended ``llm-search`` or
             experimental ``brave``).
-        context_llm: Model used for impact-context search or experimental Brave evidence synthesis.
+        context_llm: Model used for impact-context search or experimental Brave evidence synthesis;
+            defaults to ``gemini-3.7-flash`` when unset.
         context_fallback_llm: Hosted-search model used if the Brave path fails.
         translation_language: Global default translation language.
         translation_llm: Specific LLM to use for translation.

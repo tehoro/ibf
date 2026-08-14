@@ -197,15 +197,15 @@ def _log_cost_summary() -> None:
         total_forecast += entry.forecast_cents
         total_translation += entry.translation_cents
         lines.append(
-            f"{_format_label(label, label_width)} {entry.context_cents:>12.2f} {entry.forecast_cents:>12.2f} {entry.translation_cents:>12.2f}"
+            f"{_format_label(label, label_width)} {entry.context_cents:>12.3f} {entry.forecast_cents:>12.3f} {entry.translation_cents:>12.3f}"
         )
 
     lines.append("-" * len(header))
     lines.append(
-        f"{'TOTAL':<{label_width}} {total_context:>12.2f} {total_forecast:>12.2f} {total_translation:>12.2f}"
+        f"{'TOTAL':<{label_width}} {total_context:>12.3f} {total_forecast:>12.3f} {total_translation:>12.3f}"
     )
     grand_total = total_context + total_forecast + total_translation
-    lines.append(f"{'Grand total':<{label_width}} {grand_total:>12.2f}")
+    lines.append(f"{'Grand total':<{label_width}} {grand_total:>12.3f}")
 
     logger.info("LLM cost summary (USD cents):\n%s", "\n".join(lines))
 

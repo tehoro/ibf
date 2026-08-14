@@ -338,7 +338,7 @@ def _gemini_omits_sampling_parameters(model_name: str) -> bool:
     normalized = (model_name or "").lower()
     if normalized.startswith("google/"):
         normalized = normalized.split("/", 1)[1]
-    return normalized.startswith(("gemini-3.5-", "gemini-3.6-"))
+    return normalized.startswith(("gemini-3.5-", "gemini-3.6-", "gemini-3.7-"))
 
 
 def _maybe_continue_gemini(

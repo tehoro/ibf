@@ -89,7 +89,7 @@ def test_gemini_35_flash_lite_uses_current_standard_price() -> None:
     assert cents == pytest.approx(280.0)
 
 
-def test_gemini_36_flash_uses_current_standard_price() -> None:
+def test_gemini_36_flash_uses_current_introductory_price() -> None:
     usage = SimpleNamespace(
         prompt_token_count=1_000_000,
         cached_content_token_count=0,
@@ -99,7 +99,20 @@ def test_gemini_36_flash_uses_current_standard_price() -> None:
 
     cents = log_gemini_usage_and_cost("gemini-3.6-flash", usage)
 
-    assert cents == pytest.approx(900.0)
+    assert cents == pytest.approx(450.0)
+
+
+def test_gemini_37_flash_uses_current_introductory_price() -> None:
+    usage = SimpleNamespace(
+        prompt_token_count=1_000_000,
+        cached_content_token_count=0,
+        candidates_token_count=1_000_000,
+        total_token_count=2_000_000,
+    )
+
+    cents = log_gemini_usage_and_cost("gemini-3.7-flash", usage)
+
+    assert cents == pytest.approx(450.0)
 
 
 def test_gemini_estimate_bills_thinking_as_output_tokens() -> None:

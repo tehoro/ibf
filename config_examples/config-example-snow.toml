@@ -3,7 +3,7 @@
 # Language Models to use
 llm = "gpt-5.6-luna"
 context_provider = "llm-search"  # recommended; Brave is experimental
-context_llm = "gemini-3-flash-preview"  # recommended hosted-search model
+context_llm = "gemini-3.7-flash"  # recommended hosted-search model
 translation_llm = "gpt-5.6-luna"
 # Recommended local family: Gemma 4. Copy its exact ID and set lm_studio_base_url.
 # prompt_profile = "compact"  # small-model profile; deterministic spot forecasts only
