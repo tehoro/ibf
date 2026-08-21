@@ -38,6 +38,13 @@ _SNOW_WORD_RE = re.compile(
     r"\b(?:snow|snowfall|sleet|wintry|flurr(?:y|ies))\b",
     re.IGNORECASE,
 )
+_ALERT_BLOCK_RE = re.compile(
+    r"(?ms)^ALERT from (?P<source>[^\n]+?):\s*\n"
+    r"Title:\s*(?P<title>[^\n]+?)\s*\n"
+    r"Valid from:\s*(?P<onset>[^\n]+?)\s*\n"
+    r"Expires:\s*(?P<expires>[^\n]+?)\s*\n"
+    r"Description:\s*(?P<description>.*?)\s*\n<END ALERT>"
+)
 _COMPACT_DEICTIC_RE = re.compile(r"\bthis\s+(morning|afternoon|evening)\b", re.IGNORECASE)
 _COMPACT_WILL_BE_PRESENT_RE = re.compile(r"\s+will\s+be\s+present\b", re.IGNORECASE)
 _COMPACT_TEMPERATURE_VALUE = (
@@ -236,6 +243,16 @@ _COMPACT_SIGNIFICANT_WIND_RE = re.compile(
 
 
 @dataclass(frozen=True)
+class SpotAlertRequirement:
+    """Authoritative source, identity, and validity for one alert."""
+
+    source: str
+    title: str
+    onset: str
+    expires: str
+
+
+@dataclass(frozen=True)
 class SpotPeriodRequirement:
     """Authoritative output facts for one spot-forecast period."""
 
@@ -249,6 +266,7 @@ class SpotPeriodRequirement:
     snowfall: Optional[str] = None
     forbidden_rainfall: tuple[str, ...] = ()
     forbidden_snowfall: tuple[str, ...] = ()
+    alerts: tuple[SpotAlertRequirement, ...] = ()
 
 
 def postprocess_compact_spot_output(
@@ -594,6 +612,7 @@ def parse_spot_output_requirements(
         snowfall: Optional[str] = None
         forbidden_rainfall: tuple[str, ...] = ()
         forbidden_snowfall: tuple[str, ...] = ()
+        alerts = _parse_alert_requirements(block)
 
         if is_ensemble:
             summary = block.rsplit("RANGE SUMMARY:", 1)[-1] if "RANGE SUMMARY:" in block else ""
@@ -639,10 +658,26 @@ def parse_spot_output_requirements(
                 snowfall=snowfall,
                 forbidden_rainfall=forbidden_rainfall,
                 forbidden_snowfall=forbidden_snowfall,
+                alerts=alerts,
             )
         )
 
     return requirements
+
+
+def _parse_alert_requirements(text: str) -> tuple[SpotAlertRequirement, ...]:
+    """Extract the exact alert facts embedded in one supplied forecast period."""
+    alerts: list[SpotAlertRequirement] = []
+    for match in _ALERT_BLOCK_RE.finditer(text or ""):
+        alerts.append(
+            SpotAlertRequirement(
+                source=match.group("source").strip(),
+                title=match.group("title").strip(),
+                onset=match.group("onset").strip(),
+                expires=match.group("expires").strip(),
+            )
+        )
+    return tuple(alerts)
 
 
 def format_spot_output_contract(requirements: Iterable[SpotPeriodRequirement]) -> str:
@@ -669,6 +704,12 @@ def format_spot_output_contract(requirements: Iterable[SpotPeriodRequirement]) -
             lines.append(f"- {period.source_label}: " + "; ".join(facts) + ".")
         else:
             lines.append(f"- {period.source_label}.")
+        for alert in period.alerts:
+            lines.append(
+                f"  ALERT: {alert.source} {alert.title}; valid from {alert.onset}; "
+                f"expires {alert.expires}. State the source, exact title, and both exact "
+                "times in this period; never place it in a non-overlapping period."
+            )
 
     lines.append("Return only the forecast paragraphs.")
     return "\n".join(lines)
@@ -725,11 +766,17 @@ def validate_spot_forecast(
                 f"{period.source_label} heading must use the supplied weekday {period.weekday.title()}."
             )
 
-        if period.weekday and not alerts_present:
+        if period.weekday:
+            allowed_weekdays = {period.weekday}
+            for alert in period.alerts:
+                allowed_weekdays.update(
+                    match.group(1).lower()
+                    for match in _WEEKDAY_RE.finditer(f"{alert.onset} {alert.expires}")
+                )
             other_weekdays = {
                 match.group(1).lower()
                 for match in _WEEKDAY_RE.finditer(body)
-                if match.group(1).lower() != period.weekday
+                if match.group(1).lower() not in allowed_weekdays
             }
             for other_weekday in sorted(other_weekdays):
                 violations.append(
@@ -760,7 +807,84 @@ def validate_spot_forecast(
                         f"{period.source_label} uses unapproved Scenario snowfall amount {amount}."
                     )
 
+    violations.extend(_alert_violations(output_periods, periods))
     return _deduplicate(violations)
+
+
+def _alert_violations(
+    output_periods: dict[str, tuple[str, str]],
+    periods: list[SpotPeriodRequirement],
+) -> list[str]:
+    """Validate alert identity, validity times, and placement by supplied period."""
+    alert_by_key: dict[tuple[str, str, str, str], SpotAlertRequirement] = {}
+    affected_keys: dict[tuple[str, str, str, str], set[str]] = {}
+    period_labels = {period.date_key: period.source_label for period in periods}
+
+    for period in periods:
+        for alert in period.alerts:
+            key = _alert_key(alert)
+            alert_by_key[key] = alert
+            affected_keys.setdefault(key, set()).add(period.date_key)
+
+    violations: list[str] = []
+    for period in periods:
+        output = output_periods.get(period.date_key)
+        if output is None:
+            continue
+        header, body = output
+        paragraph = f"{header}: {body}"
+        for key, alert in alert_by_key.items():
+            title_present = _contains_phrase(paragraph, alert.title)
+            expected_here = period.date_key in affected_keys[key]
+            if not expected_here:
+                if title_present:
+                    valid_labels = ", ".join(
+                        period_labels[date_key]
+                        for date_key in sorted(affected_keys[key])
+                        if date_key in period_labels
+                    )
+                    violations.append(
+                        f"{alert.title} must not appear in {period.source_label}; "
+                        f"its supplied validity overlaps {valid_labels}."
+                    )
+                continue
+
+            if not title_present:
+                violations.append(
+                    f"{period.source_label} must state the alert title {alert.title}."
+                )
+                continue
+            if not _contains_phrase(paragraph, alert.source):
+                violations.append(
+                    f"{period.source_label} must attribute {alert.title} to {alert.source}."
+                )
+            for timing_label, value in (("start", alert.onset), ("end", alert.expires)):
+                clock = _clock_time(value)
+                if clock and not re.search(rf"(?<!\d){re.escape(clock)}(?!\d)", paragraph):
+                    violations.append(
+                        f"{period.source_label} must state the exact {timing_label} time "
+                        f"{clock} for {alert.title}."
+                    )
+
+    return violations
+
+
+def _alert_key(alert: SpotAlertRequirement) -> tuple[str, str, str, str]:
+    return tuple(
+        re.sub(r"\s+", " ", value.strip().lower())
+        for value in (alert.source, alert.title, alert.onset, alert.expires)
+    )
+
+
+def _contains_phrase(text: str, phrase: str) -> bool:
+    normalised_text = re.sub(r"\s+", " ", (text or "").strip().lower())
+    normalised_phrase = re.sub(r"\s+", " ", (phrase or "").strip().lower())
+    return bool(normalised_phrase) and normalised_phrase in normalised_text
+
+
+def _clock_time(value: str) -> str:
+    match = re.search(r"(?<!\d)(?:[01]\d|2[0-3]):[0-5]\d(?!\d)", value or "")
+    return match.group(0) if match else ""
 
 
 def build_spot_correction_prompts(
@@ -788,9 +912,20 @@ VIOLATIONS:
     return system_prompt, user_prompt
 
 
-def correction_preserves_other_numeric_facts(original: str, corrected: str) -> bool:
+def correction_preserves_other_numeric_facts(
+    original: str,
+    corrected: str,
+    *,
+    governed_values: Iterable[str] = (),
+) -> bool:
     """Return whether correction preserved numeric facts not governed by the contract."""
-    return _non_precip_fact_signature(original) == _non_precip_fact_signature(corrected)
+    original_signature = _non_precip_fact_signature(original)
+    corrected_signature = _non_precip_fact_signature(corrected)
+    governed_signature = _non_precip_fact_signature("\n".join(governed_values))
+    for value in governed_signature:
+        original_signature.pop(value, None)
+        corrected_signature.pop(value, None)
+    return original_signature == corrected_signature
 
 
 def _wording_violations(text: str, *, alerts_present: bool) -> list[str]:

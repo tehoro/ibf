@@ -850,6 +850,12 @@ def _generate_location_text_with_adaptive_thinning(
                     if value
                 ),
             )
+            governed_alert_values = tuple(
+                value
+                for period in requirements
+                for alert in period.alerts
+                for value in (alert.onset, alert.expires)
+            )
             violations = validate_spot_forecast(
                 generated,
                 requirements,
@@ -910,7 +916,11 @@ def _generate_location_text_with_adaptive_thinning(
                     )
                     return generated, settings, forecast_cost
                 raise RuntimeError("the forecast correction returned no usable text")
-            if not correction_preserves_other_numeric_facts(generated, corrected):
+            if not correction_preserves_other_numeric_facts(
+                generated,
+                corrected,
+                governed_values=governed_alert_values,
+            ):
                 factual_violations = validate_spot_forecast(
                     generated,
                     requirements,

@@ -4,6 +4,7 @@ import pytest
 
 from ibf.config.models import ForecastConfig, LocationConfig
 from ibf.llm.compliance import (
+    SpotAlertRequirement,
     SpotPeriodRequirement,
     build_spot_correction_prompts,
     correction_preserves_other_numeric_facts,
@@ -199,19 +200,138 @@ def test_validator_rejects_a_different_weekday_inside_period_body() -> None:
 
 
 def test_validator_allows_cross_day_wording_when_alerts_are_present() -> None:
+    alert = SpotAlertRequirement(
+        source="MetService",
+        title="Strong Wind Warning",
+        onset="Wednesday 5 August 2026, 23:00 NZST",
+        expires="Thursday 6 August 2026, 06:00 NZST",
+    )
     requirements = [
         SpotPeriodRequirement(
             source_label="WEDNESDAY 5 AUGUST",
             date_key="5 august",
             partial=False,
             weekday="wednesday",
+            alerts=(alert,),
         )
     ]
     forecast = (
-        "**WEDNESDAY 5 AUGUST:** A wind warning remains in force until early Thursday morning."
+        "**WEDNESDAY 5 AUGUST:** A MetService Strong Wind Warning is in force from "
+        "23:00 Wednesday until 06:00 Thursday."
     )
 
     assert validate_spot_forecast(forecast, requirements, alerts_present=True) == []
+
+
+def test_alert_contract_maps_watch_to_its_supplied_period() -> None:
+    formatted = """Date: FRIDAY 21 AUGUST
+4pm 14° Partly cloudy N 10 gust 20
+ Low 9°C, High 14°C
+
+Date: SUNDAY 23 AUGUST
+
+OFFICIAL ALERTS FOR THIS PERIOD:
+Affected forecast period: SUNDAY 23 AUGUST
+ALERT from MetService:
+Title: Strong Wind Watch
+Valid from: Sunday 23 August 2026, 06:00 NZST
+Expires: Sunday 23 August 2026, 18:00 NZST
+Description: West to southwest winds may approach severe gale.
+<END ALERT>
+
+midnight 9° Partly cloudy W 20 gust 40
+ Low 3°C, High 11°C
+"""
+
+    requirements = parse_spot_output_requirements(formatted, model_kind="deterministic")
+    contract = format_spot_output_contract(requirements)
+
+    assert requirements[0].alerts == ()
+    assert requirements[1].alerts[0].title == "Strong Wind Watch"
+    assert "SUNDAY 23 AUGUST" in contract
+    assert "ALERT: MetService Strong Wind Watch" in contract
+    assert "valid from Sunday 23 August 2026, 06:00 NZST" in contract
+    assert "never place it in a non-overlapping period" in contract
+
+
+def test_validator_rejects_alert_in_wrong_period_and_missing_from_valid_period() -> None:
+    alert = SpotAlertRequirement(
+        source="MetService",
+        title="Strong Wind Watch",
+        onset="Sunday 23 August 2026, 06:00 NZST",
+        expires="Sunday 23 August 2026, 18:00 NZST",
+    )
+    requirements = [
+        SpotPeriodRequirement(
+            source_label="FRIDAY 21 AUGUST",
+            date_key="21 august",
+            partial=False,
+            weekday="friday",
+        ),
+        SpotPeriodRequirement(
+            source_label="SUNDAY 23 AUGUST",
+            date_key="23 august",
+            partial=False,
+            weekday="sunday",
+            alerts=(alert,),
+        ),
+    ]
+    forecast = """**FRIDAY 21 AUGUST:** A MetService Strong Wind Watch is in force from 06:00 to 18:00.
+
+**SUNDAY 23 AUGUST:** Strong westerlies are expected."""
+
+    violations = validate_spot_forecast(forecast, requirements, alerts_present=True)
+
+    assert (
+        "Strong Wind Watch must not appear in FRIDAY 21 AUGUST; its supplied validity "
+        "overlaps SUNDAY 23 AUGUST."
+    ) in violations
+    assert "SUNDAY 23 AUGUST must state the alert title Strong Wind Watch." in violations
+
+
+def test_validator_requires_alert_source_and_exact_times_in_valid_period() -> None:
+    alert = SpotAlertRequirement(
+        source="MetService",
+        title="Strong Wind Watch",
+        onset="Sunday 23 August 2026, 06:00 NZST",
+        expires="Sunday 23 August 2026, 18:00 NZST",
+    )
+    requirements = [
+        SpotPeriodRequirement(
+            source_label="SUNDAY 23 AUGUST",
+            date_key="23 august",
+            partial=False,
+            weekday="sunday",
+            alerts=(alert,),
+        )
+    ]
+
+    incomplete = "**SUNDAY 23 AUGUST:** A Strong Wind Watch is in force during the day."
+    valid = (
+        "**SUNDAY 23 AUGUST:** A MetService Strong Wind Watch is in force from "
+        "06:00 to 18:00."
+    )
+
+    violations = validate_spot_forecast(incomplete, requirements, alerts_present=True)
+    assert "SUNDAY 23 AUGUST must attribute Strong Wind Watch to MetService." in violations
+    assert "SUNDAY 23 AUGUST must state the exact start time 06:00" in " ".join(violations)
+    assert "SUNDAY 23 AUGUST must state the exact end time 18:00" in " ".join(violations)
+    assert validate_spot_forecast(valid, requirements, alerts_present=True) == []
+
+
+def test_correction_numeric_guard_allows_contract_governed_alert_times() -> None:
+    original = "**SUNDAY 23 AUGUST:** A MetService Strong Wind Watch is in force."
+    corrected = (
+        "**SUNDAY 23 AUGUST:** A MetService Strong Wind Watch is in force from "
+        "06:00 to 18:00."
+    )
+
+    assert not correction_preserves_other_numeric_facts(original, corrected)
+    assert correction_preserves_other_numeric_facts(
+        original,
+        corrected,
+        governed_values=("Sunday 23 August 2026, 06:00 NZST", "Sunday 23 August 2026, 18:00 NZST"),
+    )
 
 
 def test_ensemble_contract_rejects_unapproved_scenario_total() -> None:

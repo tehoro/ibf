@@ -468,6 +468,15 @@ reached or that model is not advertised, IBF produces a prominent error and uses
 fallback if one exists. With LM Studio Just-In-Time loading enabled, `/v1/models` may advertise
 downloaded models as well as the models already held in memory.
 
+When `prompt_profile = "compact"` is selected with a recognised switchable-thinking Qwen 3-family
+model identifier (including Qwen 3.5 and Qwen 3.8), IBF requests direct final output by sending
+`chat_template_kwargs = { enable_thinking = false, preserve_thinking = false }` in the LM Studio
+Chat Completions request. This is model-specific and is not sent to other LM Studio models or cloud
+providers. Because the LM Studio MLX runtime has been observed to ignore those template controls
+for Qwen 3.8, IBF also appends `/no_think` to compact-profile Qwen 3.8 user prompts. This temporary
+safeguard is not applied to earlier Qwen 3 versions. The standard prompt profile sends no thinking
+override or prompt suffix.
+
 LM Studio's loaded context length must accommodate the complete system and user prompts plus the
 requested output allowance. Area prompts can be much larger than location prompts because they
 combine representative locations and ensemble scenarios, but long spot forecasts with many

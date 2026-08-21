@@ -135,7 +135,7 @@ def format_location_dataset(
     if not dataset:
         return "Error: No valid forecast data received for formatting."
 
-    alert_text = _format_alerts(alerts, dataset, tz_str)
+    alerts_by_date = _format_alerts(alerts, dataset, tz_str)
     output_parts: List[str] = []
     snow_level_unit = _snow_level_unit_label(temperature_unit, precipitation_unit)
 
@@ -146,6 +146,10 @@ def format_location_dataset(
         stable_label = _stable_day_label(str(day["dayofweek"]))
         date_key = f" {day['year']}-{day['month']:02d}-{day['day']:02d} {stable_label.upper()}"
         date_heading = f"Date: {convert_date_string(date_key)}\n"
+        period_alert_text = alerts_by_date.get(str(day.get("date") or ""), "")
+        date_section = date_heading
+        if period_alert_text:
+            date_section += f"\n{period_alert_text}\n"
 
         hours = day.get("hours", [])
         if not hours:
@@ -280,7 +284,7 @@ def format_location_dataset(
                 # Deterministic-style output: the per-member summary already contains
                 # the low/high and precip/snow totals. Avoid emitting probabilistic
                 # range summaries which are meaningless with a single member.
-                output_parts.append(f"{date_heading}\n{scenarios_text}\n")
+                output_parts.append(f"{date_section}\n{scenarios_text}\n")
             else:
                 range_summary = calculate_range_summary(
                     daily_lows,
@@ -293,10 +297,10 @@ def format_location_dataset(
                     _should_use_only_low(hours),
                     _should_reverse_high_low(hours),
                 )
-                output_parts.append(f"{date_heading}\n{scenarios_text}\nRANGE SUMMARY:\n" + range_summary + "\n")
+                output_parts.append(f"{date_section}\n{scenarios_text}\nRANGE SUMMARY:\n" + range_summary + "\n")
 
     final_text = "\n".join(part for part in output_parts if part.strip())
-    return (alert_text + "\n" + final_text).strip() if alert_text else final_text.strip()
+    return final_text.strip()
 
 
 def format_area_dataset(area_name: str, locations: List[dict[str, Any]]) -> str:
@@ -339,17 +343,30 @@ def format_area_dataset(area_name: str, locations: List[dict[str, Any]]) -> str:
     return "\n\n".join(parts).strip()
 
 
-def _format_alerts(alerts: List[AlertSummary], dataset: List[dict], tz_str: str) -> str:
-    """Render alert metadata into human-readable text that precedes the dataset."""
+def _format_alerts(
+    alerts: List[AlertSummary],
+    dataset: List[dict],
+    tz_str: str,
+) -> dict[str, str]:
+    """Map alerts to overlapping supplied periods and render them inside those periods."""
     if not alerts:
-        return ""
-    first_date = dataset[0].get("date")
-    try:
-        earliest = datetime.strptime(first_date, "%Y-%m-%d").date() if first_date else None
-    except (TypeError, ValueError):
-        earliest = None
+        return {}
 
-    lines = []
+    periods: list[tuple[str, str, arrow.Arrow, arrow.Arrow]] = []
+    for day in dataset:
+        bounds = _forecast_period_bounds(day, tz_str)
+        date_value = str(day.get("date") or "")
+        if not bounds or not date_value:
+            continue
+        start, end = bounds
+        stable_label = _stable_day_label(str(day.get("dayofweek") or ""))
+        date_key = (
+            f" {day.get('year')}-{int(day.get('month')):02d}-{int(day.get('day')):02d} "
+            f"{stable_label.upper()}"
+        )
+        periods.append((date_value, convert_date_string(date_key), start, end))
+
+    blocks_by_date: dict[str, list[str]] = {}
     for alert in alerts:
         if not alert.onset or not alert.expires:
             continue
@@ -359,20 +376,64 @@ def _format_alerts(alerts: List[AlertSummary], dataset: List[dict], tz_str: str)
         except (arrow.parser.ParserError, TypeError, ValueError) as exc:
             logger.warning("Skipping alert with invalid timestamps (%s): %s", alert.title or "N/A", exc)
             continue
-        if earliest and expires.date() < earliest:
+        if expires <= onset:
+            logger.warning(
+                "Skipping alert with non-positive validity window (%s).",
+                alert.title or "N/A",
+            )
             continue
-        lines.append(
-            "\n".join(
-                [
+
+        for date_value, period_label, period_start, period_end in periods:
+            if onset >= period_end or expires <= period_start:
+                continue
+            block = "\n".join(
+                (
+                    f"Affected forecast period: {period_label}",
                     f"ALERT from {alert.source or 'N/A'}:",
                     f"Title: {alert.title or 'N/A'}",
-                    f"Valid from: {onset.format('YYYY-MM-DD HH:mm ZZZ')}",
-                    f"Expires: {expires.format('YYYY-MM-DD HH:mm ZZZ')}",
+                    f"Valid from: {onset.format('dddd D MMMM YYYY, HH:mm ZZZ')}",
+                    f"Expires: {expires.format('dddd D MMMM YYYY, HH:mm ZZZ')}",
                     f"Description: {alert.description or 'N/A'}",
-                ]
+                    "<END ALERT>",
+                )
             )
-        )
-    return "ACTIVE ALERTS:\n" + "\n".join(lines) if lines else ""
+            blocks_by_date.setdefault(date_value, []).append(block)
+
+    return {
+        date_value: "OFFICIAL ALERTS FOR THIS PERIOD:\n" + "\n".join(blocks)
+        for date_value, blocks in blocks_by_date.items()
+    }
+
+
+def _forecast_period_bounds(
+    day: dict[str, Any],
+    tz_str: str,
+) -> tuple[arrow.Arrow, arrow.Arrow] | None:
+    """Return the half-open interval covered by a supplied day/hour block."""
+    date_value = day.get("date")
+    hours = day.get("hours")
+    if not date_value or not isinstance(hours, list) or not hours:
+        return None
+    hour_values = sorted(
+        _hour_from_string(str(hour.get("hour") or "0:00"))
+        for hour in hours
+        if isinstance(hour, dict)
+    )
+    if not hour_values:
+        return None
+    try:
+        start = arrow.get(
+            f"{date_value} {hour_values[0]:02d}:00",
+            "YYYY-MM-DD HH:mm",
+        ).replace(tzinfo=tz_str)
+        final_hour = arrow.get(
+            f"{date_value} {hour_values[-1]:02d}:00",
+            "YYYY-MM-DD HH:mm",
+        ).replace(tzinfo=tz_str)
+    except (arrow.parser.ParserError, TypeError, ValueError) as exc:
+        logger.warning("Skipping alert period with invalid date/hours (%s): %s", date_value, exc)
+        return None
+    return start, final_hour.shift(hours=1)
 
 
 def _hour_from_string(value: str) -> int:

@@ -81,6 +81,45 @@ def test_forecast_prompts_assign_late_night_hours_to_the_correct_day(
     assert "overnight; towards dawn" not in prompt
 
 
+def _all_forecast_system_prompts() -> list[str]:
+    units = UnitInstructions("celsius", None, "mm", None, "cm", None, "kph", None)
+    return [
+        build_spot_system_prompt(units, model_kind="ensemble"),
+        build_spot_system_prompt(units, model_kind="deterministic"),
+        build_spot_system_prompt(
+            units,
+            model_kind="deterministic",
+            prompt_profile="compact",
+        ),
+        build_area_system_prompt(units, model_kind="ensemble"),
+        build_area_system_prompt(units, model_kind="deterministic"),
+        build_regional_system_prompt(units, model_kind="ensemble"),
+        build_regional_system_prompt(units, model_kind="deterministic"),
+    ]
+
+
+def test_all_forecast_prompts_omit_redundant_no_rain_statements() -> None:
+    for prompt in _all_forecast_system_prompts():
+        assert "Do not add a standalone or redundant statement" in prompt
+        assert 'such as "No rain expected" or "No rain is in sight"' in prompt
+        assert "without adding a separate no-rain sentence" in prompt
+
+
+def test_all_forecast_prompts_distinguish_snow_level_meanings() -> None:
+    for prompt in _all_forecast_system_prompts():
+        assert 'Treat "snow down to about X [height unit]" as the falling-snow level' in prompt
+        assert 'Treat "snow mainly settling above about X [height unit]" as the level' in prompt
+        assert "accumulation is most likely; wintry precipitation may reach lower elevations" in prompt
+
+
+def test_all_forecast_prompts_require_validity_scoped_alert_placement() -> None:
+    for prompt in _all_forecast_system_prompts():
+        assert "Date blocks whose hours overlap its local Valid from and Expires window" in prompt
+        assert "never attach it to the nearest or first Date block" in prompt
+        assert "recheck each alert's affected day, official source, exact title" in prompt
+        assert "exact start and end times" in prompt
+
+
 def test_standard_prompt_does_not_append_compact_style_stack() -> None:
     units = UnitInstructions(
         temperature_primary="celsius",
@@ -174,6 +213,18 @@ def test_compact_spot_prompt_is_generalized_and_unit_aware(
     assert 'Begin it exactly as "**[supplied label]:**"' in prompt
     assert "# EXAMPLES OF THE REGISTER" in prompt
     assert "New Zealand meteorologist" not in prompt
+
+
+def test_standard_deterministic_spot_prompt_keeps_wind_ranges_day_specific() -> None:
+    units = UnitInstructions("celsius", None, "mm", None, "cm", None, "kph", None)
+
+    prompt = build_spot_system_prompt(units, model_kind="deterministic")
+
+    assert "Base wind speed ranges strictly on the hourly values supplied for that day" in prompt
+    assert "Do not round a day’s wind speed upward because of gust values" in prompt
+    assert "or because winds strengthen on another day" in prompt
+    assert "configured wind-speed unit after every gust speed or gust range" in prompt
+    assert 'Express a span of gust values as "X to Y [unit]", never "X or Y"' in prompt
 
 
 def test_compact_profile_does_not_change_ensemble_spot_prompt() -> None:

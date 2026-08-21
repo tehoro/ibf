@@ -36,6 +36,44 @@ def _single_hour_dataset(*, snow_level_m: float) -> list[dict]:
     ]
 
 
+def _alert_period_dataset() -> list[dict]:
+    days = []
+    for date_value, weekday, hours in (
+        ("2026-08-21", "Friday", ("16:00", "23:00")),
+        ("2026-08-22", "Saturday", ("00:00", "23:00")),
+        ("2026-08-23", "Sunday", ("00:00", "23:00")),
+    ):
+        year, month, day = (int(value) for value in date_value.split("-"))
+        days.append(
+            {
+                "date": date_value,
+                "year": year,
+                "month": month,
+                "day": day,
+                "dayofweek": weekday,
+                "hours": [
+                    {
+                        "hour": hour,
+                        "ensemble_members": {
+                            "member00": {
+                                "temperature": 10.0,
+                                "precipitation": 0.0,
+                                "snowfall": 0.0,
+                                "weather": "clear sky",
+                                "cloud_cover": 10,
+                                "wind_direction": "W",
+                                "wind_speed": 20.0,
+                                "wind_gust": 30.0,
+                            }
+                        },
+                    }
+                    for hour in hours
+                ],
+            }
+        )
+    return days
+
+
 def test_formatter_converts_to_imperial_units() -> None:
     dataset = _single_hour_dataset(snow_level_m=1500.0)
     output = format_location_dataset(
@@ -332,5 +370,82 @@ def test_formatter_skips_alert_with_invalid_timestamps(caplog) -> None:
     with caplog.at_level(logging.WARNING):
         output = _format_alerts([alert], [{"date": "2026-07-27"}], "UTC")
 
-    assert output == ""
+    assert output == {}
     assert "Skipping alert with invalid timestamps" in caplog.text
+
+
+def test_formatter_scopes_alert_to_only_overlapping_forecast_period() -> None:
+    alert = AlertSummary(
+        title="Strong Wind Watch",
+        description="West to southwest winds may approach severe gale.",
+        source="MetService",
+        onset="2026-08-23T06:00:00+12:00",
+        expires="2026-08-23T18:00:00+12:00",
+    )
+    dataset = _alert_period_dataset()
+
+    alerts_by_date = _format_alerts([alert], dataset, "Pacific/Auckland")
+    output = format_location_dataset(
+        dataset,
+        [alert],
+        "Pacific/Auckland",
+        temperature_unit="celsius",
+        precipitation_unit="mm",
+        snowfall_unit="cm",
+        windspeed_unit="kph",
+    )
+
+    assert set(alerts_by_date) == {"2026-08-23"}
+    assert "Affected forecast period: SUNDAY 23 AUGUST" in alerts_by_date["2026-08-23"]
+    assert "Valid from: Sunday 23 August 2026, 06:00 NZST" in output
+    assert "Expires: Sunday 23 August 2026, 18:00 NZST" in output
+    friday, remainder = output.split("Date: SATURDAY 22 AUGUST", 1)
+    saturday, sunday = remainder.split("Date: SUNDAY 23 AUGUST", 1)
+    assert "Strong Wind Watch" not in friday
+    assert "Strong Wind Watch" not in saturday
+    assert "Strong Wind Watch" in sunday
+    assert sunday.index("Strong Wind Watch") < sunday.index("midnight")
+
+
+def test_formatter_maps_spanning_alert_to_each_overlapping_period() -> None:
+    alert = AlertSummary(
+        title="Strong Wind Watch",
+        description="Test",
+        source="MetService",
+        onset="2026-08-22T22:00:00+12:00",
+        expires="2026-08-23T02:00:00+12:00",
+    )
+
+    alerts_by_date = _format_alerts(
+        [alert],
+        _alert_period_dataset(),
+        "Pacific/Auckland",
+    )
+
+    assert set(alerts_by_date) == {"2026-08-22", "2026-08-23"}
+
+
+def test_formatter_omits_alert_outside_supplied_forecast_hours() -> None:
+    before_partial_period = AlertSummary(
+        title="Morning Watch",
+        description="Test",
+        source="MetService",
+        onset="2026-08-21T06:00:00+12:00",
+        expires="2026-08-21T10:00:00+12:00",
+    )
+    beyond_horizon = AlertSummary(
+        title="Tuesday Watch",
+        description="Test",
+        source="MetService",
+        onset="2026-08-25T06:00:00+12:00",
+        expires="2026-08-25T18:00:00+12:00",
+    )
+
+    assert (
+        _format_alerts(
+            [before_partial_period, beyond_horizon],
+            _alert_period_dataset(),
+            "Pacific/Auckland",
+        )
+        == {}
+    )

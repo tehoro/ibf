@@ -27,6 +27,7 @@ class LLMSettings:
         temperature: Sampling temperature.
         max_tokens: Maximum output tokens.
         timeout_seconds: Optional request timeout override.
+        prompt_profile: Forecast-writing profile selected by the configuration.
     """
     model: str
     api_key: str
@@ -36,6 +37,7 @@ class LLMSettings:
     temperature: float = 0.2
     max_tokens: int = 8000
     timeout_seconds: Optional[float] = None
+    prompt_profile: str = "standard"
 
 
 def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] = None) -> LLMSettings:
@@ -80,6 +82,7 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
             base_url=base_url,
             max_tokens=8000,
             timeout_seconds=3600.0,
+            prompt_profile=config.prompt_profile,
         )
 
     # Direct Google Gemini SDK:

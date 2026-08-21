@@ -4,7 +4,7 @@ Core package for the unified Impact-Based Forecast tooling.
 
 from importlib import metadata as _metadata
 
-_EMBEDDED_VERSION = "0.8.12"
+_EMBEDDED_VERSION = "0.8.13"
 
 
 def _resolve_version() -> str:

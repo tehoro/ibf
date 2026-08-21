@@ -19,6 +19,14 @@ from ..util.env import force_gemini_api_key
 
 logger = logging.getLogger(__name__)
 _LAST_COST_CENTS: ContextVar[float] = ContextVar("ibf_last_cost_cents", default=0.0)
+_LM_STUDIO_SWITCHABLE_THINKING_QWEN_RE = re.compile(
+    r"(?:^|[/_-])qwen3(?=$|[._:/-])",
+    re.IGNORECASE,
+)
+_LM_STUDIO_QWEN38_RE = re.compile(
+    r"(?:^|[/_-])qwen3\.8(?=$|[._:/-])",
+    re.IGNORECASE,
+)
 
 
 def _reset_last_cost() -> None:
@@ -85,7 +93,7 @@ def _call_openai_compatible(
         "model": settings.model,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
+            {"role": "user", "content": _lm_studio_user_prompt(settings, prompt)},
         ],
         "stream": False,
     }
@@ -97,10 +105,12 @@ def _call_openai_compatible(
     else:
         request_kwargs["temperature"] = settings.temperature
         request_kwargs["max_tokens"] = settings.max_tokens
-    if reasoning and not (
+    extra_body = _build_openai_extra_body(settings, reasoning=reasoning)
+    if extra_body and not (
         settings.provider == "openai" and _uses_gpt5_chat_parameters(settings.model)
     ):
-        request_kwargs["extra_body"] = reasoning
+        request_kwargs["extra_body"] = extra_body
+    _log_lm_studio_reasoning_mode(settings)
     response = client.chat.completions.create(**request_kwargs)
     cost_cents = log_openai_usage_and_cost(
         settings.model,
@@ -160,6 +170,74 @@ def _reasoning_effort(reasoning: Optional[dict]) -> Optional[str]:
         return None
     effort = nested.get("effort")
     return str(effort) if effort else None
+
+
+def _build_openai_extra_body(
+    settings: LLMSettings,
+    *,
+    reasoning: Optional[dict],
+) -> Optional[dict[str, Any]]:
+    """Merge provider-neutral reasoning with model-specific compatible arguments."""
+    payload: dict[str, Any] = dict(reasoning or {})
+    chat_template_kwargs = _lm_studio_chat_template_kwargs(settings)
+    if chat_template_kwargs:
+        existing = payload.get("chat_template_kwargs")
+        merged_template_kwargs = dict(existing) if isinstance(existing, dict) else {}
+        merged_template_kwargs.update(chat_template_kwargs)
+        payload["chat_template_kwargs"] = merged_template_kwargs
+    return payload or None
+
+
+def _lm_studio_chat_template_kwargs(
+    settings: LLMSettings,
+) -> Optional[dict[str, bool]]:
+    """Disable thinking only for compact-profile LM Studio Qwen 3-family models."""
+    if settings.provider != "lmstudio":
+        return None
+    if settings.prompt_profile != "compact":
+        return None
+    if not _LM_STUDIO_SWITCHABLE_THINKING_QWEN_RE.search(settings.model or ""):
+        return None
+    return {
+        "enable_thinking": False,
+        "preserve_thinking": False,
+    }
+
+
+def _lm_studio_user_prompt(settings: LLMSettings, prompt: str) -> str:
+    """Append the Qwen 3.8 no-thinking command when its template controls are ignored."""
+    if not _uses_lm_studio_qwen38_no_think_suffix(settings):
+        return prompt
+    if re.search(r"(?:^|\s)/no_think\s*$", prompt):
+        return prompt
+    return f"{prompt.rstrip()}\n\n/no_think"
+
+
+def _uses_lm_studio_qwen38_no_think_suffix(settings: LLMSettings) -> bool:
+    """Return True only for compact-profile LM Studio Qwen 3.8 models."""
+    if not _lm_studio_chat_template_kwargs(settings):
+        return False
+    return bool(_LM_STUDIO_QWEN38_RE.search(settings.model or ""))
+
+
+def _log_lm_studio_reasoning_mode(settings: LLMSettings) -> None:
+    """Log the effective LM Studio template controls when IBF applies them."""
+    chat_template_kwargs = _lm_studio_chat_template_kwargs(settings)
+    if not chat_template_kwargs:
+        return
+    enable_thinking = str(chat_template_kwargs["enable_thinking"]).lower()
+    preserve_thinking = str(chat_template_kwargs["preserve_thinking"]).lower()
+    logger.info(
+        "LM Studio reasoning mode – model=%s enable_thinking=%s preserve_thinking=%s",
+        settings.model,
+        enable_thinking,
+        preserve_thinking,
+    )
+    if _uses_lm_studio_qwen38_no_think_suffix(settings):
+        logger.info(
+            "LM Studio Qwen no-think safeguard – model=%s appended_no_think=true",
+            settings.model,
+        )
 
 
 @lru_cache(maxsize=32)
