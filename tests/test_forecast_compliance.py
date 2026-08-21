@@ -11,6 +11,7 @@ from ibf.llm.compliance import (
     format_spot_output_contract,
     parse_spot_output_requirements,
     postprocess_compact_spot_output,
+    repair_missing_spot_temperatures,
     validate_spot_forecast,
 )
 from ibf.llm.settings import LLMSettings
@@ -102,6 +103,29 @@ def test_deterministic_contract_accepts_supplied_total() -> None:
 **Wednesday, 5 August:** Partly cloudy. Southerlies 40 km/h. The high will be 9°C and the low will be 4°C."""
 
     assert validate_spot_forecast(forecast, requirements) == []
+
+
+def test_missing_daily_temperature_is_repaired_but_wrong_value_is_not() -> None:
+    requirements = parse_spot_output_requirements(
+        DETERMINISTIC_DATA,
+        model_kind="deterministic",
+    )
+    missing = """**Monday, 3 August:** Clear. The low will be 10°C.
+
+**Tuesday, 4 August:** Rain totalling 2 mm. The low will be 7°C and the high 10°C.
+
+**Wednesday, 5 August:** Partly cloudy. The low will be 4°C and the high 9°C."""
+    wrong = missing.replace("The low will be 10°C.", "The low will be 10°C and the high 14°C.")
+
+    repaired = repair_missing_spot_temperatures(missing, requirements)
+
+    assert "The low will be 10°C. The high is expected near 15°C." in repaired
+    assert validate_spot_forecast(repaired, requirements) == []
+    assert repair_missing_spot_temperatures(wrong, requirements) == wrong
+    assert (
+        "TOMORROW, MONDAY 3 AUGUST must state the supplied high 15°C."
+        in validate_spot_forecast(wrong, requirements)
+    )
 
 
 def test_contract_suppresses_sub_reportable_rainfall() -> None:
@@ -477,6 +501,59 @@ def test_location_generation_runs_one_non_reasoning_correction(monkeypatch) -> N
     assert correction_calls[0][2].temperature == 0.0
     assert correction_calls[0][2].max_tokens == 2000
     assert correction_calls[0][3] == {"reasoning": None, "thinking_level": None}
+
+
+def test_location_generation_inserts_omitted_daily_high_without_llm_correction(
+    monkeypatch,
+) -> None:
+    payload = type(
+        "Payload",
+        (),
+        {
+            "name": "Dunedin",
+            "formatted_dataset": DETERMINISTIC_DATA,
+            "dataset": [],
+            "model_kind": "deterministic",
+            "alerts": [],
+            "units": TEST_UNITS,
+            "geocode": type(
+                "Geocode",
+                (),
+                {"latitude": -45.9, "longitude": 170.5, "timezone": "UTC"},
+            )(),
+        },
+    )()
+    location = LocationConfig(name="Dunedin")
+    config = ForecastConfig(llm="lms:test-model", location_wordiness="normal")
+    settings = LLMSettings(model="test-model", api_key="local", provider="lmstudio")
+    missing_high = """**Monday, 3 August:** Clear. The low will be 10°C.
+
+**Tuesday, 4 August:** Rain totalling 2 mm. The low will be 7°C and the high 10°C.
+
+**Wednesday, 5 August:** Partly cloudy. The low will be 4°C and the high 9°C."""
+
+    monkeypatch.setattr(
+        executor,
+        "_generate_text_with_fallback",
+        lambda *args, **kwargs: (missing_high, settings, 1.0),
+    )
+
+    def unexpected_correction(*args, **kwargs):
+        raise AssertionError("a missing supplied extreme should not require another LLM call")
+
+    monkeypatch.setattr(executor, "generate_forecast_text", unexpected_correction)
+
+    text, used_settings, cost = executor._generate_location_text_with_adaptive_thinning(
+        location,
+        config,
+        payload,
+        ibf_context="",
+        impact_enabled=False,
+    )
+
+    assert "The low will be 10°C. The high is expected near 15°C." in text
+    assert used_settings is settings
+    assert cost == 1.0
 
 
 def test_compact_profile_uses_raw_deterministic_spot_data(monkeypatch) -> None:

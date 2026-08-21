@@ -15,6 +15,7 @@ from .compliance import (
     format_spot_output_contract,
     parse_spot_output_requirements,
     postprocess_compact_spot_output,
+    repair_missing_spot_temperatures,
     validate_spot_forecast,
 )
 from .prompts import (
@@ -43,6 +44,7 @@ __all__ = [
     "format_spot_output_contract",
     "parse_spot_output_requirements",
     "postprocess_compact_spot_output",
+    "repair_missing_spot_temperatures",
     "validate_spot_forecast",
     "build_spot_system_prompt",
     "build_spot_user_prompt",

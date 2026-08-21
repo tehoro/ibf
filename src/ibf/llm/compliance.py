@@ -811,6 +811,54 @@ def validate_spot_forecast(
     return _deduplicate(violations)
 
 
+def repair_missing_spot_temperatures(
+    forecast_text: str,
+    requirements: Iterable[SpotPeriodRequirement],
+) -> str:
+    """Append authoritative daily extremes when the model omitted their labels.
+
+    This deliberately repairs omissions only. If a paragraph explicitly states a
+    different low or high, normal compliance validation still rejects it.
+    """
+    period_by_key = {period.date_key: period for period in requirements}
+    repaired = forecast_text or ""
+    for match in reversed(list(_OUTPUT_PERIOD_RE.finditer(repaired))):
+        header = match.group("header").strip()
+        period = period_by_key.get(_date_key(header))
+        if period is None or period.partial:
+            continue
+
+        body = match.group("body")
+        paragraph = f"{header}: {body}"
+        missing: list[tuple[str, str]] = []
+        for label, expected in (("low", period.low), ("high", period.high)):
+            if expected and not _temperature_values(_temperature_clause(paragraph, label)):
+                missing.append((label, expected))
+        if not missing:
+            continue
+
+        if len(missing) == 2:
+            sentence = (
+                f"The {missing[0][0]} is expected near {missing[0][1]} and "
+                f"the {missing[1][0]} near {missing[1][1]}."
+            )
+        else:
+            label, expected = missing[0]
+            sentence = f"The {label} is expected near {expected}."
+
+        trailing = body[len(body.rstrip()) :]
+        content = body.rstrip()
+        if content:
+            separator = " " if content.endswith((".", "!", "?")) else ". "
+            content = f"{content}{separator}{sentence}"
+        else:
+            content = sentence
+        start, end = match.span("body")
+        repaired = repaired[:start] + content + trailing + repaired[end:]
+
+    return repaired
+
+
 def _alert_violations(
     output_periods: dict[str, tuple[str, str]],
     periods: list[SpotPeriodRequirement],

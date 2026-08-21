@@ -65,6 +65,7 @@ from ..llm import (
     format_spot_output_contract,
     parse_spot_output_requirements,
     postprocess_compact_spot_output,
+    repair_missing_spot_temperatures,
     validate_spot_forecast,
 )
 from ..llm.prompts import UnitInstructions
@@ -850,12 +851,28 @@ def _generate_location_text_with_adaptive_thinning(
                     if value
                 ),
             )
+            repaired = repair_missing_spot_temperatures(generated, requirements)
+            if repaired != generated:
+                logger.warning(
+                    "Forecast for '%s' omitted a supplied daily high or low; "
+                    "inserted the authoritative value before compliance validation.",
+                    payload.name,
+                )
+                generated = repaired
+            governed_temperature_values = tuple(
+                value
+                for period in requirements
+                for value in (period.low, period.high)
+                if value
+            )
             governed_alert_values = tuple(
                 value
                 for period in requirements
                 for alert in period.alerts
                 for value in (alert.onset, alert.expires)
+                if value
             )
+            governed_contract_values = governed_temperature_values + governed_alert_values
             violations = validate_spot_forecast(
                 generated,
                 requirements,
@@ -901,6 +918,15 @@ def _generate_location_text_with_adaptive_thinning(
                     gust_reporting_floor=gust_reporting_floor,
                     alerts_present=bool(payload.alerts),
                 )
+            if corrected:
+                repaired = repair_missing_spot_temperatures(corrected, requirements)
+                if repaired != corrected:
+                    logger.warning(
+                        "Forecast correction for '%s' omitted a supplied daily high or low; "
+                        "inserted the authoritative value.",
+                        payload.name,
+                    )
+                    corrected = repaired
             if not corrected:
                 factual_violations = validate_spot_forecast(
                     generated,
@@ -919,7 +945,7 @@ def _generate_location_text_with_adaptive_thinning(
             if not correction_preserves_other_numeric_facts(
                 generated,
                 corrected,
-                governed_values=governed_alert_values,
+                governed_values=governed_contract_values,
             ):
                 factual_violations = validate_spot_forecast(
                     generated,
