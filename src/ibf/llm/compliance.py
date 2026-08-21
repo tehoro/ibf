@@ -721,8 +721,13 @@ def validate_spot_forecast(
     *,
     alerts_present: bool = False,
     check_wording: bool = True,
+    allow_missing_daily_extremes: bool = False,
 ) -> list[str]:
-    """Return factual violations and, optionally, stylistic wording violations."""
+    """Return factual violations and, optionally, stylistic wording violations.
+
+    When ``allow_missing_daily_extremes`` is true, an absent full-day low/high is
+    tolerated, but an explicitly reported wrong value remains a violation.
+    """
     violations = (
         _wording_violations(forecast_text, alerts_present=alerts_present)
         if check_wording
@@ -785,7 +790,13 @@ def validate_spot_forecast(
                 )
 
         if not period.partial:
-            violations.extend(_temperature_violations(paragraph, period))
+            violations.extend(
+                _temperature_violations(
+                    paragraph,
+                    period,
+                    allow_missing_daily_extremes=allow_missing_daily_extremes,
+                )
+            )
         if period.rainfall and not _amount_is_reported(paragraph, period.rainfall):
             violations.append(
                 f"{period.source_label} must state the supplied rainfall amount {period.rainfall}."
@@ -1029,26 +1040,37 @@ def _wording_violations(text: str, *, alerts_present: bool) -> list[str]:
     return violations
 
 
-def _temperature_violations(text: str, period: SpotPeriodRequirement) -> list[str]:
+def _temperature_violations(
+    text: str,
+    period: SpotPeriodRequirement,
+    *,
+    allow_missing_daily_extremes: bool = False,
+) -> list[str]:
     violations: list[str] = []
     for label, expected in (("low", period.low), ("high", period.high)):
         if not expected:
             continue
         clause = _temperature_clause(text, label)
         expected_values = _temperature_values(expected)
-        if not clause or any(value not in _temperature_values(clause) for value in expected_values):
+        if not clause:
+            if allow_missing_daily_extremes:
+                continue
+            violations.append(f"{period.source_label} must state the supplied {label} {expected}.")
+            continue
+        if any(value not in _temperature_values(clause) for value in expected_values):
             violations.append(f"{period.source_label} must state the supplied {label} {expected}.")
     return violations
 
 
 def _temperature_clause(text: str, label: str) -> str:
-    match = re.search(rf"\b{label}\b", text, re.IGNORECASE)
-    if not match:
-        return ""
-    remainder = text[match.end() :]
     other = "high" if label == "low" else "low"
-    stop = re.search(rf"\b{other}\b|[.;\n]", remainder, re.IGNORECASE)
-    return remainder[: stop.start()] if stop else remainder
+    for match in re.finditer(rf"\b{label}\b", text, re.IGNORECASE):
+        remainder = text[match.end() :]
+        stop = re.search(rf"\b{other}\b|[.;\n]", remainder, re.IGNORECASE)
+        clause = remainder[: stop.start()] if stop else remainder
+        if _temperature_values(clause):
+            return clause
+    return ""
 
 
 def _temperature_values(text: str) -> tuple[str, ...]:

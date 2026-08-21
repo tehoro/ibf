@@ -5,8 +5,8 @@ authors:
   - family-names: Gordon
     given-names: Neil
     orcid: "https://orcid.org/0000-0002-7664-9434"
-version: "0.8.14"
-date-released: "2026-08-21"
+version: "0.8.15"
+date-released: "2026-08-22"
 repository-code: "https://github.com/tehoro/ibf"
 url: "https://github.com/tehoro/ibf"
 license: Apache-2.0

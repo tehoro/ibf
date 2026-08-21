@@ -126,6 +126,21 @@ def test_missing_daily_temperature_is_repaired_but_wrong_value_is_not() -> None:
         "TOMORROW, MONDAY 3 AUGUST must state the supplied high 15°C."
         in validate_spot_forecast(wrong, requirements)
     )
+    assert validate_spot_forecast(wrong, requirements, allow_missing_daily_extremes=True)
+
+
+def test_temperature_repair_ignores_high_and_low_cloud_labels() -> None:
+    requirements = parse_spot_output_requirements(
+        """Date: SUNDAY 23 AUGUST
+ Low 3°C, High 14°C
+""",
+        model_kind="deterministic",
+    )
+    forecast = "**Sunday, 23 August:** High cloud clearing later, with low cloud at times."
+
+    repaired = repair_missing_spot_temperatures(forecast, requirements)
+
+    assert validate_spot_forecast(repaired, requirements) == []
 
 
 def test_contract_suppresses_sub_reportable_rainfall() -> None:
@@ -552,6 +567,60 @@ def test_location_generation_inserts_omitted_daily_high_without_llm_correction(
     )
 
     assert "The low will be 10°C. The high is expected near 15°C." in text
+    assert used_settings is settings
+    assert cost == 1.0
+
+
+def test_location_generation_publishes_when_daily_extreme_remains_missing(
+    monkeypatch,
+) -> None:
+    payload = type(
+        "Payload",
+        (),
+        {
+            "name": "Dunedin",
+            "formatted_dataset": DETERMINISTIC_DATA,
+            "dataset": [],
+            "model_kind": "deterministic",
+            "alerts": [],
+            "units": TEST_UNITS,
+            "geocode": type(
+                "Geocode",
+                (),
+                {"latitude": -45.9, "longitude": 170.5, "timezone": "UTC"},
+            )(),
+        },
+    )()
+    location = LocationConfig(name="Dunedin")
+    config = ForecastConfig(llm="lms:test-model", location_wordiness="normal")
+    settings = LLMSettings(model="test-model", api_key="local", provider="lmstudio")
+    missing_high = """**Monday, 3 August:** Clear. The low will be 10°C.
+
+**Tuesday, 4 August:** Rain totalling 2 mm. The low will be 7°C and the high 10°C.
+
+**Wednesday, 5 August:** Partly cloudy. The low will be 4°C and the high 9°C."""
+
+    monkeypatch.setattr(
+        executor,
+        "_generate_text_with_fallback",
+        lambda *args, **kwargs: (missing_high, settings, 1.0),
+    )
+    monkeypatch.setattr(executor, "repair_missing_spot_temperatures", lambda text, _: text)
+
+    def unexpected_correction(*args, **kwargs):
+        raise AssertionError("an omitted daily extreme should not block publication")
+
+    monkeypatch.setattr(executor, "generate_forecast_text", unexpected_correction)
+
+    text, used_settings, cost = executor._generate_location_text_with_adaptive_thinning(
+        location,
+        config,
+        payload,
+        ibf_context="",
+        impact_enabled=False,
+    )
+
+    assert text == missing_high
     assert used_settings is settings
     assert cost == 1.0
 

@@ -878,19 +878,32 @@ def _generate_location_text_with_adaptive_thinning(
                 requirements,
                 alerts_present=bool(payload.alerts),
             )
-            if not violations:
+            blocking_violations = validate_spot_forecast(
+                generated,
+                requirements,
+                alerts_present=bool(payload.alerts),
+                allow_missing_daily_extremes=True,
+            )
+            if not blocking_violations:
+                if violations:
+                    logger.warning(
+                        "Forecast for '%s' omitted a supplied daily low/high; "
+                        "publishing the newly generated forecast anyway: %s",
+                        payload.name,
+                        "; ".join(violations),
+                    )
                 return generated, settings, forecast_cost
 
             logger.warning(
                 "Forecast compliance check failed for '%s': %s. Requesting one bounded correction.",
                 payload.name,
-                "; ".join(violations),
+                "; ".join(blocking_violations),
             )
             contract = format_spot_output_contract(requirements)
             correction_system, correction_prompt = build_spot_correction_prompts(
                 generated,
                 contract,
-                violations,
+                blocking_violations,
             )
             correction_settings = replace(
                 settings,
@@ -933,6 +946,7 @@ def _generate_location_text_with_adaptive_thinning(
                     requirements,
                     alerts_present=bool(payload.alerts),
                     check_wording=False,
+                    allow_missing_daily_extremes=True,
                 )
                 if not factual_violations:
                     logger.warning(
@@ -952,6 +966,7 @@ def _generate_location_text_with_adaptive_thinning(
                     requirements,
                     alerts_present=bool(payload.alerts),
                     check_wording=False,
+                    allow_missing_daily_extremes=True,
                 )
                 if not factual_violations:
                     logger.warning(
@@ -965,6 +980,7 @@ def _generate_location_text_with_adaptive_thinning(
                 corrected,
                 requirements,
                 alerts_present=bool(payload.alerts),
+                allow_missing_daily_extremes=True,
             )
             if remaining:
                 corrected_factual = validate_spot_forecast(
@@ -972,6 +988,7 @@ def _generate_location_text_with_adaptive_thinning(
                     requirements,
                     alerts_present=bool(payload.alerts),
                     check_wording=False,
+                    allow_missing_daily_extremes=True,
                 )
                 if not corrected_factual:
                     logger.warning(
@@ -987,6 +1004,7 @@ def _generate_location_text_with_adaptive_thinning(
                     requirements,
                     alerts_present=bool(payload.alerts),
                     check_wording=False,
+                    allow_missing_daily_extremes=True,
                 )
                 if not original_factual:
                     logger.warning(
