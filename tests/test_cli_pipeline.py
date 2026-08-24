@@ -257,6 +257,71 @@ def test_area_context_overflow_retries_with_half_the_scenarios(
     assert "estimated_input_tokens=" in caplog.text
 
 
+@pytest.mark.parametrize("regional", [False, True])
+def test_cloud_area_output_uses_shared_wind_normaliser(
+    tmp_path,
+    monkeypatch,
+    caplog,
+    regional,
+) -> None:
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    payload = _make_mock_payload("Test City", cache_dir)
+    area = AreaConfig(name="Test Area", locations=["Test City"])
+    config = ForecastConfig(llm="gpt:test-cloud", area_wordiness="brief")
+    settings = LLMSettings(model="test-cloud", api_key="test", provider="openai")
+    generated = "Northerly westerlies at 20 km/h, easing later."
+
+    monkeypatch.setattr(
+        executor,
+        "_generate_text_with_fallback",
+        lambda *args, **kwargs: (generated, settings, 0.5),
+    )
+
+    with caplog.at_level("WARNING"):
+        text, used_settings, cost = executor._generate_area_text_with_adaptive_thinning(
+            area,
+            config,
+            [payload],
+            payload.units,
+            ibf_context="",
+            impact_enabled=False,
+            regional=regional,
+        )
+
+    assert text == "Northwesterlies at 20 km/h, easing later."
+    assert used_settings is settings
+    assert cost == 0.5
+    assert "forecast_wind_direction_detected model=test-cloud" in caplog.text
+    assert "location=Test Area" in caplog.text
+
+
+def test_area_output_blocks_unresolved_malformed_wind_direction(tmp_path, monkeypatch) -> None:
+    cache_dir = tmp_path / "cache"
+    cache_dir.mkdir()
+    payload = _make_mock_payload("Test City", cache_dir)
+    area = AreaConfig(name="Test Area", locations=["Test City"])
+    config = ForecastConfig(llm="gpt:test-cloud", area_wordiness="brief")
+    settings = LLMSettings(model="test-cloud", api_key="test", provider="openai")
+
+    monkeypatch.setattr(
+        executor,
+        "_generate_text_with_fallback",
+        lambda *args, **kwargs: ("Northsoutherly winds.", settings, 0.0),
+    )
+
+    with pytest.raises(RuntimeError, match="malformed wind direction"):
+        executor._generate_area_text_with_adaptive_thinning(
+            area,
+            config,
+            [payload],
+            payload.units,
+            ibf_context="",
+            impact_enabled=False,
+            regional=False,
+        )
+
+
 def test_location_context_overflow_retries_with_half_the_scenarios(
     tmp_path,
     monkeypatch,

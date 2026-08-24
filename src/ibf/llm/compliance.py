@@ -204,6 +204,62 @@ _COMPACT_SUNNY_EVENING_RE = re.compile(
     r"(?P<timing>\s+(?:in\s+the\s+)?(?:(?:early|late)\s+)?(?:this\s+)?evening)\b",
     re.IGNORECASE,
 )
+_EIGHT_POINT_DIRECTION_WORD = (
+    r"(?:north|south|east|west|northeast|northwest|southeast|southwest)erl(?:y|ies)"
+)
+_SIXTEEN_POINT_STEMS = (
+    r"north-northeast|east-northeast|east-southeast|south-southeast|"
+    r"south-southwest|west-southwest|west-northwest|north-northwest"
+)
+_DIRECTION_WORD = rf"(?:{_EIGHT_POINT_DIRECTION_WORD}|(?:{_SIXTEEN_POINT_STEMS})erl(?:y|ies))"
+_COMPASS_ABBREVIATION = r"(?:NNE|ENE|ESE|SSE|SSW|WSW|WNW|NNW|NE|SE|SW|NW|N|E|S|W)"
+_ADJACENT_DIRECTION_WORDS_RE = re.compile(
+    rf"\b{_DIRECTION_WORD}(?:[ \t]+|-)\s*{_DIRECTION_WORD}\b",
+    re.IGNORECASE,
+)
+_ORTHOGONAL_CARDINAL_WORDS_RE = re.compile(
+    r"\b(?P<first>north|south|east|west)erl(?:y|ies)(?:[ \t]+|-)\s*"
+    r"(?P<second>north|south|east|west)erl(?P<ending>y|ies)\b",
+    re.IGNORECASE,
+)
+_SPLIT_COMPOUND_DIRECTION_RE = re.compile(
+    r"\b(?P<northsouth>north|south)(?:[ \t]+|-)\s*"
+    r"(?P<eastwest>east|west)erl(?P<ending>y|ies)\b",
+    re.IGNORECASE,
+)
+_REVERSED_COMPOUND_DIRECTION_RE = re.compile(
+    r"\b(?:east|west)(?:[ \t]*-[ \t]*|[ \t]*)"
+    r"(?:north|south)erl(?:y|ies)\b",
+    re.IGNORECASE,
+)
+_OPPOSING_COMPOUND_DIRECTION_RE = re.compile(
+    r"\b(?:north(?:[ \t]*-[ \t]*|[ \t]*)southerl(?:y|ies)|"
+    r"south(?:[ \t]*-[ \t]*|[ \t]*)northerl(?:y|ies)|"
+    r"east(?:[ \t]*-[ \t]*|[ \t]*)westerl(?:y|ies)|"
+    r"west(?:[ \t]*-[ \t]*|[ \t]*)easterl(?:y|ies))\b",
+    re.IGNORECASE,
+)
+_DOUBLED_DIRECTION_SUFFIX_RE = re.compile(
+    rf"\b(?:north|south|east|west|northeast|northwest|southeast|southwest|"
+    rf"{_SIXTEEN_POINT_STEMS})erl(?:y|ies)erl(?:y|ies)\b",
+    re.IGNORECASE,
+)
+_ABBREVIATION_BEFORE_WIND_NOUN_RE = re.compile(
+    rf"\b(?P<abbr>{_COMPASS_ABBREVIATION})\s+(?P<noun>winds?|gusts?)\b"
+)
+_WIND_FROM_ABBREVIATION_RE = re.compile(
+    rf"\b(?P<noun>winds?|gusts?)\s+from\s+(?:the\s+)?"
+    rf"(?P<abbr>{_COMPASS_ABBREVIATION})\b",
+    re.IGNORECASE,
+)
+_ABBREVIATION_BEFORE_SPEED_RE = re.compile(
+    rf"\b(?P<abbr>{_COMPASS_ABBREVIATION})(?=\s+\d+(?:\.\d+)?"
+    r"(?:\s+(?:to|[-–])\s+\d+(?:\.\d+)?)?\s*(?:km/h|mph|kt|m/s)\b)"
+)
+_ABBREVIATION_SHIFT_RE = re.compile(
+    rf"\b(?P<first>{_COMPASS_ABBREVIATION})\s+to\s+"
+    rf"(?P<second>{_COMPASS_ABBREVIATION})\b"
+)
 _COMPACT_CHANGE_RE = re.compile(
     r"\b(?:becoming|turning|developing|starting|remaining|leading\s+to|followed\s+by)\b",
     re.IGNORECASE,
@@ -267,6 +323,181 @@ class SpotPeriodRequirement:
     forbidden_rainfall: tuple[str, ...] = ()
     forbidden_snowfall: tuple[str, ...] = ()
     alerts: tuple[SpotAlertRequirement, ...] = ()
+
+
+@dataclass(frozen=True)
+class WindDirectionFinding:
+    """One malformed wind-direction phrase found in English forecast output."""
+
+    rule: str
+    matched_text: str
+    replacement: Optional[str] = None
+
+
+_COMPASS_STEMS = {
+    "N": "north",
+    "NNE": "north-northeast",
+    "NE": "northeast",
+    "ENE": "east-northeast",
+    "E": "east",
+    "ESE": "east-southeast",
+    "SE": "southeast",
+    "SSE": "south-southeast",
+    "S": "south",
+    "SSW": "south-southwest",
+    "SW": "southwest",
+    "WSW": "west-southwest",
+    "W": "west",
+    "WNW": "west-northwest",
+    "NW": "northwest",
+    "NNW": "north-northwest",
+}
+
+
+def normalise_wind_directions(
+    forecast_text: str,
+) -> tuple[str, tuple[WindDirectionFinding, ...]]:
+    """Repair unambiguous malformed English wind directions and report all detections."""
+    processed = forecast_text or ""
+    repaired_findings: list[WindDirectionFinding] = []
+
+    def replace_orthogonal_pair(match: re.Match[str]) -> str:
+        first = match.group("first").lower()
+        second = match.group("second").lower()
+        if _direction_axis(first) == _direction_axis(second):
+            return match.group(0)
+        northsouth = first if first in {"north", "south"} else second
+        eastwest = first if first in {"east", "west"} else second
+        replacement = _direction_word(
+            f"{northsouth}{eastwest}",
+            plural=match.group("ending").lower() == "ies",
+        )
+        replacement = _preserve_initial_case(replacement, match.group(0))
+        repaired_findings.append(
+            WindDirectionFinding("adjacent-cardinal-pair", match.group(0), replacement)
+        )
+        return replacement
+
+    processed = _ORTHOGONAL_CARDINAL_WORDS_RE.sub(replace_orthogonal_pair, processed)
+
+    def replace_split_compound(match: re.Match[str]) -> str:
+        replacement = _direction_word(
+            f"{match.group('northsouth').lower()}{match.group('eastwest').lower()}",
+            plural=match.group("ending").lower() == "ies",
+        )
+        replacement = _preserve_initial_case(replacement, match.group(0))
+        repaired_findings.append(
+            WindDirectionFinding("split-compound", match.group(0), replacement)
+        )
+        return replacement
+
+    processed = _SPLIT_COMPOUND_DIRECTION_RE.sub(replace_split_compound, processed)
+
+    def replace_wind_from_abbreviation(match: re.Match[str]) -> str:
+        direction = _direction_from_abbreviation(match.group("abbr"), plural=False)
+        replacement = f"{direction} {match.group('noun').lower()}"
+        replacement = _preserve_initial_case(replacement, match.group(0))
+        repaired_findings.append(
+            WindDirectionFinding("compass-abbreviation", match.group(0), replacement)
+        )
+        return replacement
+
+    processed = _WIND_FROM_ABBREVIATION_RE.sub(replace_wind_from_abbreviation, processed)
+
+    def replace_abbreviation_before_noun(match: re.Match[str]) -> str:
+        direction = _direction_from_abbreviation(match.group("abbr"), plural=False)
+        replacement = f"{direction} {match.group('noun').lower()}"
+        replacement = _preserve_sentence_case(replacement, processed, match.start())
+        repaired_findings.append(
+            WindDirectionFinding("compass-abbreviation", match.group(0), replacement)
+        )
+        return replacement
+
+    processed = _ABBREVIATION_BEFORE_WIND_NOUN_RE.sub(
+        replace_abbreviation_before_noun,
+        processed,
+    )
+
+    def replace_abbreviation_before_speed(match: re.Match[str]) -> str:
+        replacement = _direction_from_abbreviation(match.group("abbr"), plural=True)
+        replacement = _preserve_sentence_case(replacement, processed, match.start())
+        repaired_findings.append(
+            WindDirectionFinding("compass-abbreviation", match.group(0), replacement)
+        )
+        return replacement
+
+    processed = _ABBREVIATION_BEFORE_SPEED_RE.sub(
+        replace_abbreviation_before_speed,
+        processed,
+    )
+
+    def replace_abbreviation_shift(match: re.Match[str]) -> str:
+        first = _direction_from_abbreviation(match.group("first"), plural=False)
+        second = _direction_from_abbreviation(match.group("second"), plural=False)
+        replacement = _preserve_sentence_case(
+            f"{first} to {second}",
+            processed,
+            match.start(),
+        )
+        repaired_findings.append(
+            WindDirectionFinding("compass-abbreviation", match.group(0), replacement)
+        )
+        return replacement
+
+    processed = _ABBREVIATION_SHIFT_RE.sub(replace_abbreviation_shift, processed)
+    residual = find_malformed_wind_directions(processed)
+    return processed, tuple(repaired_findings) + residual
+
+
+def find_malformed_wind_directions(text: str) -> tuple[WindDirectionFinding, ...]:
+    """Return malformed English wind-direction phrases without changing the text."""
+    patterns = (
+        ("adjacent-direction-words", _ADJACENT_DIRECTION_WORDS_RE),
+        ("split-compound", _SPLIT_COMPOUND_DIRECTION_RE),
+        ("reversed-compound", _REVERSED_COMPOUND_DIRECTION_RE),
+        ("opposing-compound", _OPPOSING_COMPOUND_DIRECTION_RE),
+        ("doubled-suffix", _DOUBLED_DIRECTION_SUFFIX_RE),
+        ("compass-abbreviation", _WIND_FROM_ABBREVIATION_RE),
+        ("compass-abbreviation", _ABBREVIATION_BEFORE_WIND_NOUN_RE),
+        ("compass-abbreviation", _ABBREVIATION_BEFORE_SPEED_RE),
+        ("compass-abbreviation", _ABBREVIATION_SHIFT_RE),
+    )
+    findings: list[WindDirectionFinding] = []
+    seen: set[tuple[int, int, str]] = set()
+    for rule, pattern in patterns:
+        for match in pattern.finditer(text or ""):
+            key = (match.start(), match.end(), match.group(0).lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            findings.append(WindDirectionFinding(rule, match.group(0)))
+    return tuple(findings)
+
+
+def _direction_axis(cardinal: str) -> str:
+    return "north-south" if cardinal in {"north", "south"} else "east-west"
+
+
+def _direction_word(stem: str, *, plural: bool) -> str:
+    return f"{stem}erlies" if plural else f"{stem}erly"
+
+
+def _direction_from_abbreviation(abbreviation: str, *, plural: bool) -> str:
+    return _direction_word(_COMPASS_STEMS[abbreviation.upper()], plural=plural)
+
+
+def _preserve_initial_case(replacement: str, original: str) -> str:
+    if original[:1].isupper():
+        return replacement[:1].upper() + replacement[1:]
+    return replacement
+
+
+def _preserve_sentence_case(replacement: str, text: str, start: int) -> str:
+    before = text[:start]
+    line_prefix = before[before.rfind("\n") + 1 :]
+    if not line_prefix.strip() or re.search(r"[.!?]\s*$", before):
+        return replacement[:1].upper() + replacement[1:]
+    return replacement
 
 
 def postprocess_compact_spot_output(
@@ -1037,6 +1268,12 @@ def _wording_violations(text: str, *, alerts_present: bool) -> list[str]:
     for pattern, message in checks:
         if re.search(pattern, text or "", re.IGNORECASE | re.MULTILINE):
             violations.append(message)
+    for finding in find_malformed_wind_directions(text):
+        violations.append(
+            f"Malformed wind direction '{finding.matched_text}': write compound directions "
+            "as one standard direction word (for example, 'northwesterlies') and spell out "
+            "compass abbreviations."
+        )
     return violations
 
 

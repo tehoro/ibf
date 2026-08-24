@@ -8,7 +8,9 @@ from ibf.llm.compliance import (
     SpotPeriodRequirement,
     build_spot_correction_prompts,
     correction_preserves_other_numeric_facts,
+    find_malformed_wind_directions,
     format_spot_output_contract,
+    normalise_wind_directions,
     parse_spot_output_requirements,
     postprocess_compact_spot_output,
     repair_missing_spot_temperatures,
@@ -429,6 +431,113 @@ def test_wording_validator_flags_observed_gemma_failures(bad_text: str, message:
     assert message in validate_spot_forecast(bad_text, [])
 
 
+@pytest.mark.parametrize(
+    ("malformed", "expected"),
+    [
+        ("northerly westerlies", "northwesterlies"),
+        ("westerly northerlies", "northwesterlies"),
+        ("southerly-easterly", "southeasterly"),
+        ("North westerlies", "Northwesterlies"),
+        ("south-easterly", "southeasterly"),
+        ("NW winds", "Northwesterly winds"),
+        ("with NW winds", "with northwesterly winds"),
+        ("winds from the NE", "northeasterly winds"),
+        ("NW 20 km/h", "Northwesterlies 20 km/h"),
+        ("winds becoming NW 20 km/h", "winds becoming northwesterlies 20 km/h"),
+        ("N to NW", "Northerly to northwesterly"),
+    ],
+)
+def test_wind_direction_normaliser_repairs_unambiguous_forms(
+    malformed: str,
+    expected: str,
+) -> None:
+    normalised, findings = normalise_wind_directions(malformed)
+
+    assert normalised == expected
+    assert findings
+    assert all(finding.replacement is not None for finding in findings)
+    assert find_malformed_wind_directions(normalised) == ()
+
+
+def test_wind_direction_normaliser_repairs_real_forecast_paragraph() -> None:
+    original = (
+        "Northerly westerlies will blow at 10 to 20 km/h with gusts up to 40 km/h "
+        "in the early evening, easing to gusts around 20 km/h later on."
+    )
+    expected = (
+        "Northwesterlies will blow at 10 to 20 km/h with gusts up to 40 km/h in "
+        "the early evening, easing to gusts around 20 km/h later on."
+    )
+
+    normalised, findings = normalise_wind_directions(original)
+
+    assert normalised == expected
+    assert [finding.matched_text for finding in findings] == ["Northerly westerlies"]
+
+
+@pytest.mark.parametrize(
+    "valid",
+    [
+        "northerly to westerly",
+        "northwesterly to northeasterly",
+        "northerly and westerly",
+        "westerly and northwesterly winds",
+        "shifting from northwesterly to northeasterly through the day",
+        "turning southwesterly later",
+        "becoming northerly by evening",
+        "northwesterlies",
+        "southwesterlies",
+        "northeasterly winds",
+        "light northerly winds",
+        "strong northwesterly winds",
+        "northeast of the ranges",
+        "the northwest of the country",
+        "north winds",
+        "northern winds",
+        "north-northeasterly winds",
+        "east-northeasterlies",
+        "east-southeasterly winds",
+        "south-southeasterlies",
+        "south-southwesterly winds",
+        "west-southwesterlies",
+        "west-northwesterly winds",
+        "north-northwesterlies",
+    ],
+)
+def test_wind_direction_guard_leaves_valid_or_deferred_wording_unchanged(valid: str) -> None:
+    normalised, findings = normalise_wind_directions(valid)
+
+    assert normalised == valid
+    assert findings == ()
+    assert find_malformed_wind_directions(valid) == ()
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "northwesterly westerlies",
+        "southerly southeasterlies",
+        "westnortherly winds",
+        "east-southerly winds",
+        "northsoutherly winds",
+        "east-westerlies",
+        "northwesterlyerly winds",
+        "northerlies westerlies",
+    ],
+)
+def test_wind_direction_validator_flags_ambiguous_or_malformed_residue(
+    malformed: str,
+) -> None:
+    findings = find_malformed_wind_directions(malformed)
+    violations = validate_spot_forecast(malformed, [])
+
+    assert findings
+    assert any(
+        violation.startswith(f"Malformed wind direction '{findings[0].matched_text}'")
+        for violation in violations
+    )
+
+
 def test_correction_prompt_is_bounded_and_preserves_non_precip_facts() -> None:
     original = (
         "**Tuesday, 4 August:** Light rain. Southerlies will be present at 20 km/h, "
@@ -516,6 +625,115 @@ def test_location_generation_runs_one_non_reasoning_correction(monkeypatch) -> N
     assert correction_calls[0][2].temperature == 0.0
     assert correction_calls[0][2].max_tokens == 2000
     assert correction_calls[0][3] == {"reasoning": None, "thinking_level": None}
+
+
+def test_standard_cloud_location_output_uses_shared_wind_normaliser(
+    monkeypatch,
+    caplog,
+) -> None:
+    payload = type(
+        "Payload",
+        (),
+        {
+            "name": "Invercargill",
+            "formatted_dataset": DETERMINISTIC_DATA,
+            "dataset": [],
+            "model_kind": "deterministic",
+            "alerts": [],
+            "units": TEST_UNITS,
+            "geocode": type(
+                "Geocode",
+                (),
+                {"latitude": -46.4, "longitude": 168.4, "timezone": "UTC"},
+            )(),
+        },
+    )()
+    location = LocationConfig(name="Invercargill")
+    config = ForecastConfig(llm="gpt:test-cloud", location_wordiness="normal")
+    settings = LLMSettings(model="test-cloud", api_key="test", provider="openai")
+    generated = """**Monday, 3 August:** Clear. Northerly westerlies 20 km/h. The low will be 10°C and the high 15°C.
+
+**Tuesday, 4 August:** Light rain totalling 2 mm. Southerlies 20 km/h. The low will be 7°C and the high 10°C.
+
+**Wednesday, 5 August:** Partly cloudy. Southerlies 40 km/h. The low will be 4°C and the high 9°C."""
+
+    monkeypatch.setattr(
+        executor,
+        "_generate_text_with_fallback",
+        lambda *args, **kwargs: (generated, settings, 1.0),
+    )
+
+    def unexpected_correction(*args, **kwargs):
+        raise AssertionError("the deterministic wind repair must not require an LLM correction")
+
+    monkeypatch.setattr(executor, "generate_forecast_text", unexpected_correction)
+
+    with caplog.at_level("WARNING"):
+        text, used_settings, cost = executor._generate_location_text_with_adaptive_thinning(
+            location,
+            config,
+            payload,
+            ibf_context="",
+            impact_enabled=False,
+        )
+
+    assert "Northwesterlies 20 km/h" in text
+    assert "Northerly westerlies" not in text
+    assert used_settings is settings
+    assert cost == 1.0
+    assert "forecast_wind_direction_detected model=test-cloud" in caplog.text
+    assert "location=Invercargill" in caplog.text
+    assert "matched='Northerly westerlies'" in caplog.text
+
+
+def test_location_output_blocks_wind_direction_left_after_correction(monkeypatch) -> None:
+    payload = type(
+        "Payload",
+        (),
+        {
+            "name": "Invercargill",
+            "formatted_dataset": DETERMINISTIC_DATA,
+            "dataset": [],
+            "model_kind": "deterministic",
+            "alerts": [],
+            "units": TEST_UNITS,
+            "geocode": type(
+                "Geocode",
+                (),
+                {"latitude": -46.4, "longitude": 168.4, "timezone": "UTC"},
+            )(),
+        },
+    )()
+    location = LocationConfig(name="Invercargill")
+    config = ForecastConfig(llm="gpt:test-cloud", location_wordiness="normal")
+    settings = LLMSettings(model="test-cloud", api_key="test", provider="openai")
+    malformed = """**Monday, 3 August:** Clear. Northwesterly westerlies 20 km/h. The low will be 10°C and the high 15°C.
+
+**Tuesday, 4 August:** Light rain totalling 2 mm. Southerlies 20 km/h. The low will be 7°C and the high 10°C.
+
+**Wednesday, 5 August:** Partly cloudy. Southerlies 40 km/h. The low will be 4°C and the high 9°C."""
+
+    monkeypatch.setattr(
+        executor,
+        "_generate_text_with_fallback",
+        lambda *args, **kwargs: (malformed, settings, 1.0),
+    )
+    monkeypatch.setattr(
+        executor,
+        "generate_forecast_text",
+        lambda *args, **kwargs: malformed,
+    )
+    monkeypatch.setattr(executor, "consume_last_cost_cents", lambda: 0.0)
+    monkeypatch.setattr(executor, "_snapshot_prompt", lambda *args, **kwargs: None)
+
+    with pytest.raises(RuntimeError, match="malformed wind direction"):
+        executor._generate_location_text_with_adaptive_thinning(
+            location,
+            config,
+            payload,
+            ibf_context="",
+            impact_enabled=False,
+        )
 
 
 def test_location_generation_inserts_omitted_daily_high_without_llm_correction(

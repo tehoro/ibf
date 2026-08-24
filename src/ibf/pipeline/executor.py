@@ -62,7 +62,9 @@ from ..llm import (
     compact_wind_thresholds,
     build_spot_correction_prompts,
     correction_preserves_other_numeric_facts,
+    find_malformed_wind_directions,
     format_spot_output_contract,
+    normalise_wind_directions,
     parse_spot_output_requirements,
     postprocess_compact_spot_output,
     repair_missing_spot_temperatures,
@@ -78,6 +80,46 @@ _SNOW_PROFILE_UNSUPPORTED_MODELS: ContextVar[Optional[set[str]]] = ContextVar(
     "ibf_snow_profile_unsupported_models",
     default=None,
 )
+
+
+def _normalise_and_log_wind_directions(
+    text: str,
+    *,
+    model_name: str,
+    location: str,
+    stage: str,
+) -> str:
+    """Apply the shared English-output wind guard and log every detection."""
+    normalised, findings = normalise_wind_directions(text)
+    for finding in findings:
+        logger.warning(
+            "forecast_wind_direction_detected model=%s location=%s stage=%s "
+            "rule=%s matched=%r replacement=%r",
+            model_name,
+            location,
+            stage,
+            finding.rule,
+            finding.matched_text,
+            finding.replacement,
+        )
+    return normalised
+
+
+def _require_valid_wind_directions(text: str, *, model_name: str, location: str) -> None:
+    """Block publication when malformed English wind directions remain unresolved."""
+    findings = find_malformed_wind_directions(text)
+    if not findings:
+        return
+    matched = ", ".join(repr(finding.matched_text) for finding in findings)
+    logger.error(
+        "forecast_wind_direction_unresolved model=%s location=%s matched=%s",
+        model_name,
+        location,
+        matched,
+    )
+    raise RuntimeError(f"the forecast still contains malformed wind direction(s): {matched}")
+
+
 _DAY_HEADER_RE = re.compile(
     r"(?im)^(?!date:)(?:\*\*\s*)?(?:rest of the evening|this evening|this afternoon and evening|rest of today|today|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)[^\n]*?\b\d{1,2}\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)[^\n]*?:"
 )
@@ -842,6 +884,12 @@ def _generate_location_text_with_adaptive_thinning(
                     gust_reporting_floor=gust_reporting_floor,
                     alerts_present=bool(payload.alerts),
                 )
+            generated = _normalise_and_log_wind_directions(
+                generated,
+                model_name=settings.model,
+                location=payload.name,
+                stage="generated",
+            )
             requirements = parse_spot_output_requirements(
                 formatted_dataset,
                 model_kind=payload.model_kind,
@@ -932,6 +980,13 @@ def _generate_location_text_with_adaptive_thinning(
                     alerts_present=bool(payload.alerts),
                 )
             if corrected:
+                corrected = _normalise_and_log_wind_directions(
+                    corrected,
+                    model_name=correction_settings.model,
+                    location=payload.name,
+                    stage="correction",
+                )
+            if corrected:
                 repaired = repair_missing_spot_temperatures(corrected, requirements)
                 if repaired != corrected:
                     logger.warning(
@@ -949,6 +1004,11 @@ def _generate_location_text_with_adaptive_thinning(
                     allow_missing_daily_extremes=True,
                 )
                 if not factual_violations:
+                    _require_valid_wind_directions(
+                        generated,
+                        model_name=settings.model,
+                        location=payload.name,
+                    )
                     logger.warning(
                         "Forecast correction returned no text for '%s'; using the "
                         "original forecast because its factual contract is valid.",
@@ -969,6 +1029,11 @@ def _generate_location_text_with_adaptive_thinning(
                     allow_missing_daily_extremes=True,
                 )
                 if not factual_violations:
+                    _require_valid_wind_directions(
+                        generated,
+                        model_name=settings.model,
+                        location=payload.name,
+                    )
                     logger.warning(
                         "Forecast correction changed numeric weather facts for '%s'; "
                         "using the original forecast because its factual contract is valid.",
@@ -991,6 +1056,11 @@ def _generate_location_text_with_adaptive_thinning(
                     allow_missing_daily_extremes=True,
                 )
                 if not corrected_factual:
+                    _require_valid_wind_directions(
+                        corrected,
+                        model_name=correction_settings.model,
+                        location=payload.name,
+                    )
                     logger.warning(
                         "Forecast correction for '%s' still has wording warnings; "
                         "publishing it because its factual contract is valid: %s",
@@ -1007,6 +1077,11 @@ def _generate_location_text_with_adaptive_thinning(
                     allow_missing_daily_extremes=True,
                 )
                 if not original_factual:
+                    _require_valid_wind_directions(
+                        generated,
+                        model_name=settings.model,
+                        location=payload.name,
+                    )
                     logger.warning(
                         "Forecast correction for '%s' introduced factual violations; "
                         "using the original forecast: %s",
@@ -1094,7 +1169,7 @@ def _generate_area_text_with_adaptive_thinning(
                 _estimate_prompt_tokens(system_prompt, prompt),
             )
         try:
-            return _generate_text_with_fallback(
+            generated, settings, forecast_cost = _generate_text_with_fallback(
                 config,
                 prompt,
                 system_prompt,
@@ -1106,6 +1181,19 @@ def _generate_area_text_with_adaptive_thinning(
                 reasoning_enabled=_as_bool(config.enable_reasoning),
                 reasoning_level=getattr(config, "area_reasoning", None),
             )
+            stage = "regional-generated" if regional else "area-generated"
+            generated = _normalise_and_log_wind_directions(
+                generated,
+                model_name=settings.model,
+                location=area.name,
+                stage=stage,
+            )
+            _require_valid_wind_directions(
+                generated,
+                model_name=settings.model,
+                location=area.name,
+            )
+            return generated, settings, forecast_cost
         except (OpenAIError, OSError, RuntimeError, TimeoutError, TypeError, ValueError) as exc:
             has_smaller_retry = attempt_index + 1 < len(member_limits)
             if not _is_context_window_error(exc) or not has_smaller_retry:
