@@ -10,7 +10,8 @@ from ibf.llm.settings import LLMSettings, resolve_llm_settings
 
 
 def test_lms_settings_preserve_exact_model_id_and_normalize_network_url(monkeypatch) -> None:
-    monkeypatch.setenv("LM_STUDIO_API_KEY", "local-token")
+    monkeypatch.setenv("LOCAL_MODEL_API_KEY", "local-token")
+    monkeypatch.setenv("LM_STUDIO_API_KEY", "legacy-token")
     config = ForecastConfig(
         llm="lms:gemma-4-26b-a4b-it-mlx",
         lm_studio_base_url="192.168.1.79:1234",
@@ -23,6 +24,15 @@ def test_lms_settings_preserve_exact_model_id_and_normalize_network_url(monkeypa
     assert settings.base_url == "http://192.168.1.79:1234/v1"
     assert settings.api_key == "local-token"
     assert settings.timeout_seconds == 3600.0
+
+
+def test_lms_settings_support_legacy_lm_studio_api_key(monkeypatch) -> None:
+    monkeypatch.delenv("LOCAL_MODEL_API_KEY", raising=False)
+    monkeypatch.setenv("LM_STUDIO_API_KEY", "legacy-token")
+
+    settings = resolve_llm_settings(ForecastConfig(llm="lms:weather-writer"))
+
+    assert settings.api_key == "legacy-token"
 
 
 def test_lms_settings_use_environment_url_when_config_omits_it(monkeypatch) -> None:
@@ -50,6 +60,7 @@ def test_lms_rejects_blank_model_id() -> None:
 
 def test_lm_studio_checks_exact_model_before_generation(monkeypatch) -> None:
     _validate_lm_studio_model.cache_clear()
+    monkeypatch.setenv("LOCAL_MODEL_API_KEY", "local-token")
     fake_client = SimpleNamespace(
         models=SimpleNamespace(
             list=lambda: SimpleNamespace(
@@ -70,15 +81,17 @@ def test_lm_studio_checks_exact_model_before_generation(monkeypatch) -> None:
             )
         ),
     )
-    monkeypatch.setattr("ibf.llm.client.OpenAI", lambda **kwargs: fake_client)
-    settings = LLMSettings(
-        model="weather-writer",
-        api_key="lm-studio",
-        provider="lmstudio",
-        base_url="http://localhost:1234/v1",
-    )
+    client_kwargs = []
+
+    def fake_openai(**kwargs):
+        client_kwargs.append(kwargs)
+        return fake_client
+
+    monkeypatch.setattr("ibf.llm.client.OpenAI", fake_openai)
+    settings = resolve_llm_settings(ForecastConfig(llm="lms:weather-writer"))
 
     assert generate_forecast_text("prompt", "system", settings) == "Forecast text"
+    assert [kwargs["api_key"] for kwargs in client_kwargs] == ["local-token", "local-token"]
 
 
 @pytest.mark.parametrize(
@@ -142,12 +155,12 @@ def test_lm_studio_qwen3_family_disables_thinking_in_request_payload(
         {"role": "user", "content": expected_user_prompt},
     ]
     assert (
-        f"LM Studio reasoning mode – model={model_id} "
+        f"Local Model Server reasoning mode – model={model_id} "
         "enable_thinking=false preserve_thinking=false"
     ) in caplog.text
     if "qwen3.8" in model_id.lower():
         assert (
-            f"LM Studio Qwen no-think safeguard – model={model_id} "
+            f"Local Model Server Qwen no-think safeguard – model={model_id} "
             "appended_no_think=true"
         ) in caplog.text
     else:

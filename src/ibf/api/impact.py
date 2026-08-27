@@ -102,7 +102,7 @@ def fetch_impact_context(
         extra_context: Optional user-supplied context to prioritize.
         context_provider: ``llm-search`` or ``brave``.
         context_fallback_llm: Optional hosted-search model used after a Brave failure.
-        llm_config: Full LLM configuration, including the LM Studio address.
+        llm_config: Full LLM configuration, including the local model server address.
         representative_locations: Geocoded points used to describe and locate an area.
 
     Returns:

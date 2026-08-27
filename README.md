@@ -11,7 +11,7 @@ What IBF Does
 - Reads a TOML configuration file (locations, areas, output folder, model choices).
 - Pulls the latest model data from Open-Meteo (ensemble or deterministic).
 - Optionally adds alerts (MetService for NZ, NWS for USA, OpenWeatherMap elsewhere) and researched impact context.
-- Uses a cloud or LM Studio model to write plain-language forecasts and optional translations.
+- Uses a cloud model or Local Model Server to write plain-language forecasts and optional translations.
 - Publishes simple HTML pages that can be viewed locally or hosted on a web server.
 
 IBF's web research does **not** supply the weather forecast. Numerical forecasts come from
@@ -56,7 +56,7 @@ OPENROUTER_API_KEY=
 OPENAI_API_KEY=
 BRAVE_SEARCH_API_KEY=
 LM_STUDIO_BASE_URL=http://localhost:1234/v1
-# LM_STUDIO_API_KEY=
+# LOCAL_MODEL_API_KEY=
 ```
 
 Notes:
@@ -97,9 +97,9 @@ Minimal setup for most users:
 
 Optional:
 - OPENROUTER_API_KEY (if you want access to many models via OpenRouter).
-- LM Studio settings when selecting a local forecast or translation model.
+- Local Model Server settings when selecting a local forecast or translation model.
 - BRAVE_SEARCH_API_KEY (only for experimental `context_provider = "brave"`).
-- LM_STUDIO_BASE_URL and, if authentication is enabled, LM_STUDIO_API_KEY.
+- LM_STUDIO_BASE_URL and, if authentication is enabled, LOCAL_MODEL_API_KEY.
 
 If you do not need alerts, you can omit OPENWEATHERMAP_API_KEY.
 
@@ -190,13 +190,14 @@ translation_llm_fallback = "gpt-5.6-luna"
 applied only to deterministic single-location forecasts; ensemble, area, and regional forecasts
 continue to use the standard prompt. Compact formatting replaces noisy hourly cloud, wind, and
 snow-level detail with stable daily editorial signals while retaining hourly precipitation and
-temperature timing. The profile is independent of transport, so it works with LM Studio,
-OpenRouter, or any future provider.
+temperature timing. The profile is independent of transport, so it works with local
+OpenAI-compatible servers, OpenRouter, or any future provider.
 
-For LM Studio, Gemma 4 is the recommended local model family. Good candidates are Gemma 4 12B
-Unified, Gemma 4 26B A4B, and Gemma 4 31B, choosing the largest suitable version that fits
-comfortably in available memory. Exact identifiers vary with quantisation and backend, so load the
-model first and copy its identifier from LM Studio's Developer tab after checking `/v1/models`.
+For a Local Model Server, Gemma 4 is the recommended local model family. Good candidates are
+Gemma 4 12B Unified, Gemma 4 26B A4B, and Gemma 4 31B, choosing the largest suitable version that
+fits comfortably in available memory. Exact identifiers vary with quantisation and backend, so
+load the model first and copy its exact identifier from the server's `/v1/models` endpoint. In
+LM Studio, the same identifier is shown on the Developer tab.
 Gemma 4 12B is the practical starting point; 26B A4B and 31B generally provide more headroom when
 the hardware can run them without excessive memory pressure. Models prone to extended reasoning,
 including some Qwen 3.6 variants, can be much slower and consume substantially more tokens in this
@@ -265,7 +266,8 @@ Global settings (common ones)
 - web_root: Output directory.
 - llm / llm_fallback: forecast-writing model and optional one-step fallback.
 - context_provider / context_llm / context_fallback_llm: impact research method, synthesis model, and optional hosted-search fallback.
-- lm_studio_base_url: LM Studio server used by all `lms:` model choices.
+- lm_studio_base_url: Local Model Server used by all `lms:` model choices (the field name is
+  retained for compatibility).
 - location_forecast_days / area_forecast_days: Days of forecast.
 - location_wordiness / area_wordiness: brief, normal, detailed.
 - location_impact_based / area_impact_based: include impact context.
@@ -372,14 +374,15 @@ Environment variables:
 | `OPENAI_API_KEY` | OpenAI models such as the default forecast/translation model `gpt-5.6-luna`. | Required for the recommended cloud setup. |
 | `GEMINI_API_KEY` | Direct Gemini SDK usage (`gemini-*` or `google/gemini-*`), including the default context model. | Required for the recommended cloud setup. |
 | `BRAVE_SEARCH_API_KEY` | Experimental Brave LLM Context evidence retrieval. | Required when `context_provider = "brave"`. |
-| `LM_STUDIO_BASE_URL` | Optional environment alternative to the TOML `lm_studio_base_url`. | Optional; defaults to `http://localhost:1234/v1`. |
-| `LM_STUDIO_API_KEY` | LM Studio API token. | Only required when authentication is enabled on the LM Studio server. |
+| `LM_STUDIO_BASE_URL` | Optional environment alternative to the TOML `lm_studio_base_url` for the Local Model Server. | Optional; defaults to `http://localhost:1234/v1`. |
+| `LOCAL_MODEL_API_KEY` | API key or token sent to the Local Model Server. | Only required when authentication is enabled on the server. |
+| `LM_STUDIO_API_KEY` | Legacy name for the Local Model Server API key. | Optional compatibility fallback; `LOCAL_MODEL_API_KEY` takes precedence. |
 | `IBF_DEFAULT_LLM` | Optional env override for the default model when config omits `llm`. | Optional. |
 
 Notes:
 - If `GOOGLE_API_KEY` is not set, IBF will still attempt Open-Meteo geocoding first.
 - With `context_provider = "llm-search"`, `context_llm` must be Gemini or OpenAI because that model must have a hosted web-search tool.
-- With experimental `context_provider = "brave"`, `context_llm` may be LM Studio, OpenRouter, Gemini, or OpenAI. Brave retrieves the evidence and the model synthesises it.
+- With experimental `context_provider = "brave"`, `context_llm` may use a Local Model Server, OpenRouter, Gemini, or OpenAI. Brave retrieves the evidence and the model synthesises it.
 - Model strings must identify their provider explicitly. Unknown strings fail with an error instead of being silently treated as OpenRouter models.
 - Keep `GOOGLE_API_KEY` (Geocoding/Elevation) and `GEMINI_API_KEY` (Gemini) separate; they are issued in different consoles and are not interchangeable.
 
@@ -450,35 +453,38 @@ results can therefore cost materially more than starting with Gemini's native we
 retains Brave for experiments and local-model workflows, but does not recommend it as the normal
 operational provider.
 
-LM Studio (local or network models)
------------------------------------
+Local Model Server (local or network models)
+--------------------------------------------
 
-1) In LM Studio, download/load the intended model and start the API server from the Developer tab.
-2) Copy the exact model identifier reported by LM Studio. Configure it with an `lms:` prefix, for
-   example an identifier may look like `llm = "lms:gemma-4-26b-a4b-it-mlx"`.
-3) For LM Studio on the same machine, the default address is `http://localhost:1234/v1`.
-4) For another machine, enable LM Studio's **Serve on Local Network** setting and configure, for
-   example, `lm_studio_base_url = "http://192.168.1.50:1234/v1"`.
-5) If LM Studio authentication is enabled, create an API token there and put it in `.env` as
-   `LM_STUDIO_API_KEY=...`.
+IBF's `lms:` prefix works with an OpenAI-compatible local model server that exposes `/v1/models`
+and `/v1/chat/completions`. LM Studio is one supported option.
+
+1) Load the intended model and start the server's OpenAI-compatible API.
+2) Copy the exact model identifier reported by `/v1/models`. Configure it with an `lms:` prefix,
+   for example `llm = "lms:gemma-4-26b-a4b-it-mlx"`.
+3) The default address is `http://localhost:1234/v1`. For a different address, set the retained
+   compatibility field, for example `lm_studio_base_url = "http://192.168.1.50:1234/v1"`.
+4) If the server requires authentication, put its key or token in the working folder's `.env` as
+   `LOCAL_MODEL_API_KEY=...`. IBF sends it as the OpenAI-compatible bearer API key for both model
+   discovery and generation requests.
 
 IBF does not automatically choose among local models. Before each model's first call, it checks
-LM Studio's `/v1/models` endpoint and requires an exact identifier match. If the server cannot be
-reached or that model is not advertised, IBF produces a prominent error and uses the configured
-fallback if one exists. With LM Studio Just-In-Time loading enabled, `/v1/models` may advertise
-downloaded models as well as the models already held in memory.
+the Local Model Server's `/v1/models` endpoint and requires an exact identifier match. If the server
+cannot be reached or that model is not advertised, IBF produces a prominent error and uses the
+configured fallback if one exists. With LM Studio Just-In-Time loading enabled, `/v1/models` may
+advertise downloaded models as well as the models already held in memory.
 
 When `prompt_profile = "compact"` is selected with a recognised switchable-thinking Qwen 3-family
 model identifier (including Qwen 3.5 and Qwen 3.8), IBF requests direct final output by sending
-`chat_template_kwargs = { enable_thinking = false, preserve_thinking = false }` in the LM Studio
-Chat Completions request. This is model-specific and is not sent to other LM Studio models or cloud
+`chat_template_kwargs = { enable_thinking = false, preserve_thinking = false }` in the local
+Chat Completions request. This is model-specific and is not sent to other local models or cloud
 providers. Because the LM Studio MLX runtime has been observed to ignore those template controls
 for Qwen 3.8, IBF also appends `/no_think` to compact-profile Qwen 3.8 user prompts. This temporary
 safeguard is not applied to earlier Qwen 3 versions. The standard prompt profile sends no thinking
 override or prompt suffix.
 
-LM Studio's loaded context length must accommodate the complete system and user prompts plus the
-requested output allowance. Area prompts can be much larger than location prompts because they
+The Local Model Server's loaded context length must accommodate the complete system and user
+prompts plus the requested output allowance. Area prompts can be much larger than location prompts because they
 combine representative locations and ensemble scenarios, but long spot forecasts with many
 retained ensemble members can also exceed a model's limit. IBF logs the character/byte size, a
 rough input-token estimate, the requested maximum output tokens, and their estimated combined
@@ -490,13 +496,13 @@ as many representative ensemble scenarios and retries, progressively reducing to
 if necessary. The same recovery applies to ensemble spot forecasts. Deterministic forecasts and
 other LLM failures do not trigger scenario reduction.
 
-Useful LM Studio references:
+Useful LM Studio references (for users of that server):
 
 - OpenAI-compatible models endpoint: <https://lmstudio.ai/docs/developer/openai-compat/models>
 - Serving over a local network: <https://lmstudio.ai/docs/developer/core/server/serve-on-network>
 - API authentication: <https://lmstudio.ai/docs/developer/core/authentication>
 
-Only expose an LM Studio server on a trusted network, and enable authentication whenever other
+Only expose a Local Model Server on a trusted network, and enable authentication whenever other
 devices can reach it.
 
 Configuration reference (technical)
@@ -508,10 +514,10 @@ Global settings:
 | --- | --- | --- |
 | `model` | Default forecast model for all locations/areas. | Use `ens:<id>` or `det:<id>`. Defaults to `ens:ecmwf_ifs025`. |
 | `snow_levels` | Enable snow-level estimates. | Only applies to deterministic models. |
-| `llm` | Model used for forecast text. | Supports LM Studio, OpenRouter, OpenAI, and Gemini naming. |
+| `llm` | Model used for forecast text. | Supports Local Model Server, OpenRouter, OpenAI, and Gemini naming. |
 | `llm_fallback` | Optional model tried once if forecast writing fails. | May use a different provider. Primary failure is logged prominently. |
 | `prompt_profile` | Forecast-writing prompt profile: `standard` or `compact`. | Defaults to `standard`; `compact` affects deterministic spot forecasts only. |
-| `lm_studio_base_url` | LM Studio OpenAI-compatible server address. | Used for every `lms:` choice; defaults to `http://localhost:1234/v1`. |
+| `lm_studio_base_url` | Local OpenAI-compatible server address. | Used for every `lms:` choice; defaults to `http://localhost:1234/v1`; the field name is retained for compatibility. |
 | `context_provider` | Impact research method. | `llm-search` is the recommended default; `brave` is an experimental controlled-evidence option. |
 | `context_llm` | Hosted-search model or experimental Brave evidence-synthesis model. | `llm-search` requires Gemini/OpenAI; `brave` supports any configured model provider. Defaults to `gemini-3.7-flash`. |
 | `context_fallback_llm` | Optional fallback if the Brave path fails. | Must be a Gemini or OpenAI model because it invokes the existing hosted web-search path. |
@@ -618,7 +624,7 @@ Resolution order (highest to lowest):
 4) Default fallback (`gpt-5.6-luna`)
 
 Provider naming:
-- LM Studio: `lms:exact-model-id` (uses `lm_studio_base_url`; optional `LM_STUDIO_API_KEY`)
+- Local Model Server: `lms:exact-model-id` (uses `lm_studio_base_url`; optional `LOCAL_MODEL_API_KEY`)
 - OpenRouter: `or:provider/model` (requires `OPENROUTER_API_KEY`)
 - OpenAI: `gpt-5.6-luna`, `gpt-5.6-terra`, or another `gpt-*`/`o*` model
   (requires `OPENAI_API_KEY`)
@@ -644,7 +650,7 @@ The research provider and the model are separate choices:
 | `context_provider` | Retrieval | Allowed `context_llm` | Notes |
 | --- | --- | --- | --- |
 | `llm-search` | Gemini Google Search or OpenAI web search tool | Direct Gemini or OpenAI | **Recommended with `gemini-3.7-flash`.** One primary context job is reused for up to three local days; the hosted provider decides its searches. |
-| `brave` | IBF-controlled Brave LLM Context requests | LM Studio, OpenRouter, Gemini, or OpenAI | **Experimental.** Brave returns evidence and the separately selected model synthesises it, adding cost and complexity. |
+| `brave` | IBF-controlled Brave LLM Context requests | Local Model Server, OpenRouter, Gemini, or OpenAI | **Experimental.** Brave returns evidence and the separately selected model synthesises it, adding cost and complexity. |
 
 The recommended hosted-search path:
 
@@ -726,7 +732,7 @@ LLM cost overrides (optional):
 - OpenAI web search costs US$10 per 1,000 calls plus search-content tokens at the model rate.
   These tool fees are separate from model-token charges and are not currently included in IBF's
   token-based cost summary.
-- LM Studio is treated as unpriced unless its exact model identifier has an entry in
+- A Local Model Server is treated as unpriced unless its exact model identifier has an entry in
   `llm_costs.toml`.
 - Brave request cost is a list-price estimate because its response does not return a per-request
   monetary amount. At the price checked for 0.8.0, each new request is estimated at 0.5 US cents.
@@ -774,8 +780,8 @@ safe to delete the entire folder.
 | Prompt snapshots | `ibf_cache/prompts/*.txt` | Prompt snapshots for debugging. | Older than 3 days are cleaned; a small number are retained. |
 
 Impact context caching includes the local date, provider, `context_llm`, forecast-day count, local
-notes, and relevant Brave/LM Studio settings (not the numerical weather model). Hosted-search
-context is reused for up to three local days; experimental Brave evidence follows its category
+notes, and relevant Brave/Local Model Server settings (not the numerical weather model).
+Hosted-search context is reused for up to three local days; experimental Brave evidence follows its category
 cadences. Numerical forecasts and active alerts still refresh normally. Evidence sidecars are
 private operational audit files rather than public forecast citations; protect the working
 directory accordingly.
@@ -800,10 +806,10 @@ Troubleshooting (technical)
 
 - Missing API key errors: verify `.env` and rerun with the same working directory.
 - Geocoding failures: ensure the Google Geocoding API is enabled and billing is active.
-- LM Studio connection errors: start its API server, verify `lm_studio_base_url`, local-network and
-  firewall settings, and authentication. The error lists the model identifiers visible from
+- Local Model Server connection errors: start its API server, verify `lm_studio_base_url`,
+  local-network and firewall settings, and authentication. The error lists the model identifiers visible from
   `/v1/models`; the configured `lms:` identifier must match exactly.
-- LM Studio context-length errors: IBF automatically retries ensemble location, area and regional
+- Local Model Server context-length errors: IBF automatically retries ensemble location, area and regional
   forecasts with fewer representative scenarios when the server explicitly reports context
   overflow. You can also increase the model's loaded context length, reduce forecast days or
   representative locations, lower `location_thin_select` or `area_thin_select`, or configure a

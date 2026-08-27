@@ -69,7 +69,9 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
     if choice_lower.startswith("lms:"):
         model_name = choice[4:].strip()
         if not model_name:
-            raise RuntimeError("LM Studio model names must use lms:<model-id> with a non-empty model id.")
+            raise RuntimeError(
+                "Local model server names must use lms:<model-id> with a non-empty model id."
+            )
         base_url = _normalize_lm_studio_base_url(
             config.lm_studio_base_url
             or os.environ.get("LM_STUDIO_BASE_URL")
@@ -77,7 +79,11 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
         )
         return LLMSettings(
             model=model_name,
-            api_key=os.environ.get("LM_STUDIO_API_KEY") or "lm-studio",
+            api_key=(
+                os.environ.get("LOCAL_MODEL_API_KEY")
+                or os.environ.get("LM_STUDIO_API_KEY")
+                or "local-model-server"
+            ),
             provider="lmstudio",
             base_url=base_url,
             max_tokens=8000,
@@ -138,15 +144,15 @@ def resolve_llm_settings(config: ForecastConfig, override_choice: Optional[str] 
 
     raise RuntimeError(
         f"Unknown LLM '{choice}'. Use gemini-* for Gemini, gpt-*/o* for OpenAI, "
-        "prefix OpenRouter models with 'or:', or use 'lms:<model-id>' for LM Studio."
+        "prefix OpenRouter models with 'or:', or use 'lms:<model-id>' for a local model server."
     )
 
 
 def _normalize_lm_studio_base_url(value: str) -> str:
-    """Return an LM Studio OpenAI-compatible base URL ending in ``/v1``."""
+    """Return a local OpenAI-compatible base URL ending in ``/v1``."""
     raw = str(value or "").strip().rstrip("/")
     if not raw:
-        raise RuntimeError("LM Studio base URL cannot be blank.")
+        raise RuntimeError("Local model server base URL cannot be blank.")
     if "://" not in raw:
         raw = f"http://{raw}"
     if not raw.lower().endswith("/v1"):

@@ -96,7 +96,7 @@ class ForecastConfig(BaseModel):
         llm_fallback: Optional model used when the primary forecast model fails.
         prompt_profile: Forecast-writing prompt profile. ``standard`` is the default;
             ``compact`` is used only for deterministic spot forecasts.
-        lm_studio_base_url: Optional LM Studio server URL for ``lms:`` models.
+        lm_studio_base_url: Optional local model server URL for ``lms:`` models.
         context_provider: Impact-context research provider (recommended ``llm-search`` or
             experimental ``brave``).
         context_llm: Model used for impact-context search or experimental Brave evidence synthesis;
@@ -168,7 +168,7 @@ class ForecastConfig(BaseModel):
                 raise ValueError(
                     "context_llm must be a Gemini or OpenAI model when context_provider is "
                     "'llm-search'. The experimental context_provider = 'brave' can synthesize "
-                    "Brave evidence with OpenRouter or LM Studio."
+                    "Brave evidence with OpenRouter or a local model server."
                 )
         if self.context_fallback_llm and not _is_search_capable_context_llm(self.context_fallback_llm):
             raise ValueError(

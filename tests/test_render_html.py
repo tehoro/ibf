@@ -20,14 +20,14 @@ def test_forecast_page_renders_llm_and_context_provenance(tmp_path: Path) -> Non
                 "generated 28 July 2026 at 08:30 NZST"
             ),
             forecast_llm="Gemini (gemini-3.5-flash-lite)",
-            translation_llm="LM Studio (gemma-4-12b-it)",
+            translation_llm="Local Model Server (gemma-4-12b-it)",
         )
     )
 
     rendered = destination.read_text(encoding="utf-8")
     assert f">IBF</a> {__version__}, developed by" in rendered
     assert "Forecast language model: Gemini (gemini-3.5-flash-lite)." in rendered
-    assert "Translation language model: LM Studio (gemma-4-12b-it)." in rendered
+    assert "Translation language model: Local Model Server (gemma-4-12b-it)." in rendered
     assert "Context source: Gemini Google Search (gemini-3.5-flash)" in rendered
     assert "generated 28 July 2026 at 08:30 NZST" in rendered
     assert rendered.index("Data courtesy") < rendered.index("Forecast language model")

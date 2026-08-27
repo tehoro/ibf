@@ -191,7 +191,7 @@ def _build_openai_extra_body(
 def _lm_studio_chat_template_kwargs(
     settings: LLMSettings,
 ) -> Optional[dict[str, bool]]:
-    """Disable thinking only for compact-profile LM Studio Qwen 3-family models."""
+    """Disable thinking only for compact-profile local-server Qwen 3-family models."""
     if settings.provider != "lmstudio":
         return None
     if settings.prompt_profile != "compact":
@@ -214,35 +214,35 @@ def _lm_studio_user_prompt(settings: LLMSettings, prompt: str) -> str:
 
 
 def _uses_lm_studio_qwen38_no_think_suffix(settings: LLMSettings) -> bool:
-    """Return True only for compact-profile LM Studio Qwen 3.8 models."""
+    """Return True only for compact-profile local-server Qwen 3.8 models."""
     if not _lm_studio_chat_template_kwargs(settings):
         return False
     return bool(_LM_STUDIO_QWEN38_RE.search(settings.model or ""))
 
 
 def _log_lm_studio_reasoning_mode(settings: LLMSettings) -> None:
-    """Log the effective LM Studio template controls when IBF applies them."""
+    """Log the effective local-server template controls when IBF applies them."""
     chat_template_kwargs = _lm_studio_chat_template_kwargs(settings)
     if not chat_template_kwargs:
         return
     enable_thinking = str(chat_template_kwargs["enable_thinking"]).lower()
     preserve_thinking = str(chat_template_kwargs["preserve_thinking"]).lower()
     logger.info(
-        "LM Studio reasoning mode – model=%s enable_thinking=%s preserve_thinking=%s",
+        "Local Model Server reasoning mode – model=%s enable_thinking=%s preserve_thinking=%s",
         settings.model,
         enable_thinking,
         preserve_thinking,
     )
     if _uses_lm_studio_qwen38_no_think_suffix(settings):
         logger.info(
-            "LM Studio Qwen no-think safeguard – model=%s appended_no_think=true",
+            "Local Model Server Qwen no-think safeguard – model=%s appended_no_think=true",
             settings.model,
         )
 
 
 @lru_cache(maxsize=32)
 def _validate_lm_studio_model(base_url: str, api_key: str, model_name: str) -> None:
-    """Fail clearly unless the exact configured model is visible to LM Studio."""
+    """Fail clearly unless the exact configured model is visible to the local server."""
     try:
         client = OpenAI(
             api_key=api_key,
@@ -253,7 +253,7 @@ def _validate_lm_studio_model(base_url: str, api_key: str, model_name: str) -> N
         response = client.models.list()
     except Exception as exc:
         raise RuntimeError(
-            f"Cannot reach the LM Studio server at {base_url}. Ensure its API server is "
+            f"Cannot reach the local model server at {base_url}. Ensure its API server is "
             "running, reachable on the network, and authentication is configured correctly."
         ) from exc
 
@@ -271,9 +271,10 @@ def _validate_lm_studio_model(base_url: str, api_key: str, model_name: str) -> N
     if len(available) > 20:
         visible += f", … ({len(available)} total)"
     raise RuntimeError(
-        f"LM Studio model '{model_name}' is not available from {base_url}. "
+        f"Local model server model '{model_name}' is not available from {base_url}. "
         f"Models reported by /v1/models: {visible}. Check the exact model identifier "
-        "shown in LM Studio and its Just-In-Time model loading setting."
+        "reported by the server. If using LM Studio, also check its Just-In-Time model "
+        "loading setting."
     )
 
 

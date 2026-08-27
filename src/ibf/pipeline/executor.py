@@ -2364,7 +2364,7 @@ def _llm_provenance_label(settings: Optional[LLMSettings]) -> Optional[str]:
         "gemini": "Gemini",
         "openai": "OpenAI",
         "openrouter": "OpenRouter",
-        "lmstudio": "LM Studio",
+        "lmstudio": "Local Model Server",
     }
     provider = provider_names.get(settings.provider, settings.provider.strip().title())
     return f"{provider} ({settings.model})" if provider else settings.model
@@ -2375,7 +2375,7 @@ def _configured_model_provenance_label(model: Optional[str]) -> str:
     raw = (model or "unknown model").strip()
     lowered = raw.lower()
     if lowered.startswith("lms:"):
-        return f"LM Studio ({raw[4:].strip()})"
+        return f"Local Model Server ({raw[4:].strip()})"
     if lowered.startswith("or:"):
         return f"OpenRouter ({raw[3:].strip()})"
     if lowered.startswith("google/gemini-"):
@@ -2538,9 +2538,9 @@ def _generate_text_with_fallback(
                 and _is_context_window_error(exc)
             ):
                 logger.error(
-                    "LM Studio rejected %s because the prompt exceeded the model's loaded "
-                    "context window. Increase the context length in LM Studio or reduce the "
-                    "configured forecast input size.%s",
+                    "The local model server rejected %s because the prompt exceeded the "
+                    "model's loaded context window. Increase the server's model context length "
+                    "or reduce the configured forecast input size.%s",
                     operation_label,
                     " The configured fallback will now be tried." if has_next else "",
                 )
@@ -2602,7 +2602,7 @@ def _estimate_prompt_tokens(system_prompt: str, user_prompt: str) -> int:
 
 
 def _is_context_window_error(exc: BaseException) -> bool:
-    """Recognise common LM Studio/OpenAI-compatible context overflow messages."""
+    """Recognise common local OpenAI-compatible context overflow messages."""
     message = str(exc).casefold()
     return any(
         marker in message

@@ -202,6 +202,21 @@ def test_failed_area_forecast_is_not_translated_or_replaced_with_dataset_paths(
     assert "Forecast in Spanish" not in html
 
 
+def test_lms_provenance_uses_local_model_server_description() -> None:
+    settings = LLMSettings(
+        model="weather-writer",
+        api_key="local",
+        provider="lmstudio",
+        base_url="http://localhost:1234/v1",
+    )
+
+    assert executor._llm_provenance_label(settings) == "Local Model Server (weather-writer)"
+    assert (
+        executor._configured_model_provenance_label("lms:weather-writer")
+        == "Local Model Server (weather-writer)"
+    )
+
+
 def test_area_context_overflow_retries_with_half_the_scenarios(
     tmp_path,
     monkeypatch,
