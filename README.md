@@ -288,10 +288,50 @@ Each [[location]] block supports:
 Areas
 Areas define their own list of point names for the area forecast. Those names may or may not also appear as standalone [[location]] entries; area-level settings (including units) apply within the area forecast.
 
+Area wording can be customised independently of impact research. Both options below
+belong only inside an individual `[[area]]` block, with no global or spot-location
+equivalent. They work for deterministic and ensemble forecasts, in both `area` and
+`regional` modes. Omitted options preserve the existing forecast prompts.
+
+```toml
+[[area]]
+name = "Ireland"
+locations = ["Dublin, Ireland", "Cork, Ireland", "Galway, Ireland", "Belfast, Northern Ireland"]
+region_naming_guidance = """
+Prefer Connacht, Munster, Leinster and Ulster where appropriate.
+Use directional or coastal descriptions when these better express the weather.
+"""
+windspeed_description = "beaufort"  # default: "numeric"
+```
+
+`region_naming_guidance` is optional wording guidance, not weather evidence. It does
+not change point names, geocoding, or impact research, and works with impacts disabled.
+Blank guidance has no effect. Region boundaries remain interpreted by the writer;
+this setting does not introduce geographic boundary validation.
+
+`windspeed_description = "beaufort"` encourages descriptions such as “moderate to
+fresh southerlies”, rather than routine numerical speeds or force numbers. Wind data,
+tables and `windspeed_unit` remain numerical and unchanged. Cues are calculated from
+unrounded internal km/h speeds using the lower m/s boundaries of the
+[NWS Beaufort reference](https://www.weather.gov/media/marine/SeaState.pdf).
+They retain each location, date, hour and retained ensemble member, including after
+context-size thinning, and are additional prompt input only.
+
+Notable gust cues reach at least near gale (13.9 m/s) and are at least two Beaufort
+categories above the concurrent mean wind. This is an IBF editorial rule, not an
+official warning threshold. The writer may say “gusting to gale force” where useful,
+and may retain numerical gust speeds for exceptional conditions or official warnings.
+Exceptional gust cues start at storm-force strength (24.5 m/s), regardless of their
+category difference from the mean. Routine gust numbers are omitted in descriptive mode.
+Gust categories never replace mean-wind categories. The feature guides prose; it does
+not guarantee that a language model will follow every wording preference.
+
 Each [[area]] block supports:
 - name (required)
 - locations (list of location names)
 - mode: "area" or "regional"
+- region_naming_guidance: optional geographic wording guidance for this area only
+- windspeed_description: "numeric" (default) or "beaufort" descriptive wind wording for this area only
 - model (override global)
 - snow_levels (only for deterministic models)
 - translation_language
@@ -556,8 +596,10 @@ Areas:
 | Field | Meaning | Notes |
 | --- | --- | --- |
 | `name` | Area display name. | Required. |
-| `locations` | Location names included in the area. | Must match `locations[*].name`. |
-| `mode` | `area` (summary) or `regional` (per-location breakdown). | Default is `area`. |
+| `locations` | Representative location names included in the area. | May also match standalone location names to reuse their settings; standalone entries are not required. |
+| `mode` | `area` (summary) or `regional` (sub-region breakdown). | Default is `area`; neither mode lists every input point. |
+| `region_naming_guidance` | Optional geographic naming guidance. | Area-only; no global or spot equivalent. Blank/omitted has no effect. Independent of impact research. |
+| `windspeed_description` | `numeric` (default) or `beaufort`. | Area-only; descriptive mean winds and significant gusts. Data, tables and numerical units are unchanged. Works with deterministic/ensemble models and both area modes. |
 | `model` | Override the global model. | Use `ens:` or `det:`. |
 | `snow_levels` | Override global `snow_levels`. | Deterministic only. |
 | `translation_language` | Per-area translation language. | Overrides global. |

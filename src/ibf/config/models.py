@@ -55,6 +55,8 @@ class AreaConfig(BaseModel):
         translation_language: Optional target language.
         extra_context: Optional user-supplied impact context notes.
         mode: "area" (summary) or "regional" (breakdown).
+        region_naming_guidance: Optional area-only geographic wording guidance.
+        windspeed_description: Numeric speeds (default) or Beaufort descriptive prose.
         units: Dictionary of unit preferences.
         minimum_refresh_minutes: Optional per-area refresh interval override.
     """
@@ -63,6 +65,8 @@ class AreaConfig(BaseModel):
     translation_language: Optional[str] = None
     extra_context: Optional[str] = None
     mode: Literal["area", "regional"] = "area"
+    region_naming_guidance: Optional[str] = None
+    windspeed_description: Literal["numeric", "beaufort"] = "numeric"
     units: Dict[str, str] = Field(default_factory=dict)
     snow_levels: Optional[bool] = None
     model: Optional[str] = None

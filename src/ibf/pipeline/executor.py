@@ -36,6 +36,7 @@ from ..api import (
     resolve_model_spec,
 )
 from ..api.impact import DEFAULT_CONTEXT_LLM
+from ..llm.wind_descriptions import format_wind_description_cues
 from ..api.thin import select_members
 from ..render import ForecastPage, render_forecast_page
 from ..util import ensure_directory, safe_unlink, slugify, utc_now, write_text_file
@@ -1126,9 +1127,15 @@ def _generate_area_text_with_adaptive_thinning(
     """Generate an area forecast, reducing ensemble scenarios only after context overflow."""
     area_kind = "ensemble" if any(p.model_kind == "ensemble" for p in payloads) else "deterministic"
     system_prompt = (
-        build_regional_system_prompt(_unit_instructions(units), model_kind=area_kind)
+        build_regional_system_prompt(
+            _unit_instructions(units), model_kind=area_kind,
+            windspeed_description=area.windspeed_description,
+        )
         if regional
-        else build_area_system_prompt(_unit_instructions(units), model_kind=area_kind)
+        else build_area_system_prompt(
+            _unit_instructions(units), model_kind=area_kind,
+            windspeed_description=area.windspeed_description,
+        )
     )
     short_instr = _short_period_instruction(
         payloads[0].dataset,
@@ -1149,6 +1156,7 @@ def _generate_area_text_with_adaptive_thinning(
             area.name,
             payloads,
             member_limit=member_limit,
+            windspeed_description=area.windspeed_description,
         )
         prompt = prompt_builder(
             formatted_dataset,
@@ -1159,6 +1167,7 @@ def _generate_area_text_with_adaptive_thinning(
             impact_instruction=impact_instr if ibf_context else "",
             impact_context=ibf_context or "",
             user_extra_context=area.extra_context,
+            region_naming_guidance=area.region_naming_guidance,
         )
         if attempt_index:
             logger.warning(
@@ -1216,14 +1225,21 @@ def _format_area_payloads(
     payloads: List[LocationForecastPayload],
     *,
     member_limit: Optional[int],
+    windspeed_description: str = "numeric",
 ) -> str:
     """Format area inputs, optionally re-thinning retained ensemble scenarios."""
     locations = []
     for payload in payloads:
         text = payload.formatted_dataset
+        cue_dataset = payload.dataset
         if member_limit is not None and payload.model_kind == "ensemble":
             reduced_dataset = select_members(payload.dataset, thin_select=member_limit)
             text = _format_location_payload(payload, reduced_dataset)
+            cue_dataset = reduced_dataset
+        if windspeed_description == "beaufort":
+            cues = format_wind_description_cues(cue_dataset)
+            if cues:
+                text += "\n\n" + cues
         locations.append(
             {
                 "name": payload.name,

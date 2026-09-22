@@ -96,6 +96,10 @@ windspeed_unit = "mph"
 
 [[area]]
 name = "Trinidad and Tobago"
+# Optional area-only wording settings (also supported in mode = "regional").
+# These work with deterministic/ensemble forecasts, even with impacts disabled.
+# region_naming_guidance = "Distinguish Trinidad and Tobago, then use coastal and inland descriptions where useful."
+# windspeed_description = "beaufort"  # default: "numeric"; numerical tables/units unchanged
 translation_language = "Trinidadian Creole English"
 locations = [
   "Port of Spain, Trinidad and Tobago",

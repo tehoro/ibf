@@ -538,7 +538,32 @@ def build_spot_system_prompt(
     return prompt
 
 
-def build_area_system_prompt(units: UnitInstructions, *, model_kind: str = "ensemble") -> str:
+def _area_wind_style(template: str, description: str) -> str:
+    """Change only the opted-in area wind contract; preserve default prompt bytes."""
+    if description == "numeric":
+        return template
+    if description != "beaufort":
+        raise ValueError(f"Unsupported windspeed_description: {description}")
+    template = template.replace(
+        '- Always describe at least one wind direction and speed range using the required unit, and spell out the direction (e.g., "southwesterlies") instead of abbreviations.',
+        '- Describe the prevailing wind direction and strength using the supplied Beaufort wording cues; spell out directions.',
+    ).replace("wind (with speed range)", "wind (with descriptive strength)")
+    return template + """
+
+#DESCRIPTIVE WIND WORDING
+- Use the supplied Beaufort wording cues for mean wind strength, with natural phrasing such as light to moderate southerlies or fresh westerlies. Do not give routine numerical mean speeds or numerical force values.
+- Keep differences between locations, hours and ensemble members. Do not turn a single scenario's extreme into a likely or widespread condition, or infer probabilities from cue/member counts.
+- Cues mark a notable gust only when it reaches at least near gale and is two or more Beaufort categories above the concurrent mean. Mention these where meaningful, explicitly as gusts, with supported timing and location: e.g. fresh southwesterlies, gusting to gale force along exposed coasts.
+- Never use a gust to describe the sustained wind. Omit routine gusts without a notable or exceptional cue, unless specifically relevant to a supplied official alert. A notable gust should normally be described in words, not numbers.
+- Numerical gust speeds are permitted only for exceptional gusts (cues mark storm-force strength or above), or to preserve a supplied official warning's gust detail. Do not add numerical speeds for routine gusts, even in brackets. When permitted, use the configured units. Preserve official alert wording and do not invent an official warning from a Beaufort category.
+- Terms such as damaging or destructive require supported impact or warning context; the wind category alone does not establish those impacts. Hurricane force describes wind strength, not the presence of a hurricane.
+- If a mean-wind cue is missing, do not invent its strength or treat missing data as calm.
+"""
+
+
+def build_area_system_prompt(
+    units: UnitInstructions, *, model_kind: str = "ensemble", windspeed_description: str = "numeric",
+) -> str:
     """Construct the system prompt for aggregated area forecasts."""
     conversion_lines = []
     if units.temperature_secondary:
@@ -551,6 +576,7 @@ def build_area_system_prompt(units: UnitInstructions, *, model_kind: str = "ense
         conversion_lines.append("If provided, include the secondary wind unit in brackets. Round wind speeds to the nearest whole number.")
     conversion_text = "\n".join(conversion_lines)
     template = SYSTEM_PROMPT_AREA if (model_kind or "ensemble") == "ensemble" else SYSTEM_PROMPT_AREA_DETERMINISTIC
+    template = _area_wind_style(template, windspeed_description)
     prompt = template.format(
         temperature_unit_instruction=_format_unit_label(units.temperature_primary, "temperature"),
         rainfall_unit_instruction=_format_unit_label(units.precipitation_primary, "precipitation"),
@@ -561,7 +587,9 @@ def build_area_system_prompt(units: UnitInstructions, *, model_kind: str = "ense
     return prompt
 
 
-def build_regional_system_prompt(units: UnitInstructions, *, model_kind: str = "ensemble") -> str:
+def build_regional_system_prompt(
+    units: UnitInstructions, *, model_kind: str = "ensemble", windspeed_description: str = "numeric",
+) -> str:
     """Construct the system prompt for regional (multi-sub-region) forecasts."""
     conversion_lines = []
     if units.temperature_secondary:
@@ -574,6 +602,7 @@ def build_regional_system_prompt(units: UnitInstructions, *, model_kind: str = "
         conversion_lines.append("If provided, include the secondary wind unit in brackets. Round wind speeds to the nearest whole number.")
     conversion_text = "\n".join(conversion_lines)
     template = SYSTEM_PROMPT_REGIONAL if (model_kind or "ensemble") == "ensemble" else SYSTEM_PROMPT_REGIONAL_DETERMINISTIC
+    template = _area_wind_style(template, windspeed_description)
     prompt = template.format(
         temperature_unit_instruction=_format_unit_label(units.temperature_primary, "temperature"),
         rainfall_unit_instruction=_format_unit_label(units.precipitation_primary, "precipitation"),
@@ -721,6 +750,7 @@ def build_area_user_prompt(
     impact_instruction: Optional[str] = "",
     impact_context: Optional[str] = "",
     user_extra_context: Optional[str] = "",
+    region_naming_guidance: Optional[str] = None,
 ) -> str:
     """Compose the user prompt that instructs the LLM to write an area forecast."""
     detail_map = {
@@ -735,6 +765,7 @@ def build_area_user_prompt(
     instructions = "\n".join(filter(None, [short_period_instruction or "", impact_instruction or ""]))
     context_block = _build_context_block(user_extra_context, impact_context)
     locations_line = ", ".join(location_names) if location_names else "not specified"
+    context_block += _region_naming_block(region_naming_guidance)
 
     return f"""Synthesize a day-by-day weather forecast for the entire area named "{area_name}". Use only the data below.
 
@@ -761,6 +792,7 @@ def build_regional_user_prompt(
     impact_instruction: Optional[str] = "",
     impact_context: Optional[str] = "",
     user_extra_context: Optional[str] = "",
+    region_naming_guidance: Optional[str] = None,
 ) -> str:
     """Compose the user prompt for regional forecasts with sub-regional breakdowns."""
     detail_map = {
@@ -775,6 +807,7 @@ def build_regional_user_prompt(
     instructions = "\n".join(filter(None, [short_period_instruction or "", impact_instruction or ""]))
     context_block = _build_context_block(user_extra_context, impact_context)
     locations_line = ", ".join(location_names) if location_names else "not specified"
+    context_block += _region_naming_block(region_naming_guidance)
 
     return f"""Produce a day-by-day regional breakdown forecast for "{area_name}". Use only the data below.
 
@@ -790,6 +823,18 @@ Area: {area_name}
 Important: Identify sensible sub-regions (e.g., north vs south, inland vs coastal, official forecast districts) implied by the representative locations, and write one paragraph per region for each day.
 {context_block}
 """
+
+
+def _region_naming_block(guidance: Optional[str]) -> str:
+    if not guidance or not guidance.strip():
+        return ""
+    return (
+        "\n\nREGIONAL NAMING GUIDANCE (wording only; not weather or impact evidence):\n"
+        + guidance.strip()
+        + "\nUse names only where consistent with the representative locations and supplied weather. "
+        "Do not imply uniform conditions across a whole region when the data differ. "
+        "Preserve the requested output structure and all factual constraints.\n"
+    )
 
 
 def build_translation_system_prompt(target_language: str) -> str:

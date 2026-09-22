@@ -202,6 +202,56 @@ def test_failed_area_forecast_is_not_translated_or_replaced_with_dataset_paths(
     assert "Forecast in Spanish" not in html
 
 
+@pytest.mark.parametrize("regional", [False, True])
+@pytest.mark.parametrize("kind", ["deterministic", "ensemble"])
+@pytest.mark.parametrize("impacts", [False, True])
+def test_area_wording_reaches_writer_independently_of_impacts(
+    tmp_path, monkeypatch, regional, kind, impacts,
+):
+    payload = _make_mock_payload("Dublin", tmp_path)
+    payload.model_kind = kind
+    area = AreaConfig(
+        name="Ireland", locations=["Dublin"], windspeed_description="beaufort",
+        region_naming_guidance="Prefer Leinster and Ulster",
+    )
+    captured = []
+    settings = LLMSettings(model="test", api_key="local", provider="lmstudio")
+
+    def generate(config, prompt, system_prompt, **kwargs):
+        captured.append((prompt, system_prompt))
+        return "Gentle northerly breezes.", settings, 0.0
+
+    monkeypatch.setattr(executor, "_generate_text_with_fallback", generate)
+    executor._generate_area_text_with_adaptive_thinning(
+        area, ForecastConfig(area_impact_based=impacts), [payload], payload.units,
+        ibf_context="Impact evidence" if impacts else "", impact_enabled=impacts, regional=regional,
+    )
+    prompt, system = captured[0]
+    assert "Prefer Leinster and Ulster" in prompt
+    assert "mean: gentle breeze" in prompt
+    assert "DESCRIPTIVE WIND WORDING" in system
+    assert ("Impact evidence" in prompt) == impacts
+
+
+def test_beaufort_cues_follow_ensemble_thinning(tmp_path, monkeypatch):
+    payload = _make_mock_payload("Dublin", tmp_path)
+    payload.dataset[0]["hours"][0]["ensemble_members"]["member01"] = {
+        "wind_speed": 130, "wind_gust": 160,
+    }
+    import copy
+    reduced = copy.deepcopy(payload.dataset)
+    del reduced[0]["hours"][0]["ensemble_members"]["member01"]
+    monkeypatch.setattr(executor, "select_members", lambda *a, **kw: reduced)
+    monkeypatch.setattr(executor, "_format_location_payload", lambda *a: "Reduced numerical data")
+    text = executor._format_area_payloads(
+        "Ireland", [payload], member_limit=1, windspeed_description="beaufort",
+    )
+    assert "member00: mean: gentle breeze" in text
+    assert "member01" not in text
+    assert "hurricane force" not in text
+    assert "member01" in payload.dataset[0]["hours"][0]["ensemble_members"]
+
+
 def test_lms_provenance_uses_local_model_server_description() -> None:
     settings = LLMSettings(
         model="weather-writer",
