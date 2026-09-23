@@ -539,8 +539,12 @@ def build_spot_system_prompt(
 
 
 _AREA_READER_FACING_RULE = (
-    "\n- State supported amounts directly for the relevant places; never refer to whether "
-    "totals were supplied or discuss the input data, models, or how the forecast was produced.\n"
+    "\n- State supported rainfall amounts directly for the relevant places, e.g. "
+    "'Rainfall totals range from 1 mm to 9 mm, highest along the west coast.' "
+    "Never preface an amount with 'where totals are provided', 'where daily rainfall "
+    "totals are specified', or similar wording about what data were supplied. "
+    "Before returning, remove any such data-availability qualifiers; do not discuss "
+    "the input data, models, or how the forecast was produced.\n"
 )
 
 
