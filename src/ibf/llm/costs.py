@@ -96,6 +96,17 @@ MODEL_COSTS: Dict[str, ModelCost] = {
         cached_input_per_million=0.20,
         output_per_million=12.00,
     ),
+    # GPT-6 pricing checked 23 September 2026 against OpenAI's model pages.
+    "gpt-6-sol": ModelCost(
+        input_per_million=2.00,
+        cached_input_per_million=0.20,
+        output_per_million=10.00,
+    ),
+    "gpt-6-luna": ModelCost(
+        input_per_million=0.10,
+        cached_input_per_million=0.01,
+        output_per_million=0.50,
+    ),
     "gemini-2.5-flash": ModelCost(
         input_per_million=0.30,
         cached_input_per_million=0.03,

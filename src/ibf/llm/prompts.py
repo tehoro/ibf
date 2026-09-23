@@ -538,6 +538,12 @@ def build_spot_system_prompt(
     return prompt
 
 
+_AREA_READER_FACING_RULE = (
+    "\n- State supported amounts directly for the relevant places; never refer to whether "
+    "totals were supplied or discuss the input data, models, or how the forecast was produced.\n"
+)
+
+
 def _area_wind_style(template: str, description: str) -> str:
     """Change only the opted-in area wind contract; preserve default prompt bytes."""
     if description == "numeric":
@@ -551,8 +557,9 @@ def _area_wind_style(template: str, description: str) -> str:
     return template + """
 
 #DESCRIPTIVE WIND WORDING
-- Use the supplied Beaufort wording cues for mean wind strength, with natural phrasing such as light to moderate southerlies or fresh westerlies. Do not give routine numerical mean speeds or numerical force values.
-- Keep differences between locations, hours and ensemble members. Do not turn a single scenario's extreme into a likely or widespread condition, or infer probabilities from cue/member counts.
+- Use the supplied Beaufort wording cues for mean wind strength, with natural phrasing such as light southerlies or fresh westerlies. Do not give routine numerical mean speeds or numerical force values.
+- Prefer one prevailing term for adjacent weak wind categories: say "light northwesterlies" rather than "light to gentle northwesterlies becoming lighter". Mention a range or easing/strengthening only when the change is meaningful.
+- Keep meaningful differences between locations, hours and ensemble members. Do not turn a single scenario's extreme into a likely or widespread condition, or infer probabilities from cue/member counts.
 - Cues mark a notable gust only when it reaches at least near gale and is two or more Beaufort categories above the concurrent mean. Mention these where meaningful, explicitly as gusts, with supported timing and location: e.g. fresh southwesterlies, gusting to gale force along exposed coasts.
 - Never use a gust to describe the sustained wind. Omit routine gusts without a notable or exceptional cue, unless specifically relevant to a supplied official alert. A notable gust should normally be described in words, not numbers.
 - Numerical gust speeds are permitted only for exceptional gusts (cues mark storm-force strength or above), or to preserve a supplied official warning's gust detail. Do not add numerical speeds for routine gusts, even in brackets. When permitted, use the configured units. Preserve official alert wording and do not invent an official warning from a Beaufort category.
@@ -584,7 +591,7 @@ def build_area_system_prompt(
         windspeed_unit_instruction=_format_unit_label(units.windspeed_primary, "wind"),
         conversion_instructions=conversion_text,
     )
-    return prompt
+    return prompt + _AREA_READER_FACING_RULE
 
 
 def build_regional_system_prompt(
@@ -610,7 +617,7 @@ def build_regional_system_prompt(
         windspeed_unit_instruction=_format_unit_label(units.windspeed_primary, "wind"),
         conversion_instructions=conversion_text,
     )
-    return prompt
+    return prompt + _AREA_READER_FACING_RULE
 
 
 def _temperature_symbol(unit: str) -> str:

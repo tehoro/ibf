@@ -97,7 +97,7 @@ def _call_openai_compatible(
         ],
         "stream": False,
     }
-    if settings.provider == "openai" and _uses_gpt5_chat_parameters(settings.model):
+    if settings.provider == "openai" and _uses_openai_reasoning_chat_parameters(settings.model):
         request_kwargs["max_completion_tokens"] = settings.max_tokens
         effort = _reasoning_effort(reasoning)
         if effort:
@@ -107,7 +107,7 @@ def _call_openai_compatible(
         request_kwargs["max_tokens"] = settings.max_tokens
     extra_body = _build_openai_extra_body(settings, reasoning=reasoning)
     if extra_body and not (
-        settings.provider == "openai" and _uses_gpt5_chat_parameters(settings.model)
+        settings.provider == "openai" and _uses_openai_reasoning_chat_parameters(settings.model)
     ):
         request_kwargs["extra_body"] = extra_body
     _log_lm_studio_reasoning_mode(settings)
@@ -156,9 +156,10 @@ def _call_openai_compatible(
     return cleaned
 
 
-def _uses_gpt5_chat_parameters(model_name: str) -> bool:
-    """Return whether direct OpenAI Chat Completions needs GPT-5 parameters."""
-    return (model_name or "").strip().lower().startswith("gpt-5")
+def _uses_openai_reasoning_chat_parameters(model_name: str) -> bool:
+    """Return whether direct OpenAI reasoning models need modern Chat Completions parameters."""
+    normalized = (model_name or "").strip().lower()
+    return normalized.startswith(("gpt-5", "gpt-6"))
 
 
 def _reasoning_effort(reasoning: Optional[dict]) -> Optional[str]:

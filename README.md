@@ -668,7 +668,7 @@ Resolution order (highest to lowest):
 Provider naming:
 - Local Model Server: `lms:exact-model-id` (uses `lm_studio_base_url`; optional `LOCAL_MODEL_API_KEY`)
 - OpenRouter: `or:provider/model` (requires `OPENROUTER_API_KEY`)
-- OpenAI: `gpt-5.6-luna`, `gpt-5.6-terra`, or another `gpt-*`/`o*` model
+- OpenAI: `gpt-6-luna`, `gpt-5.6-luna`, `gpt-5.6-terra`, or another `gpt-*`/`o*` model
   (requires `OPENAI_API_KEY`)
 - Gemini direct: `gemini-3.7-flash` (recommended), `gemini-3-flash-preview`,
   `gemini-3.6-flash`, or the equivalent `google/gemini-*` form (requires `GEMINI_API_KEY`)
